@@ -4,3 +4,6 @@
 - [TrDesign](https://colab.research.google.com/github/gjoni/trDesign/blob/beta/02-GD/notebooks/TrDesign_GD_demo.ipynb) - using TrRosetta for design (support for TrMRF coming soon)
 - [AfDesign](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af_design_tutorial.ipynb) - using AlphaFold for design
 - RfDesign - using RoseTTAFold for design (coming soon)
+
+[Slides](https://docs.google.com/presentation/d/1Zy7lf_LBK0_G3e7YQLSPP5aj_-AR5I131fTsxJrLdg4/)
+[Talk](#)

@@ -459,8 +459,10 @@ class mk_design_model:
       if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
       for k,v in traj.items(): self._traj[k].append(np.array(v))
       
-  def _step(self, grad_scale=1.0, **kwargs):
+  def _step(self, weights=None, grad_scale=1.0, **kwargs):
     '''do one step'''
+    if weights is not None: self.opt["weights"].update(weights)
+    
     # update gradient
     self._update_grad()
 
@@ -473,6 +475,49 @@ class mk_design_model:
     self._state = self._update_fun(self._k, self._grad, self._state)
     self._k += 1
     self._save_results(**kwargs)
+
+  ##############################################################################
+  # DESIGN FUNCTIONS
+  ##############################################################################
+  def design_logits(self, iters, dropout=True, **kwargs):
+    ''' optimize logits'''
+    self.opt.update({"soft":0.0,"hard":False,"dropout":dropout})
+    for i in range(iters): self._step(**kwargs)
+
+  def design_anneal(self, iters, soft=0.0, e_soft=None,
+                    hard=False, dropout=True, temp=0.5, **kwargs):
+    '''anneal from logits to softmax(logits/temp)'''
+    self.opt.update({"temp":temp,"hard":hard,"dropout":dropout})
+    if e_soft is None: e_soft = soft
+    for s in np.linspace(soft, e_soft, iters):
+      self.opt["soft"] = float(s)
+      grad_scale = (1-s) + s * 2 * self.opt["temp"]
+      self._step(grad_scale=grad_scale, **kwargs)
+
+  def design_prob(self, iters, temp=0.5, e_temp=None,
+                  hard=False, dropout=True, **kwargs):
+    ''' optimize softmax(logits/temp)'''
+    self.opt.update({"soft":1.0,"hard":hard,"dropout":dropout})
+    if e_temp is None: e_temp = temp
+    for i in range(iters):
+      self.opt["temp"] = temp * ((e_temp/temp) ** (1/(iters-1))) ** i
+      self._step(grad_scale=2*self.opt["temp"],**kwargs)
+  
+  def design_hard(self, iters, **kwargs):
+    ''' optimize argmax(logits)'''
+    self.design_prob(iters, hard=True, **kwargs)
+
+  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10, temp=1.0, **kwargs):
+    '''two stage design (prob→low_temp)'''
+    self.design_prob(soft_iters, temp=temp, **kwargs)
+    self.design_prob(temp_iters, temp=temp,  e_temp=1e-3, dropout=False, **kwargs)
+    self.design_prob(hard_iters, temp=1e-3, hard=True, dropout=False, save_best=True, **kwargs)
+
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, temp=0.5, **kwargs):
+    '''three stage design (logits→prob→low_temp)'''
+    self.design_anneal(soft_iters, soft=0.0,  e_soft=1.0, temp=temp, **kwargs)
+    self.design_prob(temp_iters, temp=temp,  e_temp=1e-3, dropout=False, **kwargs)
+    self.design_prob(hard_iters, temp=1e-3, hard=True, dropout=False, save_best=True, **kwargs)
   
   ######################################
   # utils

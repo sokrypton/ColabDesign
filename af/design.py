@@ -507,17 +507,17 @@ class mk_design_model:
     ''' optimize argmax(logits)'''
     self.design_prob(iters, hard=True, **kwargs)
 
-  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10, temp=1.0, **kwargs):
+  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10, **kwargs):
     '''two stage design (prob→low_temp)'''
-    self.design_prob(soft_iters, temp=temp, **kwargs)
-    self.design_prob(temp_iters, temp=temp,  e_temp=1e-3, dropout=False, **kwargs)
-    self.design_prob(hard_iters, temp=1e-3, hard=True, dropout=False, save_best=True, **kwargs)
+    self.design_prob(soft_iters, temp=1.0, **kwargs)
+    self.design_prob(temp_iters, temp=1.0,  e_temp=1e-2, **kwargs)
+    self.design_prob(hard_iters, temp=1e-2, hard=True, dropout=False, save_best=True, **kwargs)
 
-  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, temp=0.5, **kwargs):
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, **kwargs):
     '''three stage design (logits→prob→low_temp)'''
     self.design_anneal(soft_iters, soft=0.0,  e_soft=1.0, temp=temp, **kwargs)
-    self.design_prob(temp_iters, temp=temp,  e_temp=1e-3, dropout=False, **kwargs)
-    self.design_prob(hard_iters, temp=1e-3, hard=True, dropout=False, save_best=True, **kwargs)
+    self.design_prob(temp_iters, temp=0.5,  e_temp=1e-2, **kwargs)
+    self.design_prob(hard_iters, temp=1e-2, hard=True, dropout=False, save_best=True, **kwargs)
   
   ######################################
   # utils

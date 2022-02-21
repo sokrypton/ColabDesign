@@ -446,7 +446,7 @@ class mk_design_model:
     if verbose:
       I = ["model","recycles"]
       F = ["soft","temp","loss","seqid","msa_ent",
-           "pae","pae_inter","pae_intra","plddt",
+           "pae","pae_intra","pae_inter","plddt",
            "con","con_intra","con_inter","dgram_cce","fape","rmsd"]
       I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
       F = " ".join([f"{x}: {self._losses[x]:.3f}" for x in F if x in self._losses])

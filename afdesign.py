@@ -133,7 +133,8 @@ class mk_design_model:
         seq_logits = seq_logits.at[0].set(seq_logits[i]).at[i].set(seq_logits[0])
 
       # straight-through/reparameterization
-      seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
+      seq = seq_logits + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_logits.shape), 0.0)
+      seq_soft = jax.nn.softmax(seq / opt["temp"])
       seq_hard = jax.nn.one_hot(seq_soft.argmax(-1),20)
       seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
 
@@ -339,22 +340,20 @@ class mk_design_model:
     self._k = 0
 
   def restart(self, weights=None, seed=None, seq_init=None,
-              lr=0.1, optimizer=None, **kwargs):
-    
+              lr=0.1, optimizer=None, **kwargs):    
     # initialize sequence
     if seed is None: seed = np.random.randint(100000)
     self._key = jax.random.PRNGKey(seed)
     seq_shape = (self.args["num_seq"],self._len,20)
-    if seq_init is None:        seq_logits = jnp.zeros(seq_shape)
-    elif seq_init == "gumbel":  seq_logits = jax.random.gumbel(self._key,seq_shape)
-    elif seq_init == "normal":  seq_logits = 0.5 * jax.random.normal(self._key,seq_shape)
-    self._params = {"seq_logits": seq_logits}
+    if seq_init is None: seq_init = jnp.zeros(seq_shape)
+    self._params = {"seq_logits": seq_init}
     
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
     if weights is not None: self.opt["weights"].update(weights)
     self.opt.update({"temp":0.5, "soft":1.0, "hard":True,
-                     "dropout":True, "dropout_scale":1.0})
+                     "dropout":True, "dropout_scale":1.0,
+                     "gumbel":False})
 
     # setup optimizer
     self._setup_optimizer(lr=lr, optimizer=optimizer, **kwargs)    

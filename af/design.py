@@ -339,14 +339,22 @@ class mk_design_model:
     self._init_fun, self._update_fun, self._get_params = optimizer(lr, **kwargs)
     self._k = 0
 
+  def _init_seq(self, x=None):
+    '''initialize sequence'''
+    self._key, _key = jax.random.split(self._key)
+    shape = (self.args["num_seq"],self._len,20)
+    if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
+      y = jnp.broadcast_to(x, shape)
+    elif isinstance(x, str):
+      if x == "gumbel": y = jax.random.gumbel(_key, shape)
+      if x == "zeros": y = jnp.zeros(shape)
+    else:
+      y = 0.01 * jax.random.normal(_key, shape)
+    self._params = {"seq_logits":y}
+    self._state = self._init_fun(self._params)
+
   def restart(self, weights=None, seed=None, seq_init=None,
               lr=0.1, optimizer=None, **kwargs):    
-    # initialize sequence
-    if seed is None: seed = np.random.randint(100000)
-    self._key = jax.random.PRNGKey(seed)
-    seq_shape = (self.args["num_seq"],self._len,20)
-    if seq_init is None: seq_init = jnp.zeros(seq_shape)
-    self._params = {"seq_logits": seq_init}
     
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
@@ -357,9 +365,13 @@ class mk_design_model:
 
     # setup optimizer
     self._setup_optimizer(lr=lr, optimizer=optimizer, **kwargs)    
-    self._state = self._init_fun(self._params)
     self._lr = lr    
     
+    # initialize sequence
+    if seed is None: seed = np.random.randint(100000)
+    self._key = jax.random.PRNGKey(seed)
+    self._init_seq(seq_init)
+
     # initialize trajectory
     self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
     self._best_loss, self._best_outs = np.inf, None

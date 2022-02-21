@@ -296,9 +296,9 @@ class mk_design_model:
     self._binder_len = self._len = binder_len
     self._k = -1
 
-    self._default_weights = {"msa_ent":0.01,"plddt":1.0,
-                             "pae_intra":0.50,"pae_inter":0.50,
-                             "con_intra":0.25,"con_inter":0.25}
+    self._default_weights = {"msa_ent":0.01,"plddt":0.1,
+                             "pae_intra":0.1,"pae_inter":1.0,
+                             "con_intra":0.1,"con_inter":0.5}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, **kwargs):

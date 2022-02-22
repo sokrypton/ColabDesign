@@ -273,7 +273,7 @@ class mk_design_model:
             "residue_index": protein_obj.residue_index[has_ca]}
 
   # prep functions specific to protocol
-  def _prep_binder(self, pdb_filename, chain=None, binder_len=50, **kwargs):
+  def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot="", **kwargs):
     '''prep inputs for binder design'''
     pdb = self._prep_pdb(pdb_filename, chain=chain)
 
@@ -479,45 +479,42 @@ class mk_design_model:
   ##############################################################################
   # DESIGN FUNCTIONS
   ##############################################################################
-  def design_logits(self, iters, dropout=True, **kwargs):
-    ''' optimize logits'''
-    self.opt.update({"soft":0.0,"hard":False,"dropout":dropout})
-    for i in range(iters): self._step(**kwargs)
-
-  def design_anneal(self, iters, soft=0.0, e_soft=None,
-                    hard=False, dropout=True, temp=0.5, **kwargs):
-    '''anneal from logits to softmax(logits/temp)'''
-    self.opt.update({"temp":temp,"hard":hard,"dropout":dropout})
+  def design(self, iters,
+             temp=0.5, e_temp=None,
+             soft=False, e_soft=None,
+             hard=False, dropout=True, **kwargs):
+    self.opt.update({"hard":hard,"dropout":dropout})
     if e_soft is None: e_soft = soft
-    for s in np.linspace(soft, e_soft, iters):
-      self.opt["soft"] = float(s)
-      grad_scale = (1-s) + s * 2 * self.opt["temp"]
-      self._step(grad_scale=grad_scale, **kwargs)
-
-  def design_prob(self, iters, temp=0.5, e_temp=None,
-                  hard=False, dropout=True, **kwargs):
-    ''' optimize softmax(logits/temp)'''
-    self.opt.update({"soft":1.0,"hard":hard,"dropout":dropout})
     if e_temp is None: e_temp = temp
     for i in range(iters):
       self.opt["temp"] = temp * ((e_temp/temp) ** (1/(iters-1))) ** i
-      self._step(grad_scale=2*self.opt["temp"],**kwargs)
+      self.opt["soft"] = soft + (e_soft-soft) * i/(iters-1)
+      grad_scale = (1-self.opt["soft"]) + self.opt["soft"] * 2 * self.opt["temp"]
+      self._step(grad_scale=grad_scale, **kwargs)
+
+  def design_logits(self, iters, **kwargs):
+    '''optimize logits'''
+    self.design(iters, **kwargs)
+
+  def design_soft(self, iters, **kwargs):
+    ''' optimize softmax(logits/temp)'''
+    self.design(iters, soft=True, **kwargs)
   
   def design_hard(self, iters, **kwargs):
     ''' optimize argmax(logits)'''
-    self.design_prob(iters, hard=True, **kwargs)
+    self.design(iters, soft=True, hard=True, **kwargs)
 
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10, **kwargs):
-    '''two stage design (prob→low_temp)'''
-    self.design_prob(soft_iters, temp=1.0, **kwargs)
-    self.design_prob(temp_iters, temp=1.0,  e_temp=1e-2, **kwargs)
-    self.design_prob(hard_iters, temp=1e-2, hard=True, save_best=True, **kwargs)
+    '''two stage design (soft→hard)'''
+    self.design(soft_iters, soft=True, temp=1.0, **kwargs)
+    self.design(temp_iters, soft=True, temp=1.0,  e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, **kwargs):
-    '''three stage design (logits→prob→low_temp)'''
-    self.design_anneal(soft_iters, soft=0.0,  e_soft=1.0, temp=temp, **kwargs)
-    self.design_prob(temp_iters, temp=0.5,  e_temp=1e-2, **kwargs)
-    self.design_prob(hard_iters, temp=1e-2, hard=True, save_best=True, **kwargs)
+    '''three stage design (logits→soft→hard)'''
+    self.design(soft_iters, soft=False, e_soft=True, **kwargs)
+    self.design(temp_iters, soft=True, temp=0.5, e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
   
   ######################################
   # utils
@@ -617,7 +614,7 @@ class mk_design_model:
     plt.show()
 
 #####################################################################
-# 
+# UTILS
 #####################################################################
 
 def make_animation(xyz, seq, plddt=None, pae=None,

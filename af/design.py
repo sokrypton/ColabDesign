@@ -175,7 +175,8 @@ class mk_design_model:
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
       # set number of recycles to use
-      inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
+      if self.args["recycle_mode"] == "sample":
+        inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
       inputs["scale_rate"] = jnp.where(opt["dropout"],

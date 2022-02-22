@@ -635,7 +635,7 @@ class mk_design_model:
       ax1.set_ylim(0.25,64);ax2.set_ylim(0,0.4)    
       # extras
       ax2.plot(0.4*self.get_loss("soft"),color="yellow",label="soft")
-      ax2.plot(0.4*self.get_loss("soft")*self.get_loss("temp"),color="orange",label="temp")
+      ax2.plot(0.4*self.get_loss("temp"),color="orange",label="temp")
       ax2.plot(0.4*self.get_loss("hard"),color="red",label="hard")
     #if self.protocol == "hallucination":
     #  ax1.set_ylim(0,1);ax2.set_ylim(0,1)

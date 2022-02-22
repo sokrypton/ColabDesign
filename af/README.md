@@ -86,6 +86,7 @@ and maximizing `pae` results in a two helix bundle. To encourage compact structu
 model.opt["weights"].update({"pae":0.0,"plddt":1.0})
 model.opt["weights"]["pae"] = 0.0
 ```
+WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
 #### How do I disable or control dropout?
 ```python
 model.opt["dropout_scale"] = 1.0
@@ -112,3 +113,13 @@ model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)
   - `fixed` - use the same model params each iteration.
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
+
+#### How is contact defined? How do I change it?
+`con` is defined using the distogram, where bins < 20 angstroms are summed. To change the cutoff use:
+```python
+model.opt["con_cutoff"] = 8.0
+```
+#### For binder hallucination, can I specify the site I want to bind?
+```python
+model.prep_inputs(...,hotspot="1-10,15,3")
+```

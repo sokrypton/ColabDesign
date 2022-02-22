@@ -191,18 +191,32 @@ class mk_design_model:
       plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
       plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
       
-      con_prob = jax.nn.log_softmax(outputs["distogram"]["logits"])
-      con_loss = -jax.nn.logsumexp(con_prob[...,:-1],-1)
+      # define contact
+      dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+      if "con_cutoff" in opt:
+        con_bins = dgram_bins < opt["con_cutoff"]
+      else:
+        con_bins = dgram_bins < dgram_bins[-1]
+      con_prob = jax.nn.softmax(outputs["distogram"]["logits"])
+      con_loss = -jnp.log((con_bins*con_prob).sum(-1))
 
       # protocol specific losses
       if self.protocol == "binder":
+
         T = self._target_len
-        pae_inter = 0.5 * (pae_loss[...,:T,T:].mean() + pae_loss[...,T:,:T].mean())
-        losses.update({"con_intra":con_loss[...,T:,T:].mean(),
-                       "con_inter":con_loss[...,:T,T:].mean(),
-                       "plddt":plddt_loss[...,T:].mean(),
-                       "pae_intra":pae_loss[...,T:,T:].mean(),
-                       "pae_inter":pae_inter})
+        if self._hotspot is None:
+          pae_inter = 0.5 * (pae_loss[...,:T,T:].mean() + pae_loss[...,T:,:T].mean())
+          con_inter = con_loss[...,:T,T:].mean()
+        else:
+          # restrict the inter loss to specific hotspot residues
+          H = self._hotspot
+          pae_inter = 0.5 * (pae_loss[...,H,T:].mean() + pae_loss[...,T:,H].mean())
+          con_inter = con_loss[...,H,T:].mean()
+
+        losses.update({"con_inter":con_inter,"con_intra":con_loss[...,T:,T:].mean(),
+                       "pae_inter":pae_inter,"pae_intra":pae_loss[...,T:,T:].mean(),
+                       "plddt":plddt_loss[...,T:].mean()})
+
         aux.update({"pae":get_pae(outputs)})
 
       if self.protocol == "hallucination":
@@ -272,6 +286,22 @@ class mk_design_model:
             "template_features":template_features,
             "residue_index": protein_obj.residue_index[has_ca]}
 
+  def _prep_hotspot(self, hotspot):
+    res_idx =  self._inputs["residue_index"][0]
+    if len(hotspot) > 0:
+      hotspot_set = []
+      for idx in hotspot.split(","):
+        i,j = idx.split("-") if "-" in idx else (idx,None)
+        if j is None: hotspot_set.append(int(i))
+        else: hotspot_set += list(range(int(i),int(j)+1))
+      hotspot_array = []
+      for i in hotspot_set:
+        if i in res_idx:
+          hotspot_array.append(np.where(res_idx == i)[0][0])
+      return jnp.asarray(hotspot_array)
+    else:
+      return None
+  
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot="", **kwargs):
     '''prep inputs for binder design'''
@@ -280,6 +310,8 @@ class mk_design_model:
     target_len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(target_len, pdb["template_features"])
     self._inputs["residue_index"][:,:] = pdb["residue_index"]
+
+    self._hotspot = self._prep_hotspot(hotspot)
 
     total_len = target_len + binder_len
     self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
@@ -603,7 +635,7 @@ class mk_design_model:
       ax1.set_ylim(0.25,64);ax2.set_ylim(0,0.4)    
       # extras
       ax2.plot(0.4*self.get_loss("soft"),color="yellow",label="soft")
-      ax2.plot(0.4*self.get_loss("temp"),color="orange",label="temp")
+      ax2.plot(0.4*self.get_loss("soft")*self.get_loss("temp"),color="orange",label="temp")
       ax2.plot(0.4*self.get_loss("hard"),color="red",label="hard")
     #if self.protocol == "hallucination":
     #  ax1.set_ylim(0,1);ax2.set_ylim(0,1)

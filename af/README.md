@@ -123,3 +123,9 @@ model.opt["con_cutoff"] = 8.0
 ```python
 model.prep_inputs(...,hotspot="1-10,15,3")
 ```
+#### How do I set the random seed for reproducibility?
+```python
+model.prep_inputs(...,seed=0)
+# or
+model.restart(seed=0)
+```

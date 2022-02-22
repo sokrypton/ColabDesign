@@ -537,13 +537,13 @@ class mk_design_model:
     ''' optimize argmax(logits)'''
     self.design(iters, soft=True, hard=True, **kwargs)
 
-  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10, **kwargs):
+  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50, **kwargs):
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, temp=1.0, **kwargs)
     self.design(temp_iters, soft=True, temp=1.0,  e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, **kwargs):
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(soft_iters, soft=False, e_soft=True, **kwargs)
     self.design(temp_iters, soft=True, temp=0.5, e_temp=1e-2, **kwargs)

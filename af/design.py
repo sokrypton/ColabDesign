@@ -30,7 +30,7 @@ class mk_design_model:
   # model initialization
   ######################################
   def __init__(self, num_seq=1, protocol="fixbb",
-               num_models=5, model_mode="sample", model_parallel=False,
+               num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="sample",
                use_templates=None):
     

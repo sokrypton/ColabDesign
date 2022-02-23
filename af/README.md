@@ -77,9 +77,9 @@ and maximizing `pae` results in a two helix bundle. To encourage compact structu
 
 - binder specific losses
   - `pae_inter` - minimize PAE interface of the proteins
-  - `pae_intra` - minimize PAE within binder
+  - `pae` - minimize PAE within binder
   - `con_inter` - maximize number of contacts at the interface of the proteins
-  - `con_intra` - maximize number of contacts within binder
+  - `con` - maximize number of contacts within binder
 
 #### How do I change the loss weights?
 ```python

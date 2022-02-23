@@ -207,11 +207,17 @@ class mk_design_model:
         H = self._hotspot if hasattr(self,"_hotspot") else None
         inter,intra = {},{}
         for k,v in zip(["pae","con"],[pae_loss,con_loss]):
-          aa = v[...,:L,:L]
-          ab = v[...,:L,L:] if H is None else v[...,H,L:]
-          ba = v[...,L:,:L] if H is None else v[...,L:,H]
-          bb = v[...,L:,L:]
-          inter[k] = (ab.mean() + ba.mean())/2
+          aa = v[:L,:L].mean()
+          bb = v[L:,L:].mean()
+          ab = v[:L,L:] if H is None else v[H,L:]
+          ba = v[L:,:L] if H is None else v[L:,H]
+          if hasattr(self,"_copies"):
+            # only optimize one interface
+            ab = ab.reshape(-1,self._copies-1,self._len).mean((0,-1))
+            ba = ba.reshape(self._copies-1,self._len,-1).mean((1,-1))
+            inter[k] = (ab+ba).min()/2
+          else:
+            inter[k] = (ab.mean()+ba.mean())/2
           intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
         losses.update({"i_con":inter["con"],"con":intra["con"],
                        "i_pae":inter["pae"],"pae":intra["pae"]})
@@ -370,8 +376,8 @@ class mk_design_model:
     self._default_weights = {"msa_ent":0.01,"pae":1.0,"plddt":1.0,"con":0.5}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"pae":0.50,"i_pae":0.50,
-                                    "con":0.25,"i_con":0.25})
+      self._default_weights.update({"pae":0.5,"i_pae":0.5,
+                                    "con":0.5,"i_con":0.0})
 
     self.restart(**kwargs)
 

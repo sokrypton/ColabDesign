@@ -76,9 +76,9 @@ To get around this problem, we propose optimizing in 2 or 3 stages.
 and maximizing `pae` results in a two helix bundle. To encourage compact structures we add a `con` term)
 
 - binder specific losses
-  - `pae_inter` - minimize PAE interface of the proteins
+  - `i_pae` - minimize PAE interface of the proteins
   - `pae` - minimize PAE within binder
-  - `con_inter` - maximize number of contacts at the interface of the proteins
+  - `i_con` - maximize number of contacts at the interface of the proteins
   - `con` - maximize number of contacts within binder
 
 #### How do I change the loss weights?

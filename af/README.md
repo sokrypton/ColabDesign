@@ -49,38 +49,6 @@ model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
 ```python
 model.restart()
 ```
-#### What are all the different `design_???` methods?
-- For **design** we provide 5 different functions:
-  - `design_logits()` - optimize `logits` inputs (continious)
-  - `design_soft()` - optimize `softmax(logits)` inputs (probabilities)
-  - `design_hard()` - optimize `one_hot(logits)` inputs (discrete)
-
-- For complex topologies, we find directly optimizing one_hot encoded sequence `design_hard()` to be very challenging. 
-To get around this problem, we propose optimizing in 2 or 3 stages.
-  - `design_2stage()` - `soft` → `hard`
-  - `design_3stage()` - `logits` → `soft` → `hard`
-#### What are all the different losses being optimized?
-- general losses
-  - `pae`       - minimizes the predicted alignment error
-  - `plddt`     - maximizes the predicted LDDT
-  - `msa_ent`   - minimize entropy for MSA design (see example at the end of notebook)
-  - `pae` and `plddt` values are between 0 and 1 (where lower is better for both)
-
-- fixbb specific losses
-  - `dgram_cce` - minimizes the categorical-crossentropy between predicted distogram and one extracted from pdb.
-  - `fape`      - minimize difference between coordinates (see AlphaFold paper)
-  - we find `dgram_cce` loss to be more stable for design (compared to `fape`)
-
-- hallucination specific losses
-  - `con`       - maximize number of contacts. (We find just minimizing `plddt` results in single long helix, 
-and maximizing `pae` results in a two helix bundle. To encourage compact structures we add a `con` term)
-
-- binder specific losses
-  - `i_pae` - minimize PAE interface of the proteins
-  - `pae` - minimize PAE within binder
-  - `i_con` - maximize number of contacts at the interface of the proteins
-  - `con` - maximize number of contacts within binder
-
 #### How do I change the loss weights?
 ```python
 model.opt["weights"].update({"pae":0.0,"plddt":1.0})
@@ -113,7 +81,6 @@ model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)
   - `fixed` - use the same model params each iteration.
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
-
 #### How is contact defined? How do I change it?
 `con` is defined using the distogram, where bins < 20 angstroms are summed. To change the cutoff use:
 ```python
@@ -123,12 +90,51 @@ model.opt["con_cutoff"] = 8.0
 ```python
 model.prep_inputs(...,hotspot="1-10,15,3")
 ```
+#### Can I design homo-oligomers?
+```python
+model = mk_design_model(protocol="fixbb", copies=2)
+model = mk_design_model(protocol="hallucination", copies=2)
+# specify interface contact and/or pae loss
+model.opt["weights"].update({"i_con":0.0,"i_pae":0.0})
+```
 #### How do I set the random seed for reproducibility?
 ```python
 model.prep_inputs(...,seed=0)
 # or
 model.restart(seed=0)
 ```
+#### What are all the different `design_???` methods?
+- For **design** we provide 5 different functions:
+  - `design_logits()` - optimize `logits` inputs (continious)
+  - `design_soft()` - optimize `softmax(logits)` inputs (probabilities)
+  - `design_hard()` - optimize `one_hot(logits)` inputs (discrete)
+
+- For complex topologies, we find directly optimizing one_hot encoded sequence `design_hard()` to be very challenging. 
+To get around this problem, we propose optimizing in 2 or 3 stages.
+  - `design_2stage()` - `soft` → `hard`
+  - `design_3stage()` - `logits` → `soft` → `hard`
+#### What are all the different losses being optimized?
+- general losses
+  - `pae`       - minimizes the predicted alignment error
+  - `plddt`     - maximizes the predicted LDDT
+  - `msa_ent`   - minimize entropy for MSA design (see example at the end of notebook)
+  - `pae` and `plddt` values are between 0 and 1 (where lower is better for both)
+
+- fixbb specific losses
+  - `dgram_cce` - minimizes the categorical-crossentropy between predicted distogram and one extracted from pdb.
+  - `fape`      - minimize difference between coordinates (see AlphaFold paper)
+  - we find `dgram_cce` loss to be more stable for design (compared to `fape`)
+
+- hallucination specific losses
+  - `con`       - maximize number of contacts. (We find just minimizing `plddt` results in single long helix, 
+and maximizing `pae` results in a two helix bundle. To encourage compact structures we add a `con` term)
+
+- binder specific losses
+  - `i_pae` - minimize PAE interface of the proteins
+  - `pae` - minimize PAE within binder
+  - `i_con` - maximize number of contacts at the interface of the proteins
+  - `con` - maximize number of contacts within binder
+
 # Advanced FAQ
 #### I don't like your design_??? function, can I write my own with more detailed control?
 ```python

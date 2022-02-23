@@ -343,6 +343,10 @@ class mk_design_model:
     self._inputs = self._prep_features(self._len, pdb["template_features"])
     self._copies = copies
     
+    # set weights
+    self._default_weights = {"msa_ent":0.01,"dgram_cce":1.0,
+                             "fape":0.0,"pae":0.1,"plddt":0.1,"con":0.0}
+
     # update residue index from pdb
     if copies > 1:
       self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
@@ -350,12 +354,11 @@ class mk_design_model:
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
       for k in ["seq_mask","msa_mask"]:
         self._inputs[k] = np.ones_like(self._inputs[k])
+      self._default_weights.update({"pae":0.05,"i_pae":0.05,
+                                    "con":0.00,"i_con":0.00})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
-    # set weights
-    self._default_weights = {"msa_ent":0.01,"dgram_cce":1.0,
-                             "fape":0.0,"pae":0.1,"plddt":0.1}
     self.restart(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1, **kwargs):
@@ -363,11 +366,13 @@ class mk_design_model:
     self._len = length
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
-    if copies > 1:
-      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-
     # set weights
     self._default_weights = {"msa_ent":0.01,"pae":1.0,"plddt":1.0,"con":0.5}
+    if copies > 1:
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
+      self._default_weights.update({"pae":0.50,"i_pae":0.50,
+                                    "con":0.25",i_con":0.25})
+
     self.restart(**kwargs)
 
   #################################

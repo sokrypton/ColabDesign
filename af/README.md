@@ -129,3 +129,26 @@ model.prep_inputs(...,seed=0)
 # or
 model.restart(seed=0)
 ```
+# Advanced FAQ
+#### I don't like your design_??? function, can I write my own with more detailed control?
+```python
+def design_custom(self):
+  # set options
+  self.opt.update({"dropout":True, "soft":0.0, "hard":False"})
+  # set number of recycles
+  self.args["num_recycles"] = 0
+  # take 100 steps
+  for _ in range(100): self._step()
+  # increase weight for plddt
+  self.opt["weights"].update({"plddt":2.0})
+  # take another 100 steps
+  for _ in range(100): self._step()
+  # increase number of recycles
+  self.args["num_recycles"] = 1
+  # take another 100 steps
+  for _ in range(100): self._step()
+  # etc...
+  
+model = mk_design_model(...,num_recycles=2,recycle_mode="last")
+design_custom(model)
+```

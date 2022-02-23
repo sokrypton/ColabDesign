@@ -371,7 +371,7 @@ class mk_design_model:
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
       self._default_weights.update({"pae":0.50,"i_pae":0.50,
-                                    "con":0.25",i_con":0.25})
+                                    "con":0.25,"i_con":0.25})
 
     self.restart(**kwargs)
 

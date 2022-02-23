@@ -199,7 +199,7 @@ class mk_design_model:
       else:
         con_bins = dgram_bins < dgram_bins[-1]
       con_prob = jax.nn.softmax(outputs["distogram"]["logits"])
-      con_loss = -jnp.log((con_bins*con_prob).sum(-1))
+      con_loss = -jnp.log((con_bins*con_prob).sum(-1) + 1e-7)
 
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:

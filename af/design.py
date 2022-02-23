@@ -1,3 +1,4 @@
+%%writefile design.py
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -157,7 +158,7 @@ class mk_design_model:
         seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
         seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
       
-      if self.protocol == "hallucination" and self._copies > 1:
+      if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
         seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
       
       # update sequence
@@ -201,41 +202,40 @@ class mk_design_model:
       con_prob = jax.nn.softmax(outputs["distogram"]["logits"])
       con_loss = -jnp.log((con_bins*con_prob).sum(-1))
 
+      # if more than 1 chain, split pae/con into inter/intra
+      if self.protocol == "binder" or self._copies > 1:
+        L = self._target_len if self.protocol == "binder" else self._len
+        H = self._hotspot if hasattr(self,"_hotspot") else None
+        inter,intra = {},{}
+        for k,v in zip(["pae","con"],[pae_loss,con_loss]):
+          aa = v[...,:L,:L]
+          ab = v[...,:L,L:] if H is None else v[...,H,L:]
+          ba = v[...,L:,:L] if H is None else v[...,L:,H]
+          bb = v[...,L:,L:]
+          inter[k] = (ab.mean() + ba.mean())/2
+          intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
+        losses.update({"i_con":inter["con"],"con":intra["con"],
+                       "i_pae":inter["pae"],"pae":intra["pae"]})
+        aux.update({"pae":get_pae(outputs)})
+      else:
+        losses.update({"con":con_loss.mean(),"pae":pae_loss.mean()})
+
       # protocol specific losses
       if self.protocol == "binder":
-
         T = self._target_len
-        if self._hotspot is None:
-          pae_inter = 0.5 * (pae_loss[...,:T,T:].mean() + pae_loss[...,T:,:T].mean())
-          con_inter = con_loss[...,:T,T:].mean()
-        else:
-          # restrict the inter loss to specific hotspot residues
-          H = self._hotspot
-          pae_inter = 0.5 * (pae_loss[...,H,T:].mean() + pae_loss[...,T:,H].mean())
-          con_inter = con_loss[...,H,T:].mean()
-
-        losses.update({"con_inter":con_inter,"con_intra":con_loss[...,T:,T:].mean(),
-                       "pae_inter":pae_inter,"pae_intra":pae_loss[...,T:,T:].mean(),
-                       "plddt":plddt_loss[...,T:].mean()})
-
-        aux.update({"pae":get_pae(outputs)})
+        losses.update({"plddt":plddt_loss[...,T:].mean()})
 
       if self.protocol == "hallucination":
-        losses.update({"con":con_loss.mean(),
-                       "plddt":plddt_loss.mean(),
-                       "pae":pae_loss.mean()})
-        if self._copies > 1:
-          aux.update({"pae":get_pae(outputs)})
+        losses.update({"plddt":plddt_loss.mean()})
 
       if self.protocol == "fixbb":
         fape_loss = get_fape_loss(self._batch, outputs, model_config=self._config)      
         dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config)
-        losses.update({"plddt":plddt_loss.mean(),"pae":pae_loss.mean(),
-                       "dgram_cce":dgram_cce_loss, "fape":fape_loss})
-        aux.update({"rmsd":get_rmsd_loss(self._batch, outputs)})
+        losses.update({"plddt":plddt_loss.mean(), "dgram_cce":dgram_cce_loss, "fape":fape_loss})
+        aux.update({"rmsd":get_rmsd_loss_w(self._batch, outputs)})
 
       # loss
-      loss = sum([v*w[k] if k in w else v for k,v in losses.items()])
+      loss = sum([v*w[k] if k in w else v*0 for k,v in losses.items()])
 
       # save aux outputs
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
@@ -306,14 +306,17 @@ class mk_design_model:
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot="", **kwargs):
     '''prep inputs for binder design'''
-    pdb = self._prep_pdb(pdb_filename, chain=chain)
 
+    # get pdb info
+    pdb = self._prep_pdb(pdb_filename, chain=chain)
     target_len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(target_len, pdb["template_features"])
     self._inputs["residue_index"][:,:] = pdb["residue_index"]
 
+    # gather hotspot info
     self._hotspot = self._prep_hotspot(hotspot)
 
+    # pad inputs
     total_len = target_len + binder_len
     self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
     self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
@@ -321,29 +324,36 @@ class mk_design_model:
     # offset residue index for binder
     self._inputs["residue_index"] = self._inputs["residue_index"].copy()
     self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
-
-    self._inputs["seq_mask"] = np.ones_like(self._inputs["seq_mask"])
-    self._inputs["msa_mask"] = np.ones_like(self._inputs["msa_mask"])
+    for k in ["seq_mask","msa_mask"]:
+      self._inputs[k] = np.ones_like(self._inputs[k])
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
-    self._k = -1
 
     self._default_weights = {"msa_ent":0.01,"plddt":0.1,
-                             "pae_intra":0.1,"pae_inter":1.0,
-                             "con_intra":0.1,"con_inter":0.5}
+                             "pae":0.1,"i_pae":1.0,
+                             "con":0.1,"i_con":0.5}
     self.restart(**kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, **kwargs):
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
     '''prep inputs for fixed backbone design'''
     pdb = self._prep_pdb(pdb_filename, chain=chain)
-    length = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(length, pdb["template_features"])
-    # update residue index from pdb
-    self._inputs["residue_index"][:,:] = pdb["residue_index"]
     self._batch = pdb["batch"]
-    self._len = length
-    self._k = -1
+    self._wt_aatype = self._batch["aatype"]
+    self._len = pdb["residue_index"].shape[0]
+    self._inputs = self._prep_features(self._len, pdb["template_features"])
+    self._copies = copies
+    
+    # update residue index from pdb
+    if copies > 1:
+      self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
+      self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
+      self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
+      for k in ["seq_mask","msa_mask"]:
+        self._inputs[k] = np.ones_like(self._inputs[k])
+    else:
+      self._inputs["residue_index"] = pdb["residue_index"][None]
+
     # set weights
     self._default_weights = {"msa_ent":0.01,"dgram_cce":1.0,
                              "fape":0.0,"pae":0.1,"plddt":0.1}
@@ -355,9 +365,7 @@ class mk_design_model:
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
     if copies > 1:
-      Ls = [length] * copies
-      self._inputs["residue_index"][...,:] = cf.chain_break(self._inputs["residue_index"][0], Ls, 50)
-    self._k = -1
+      self._inputs["residue_index"] = repeat_idx(self._inputs["residue_index"][0], copies)[None]
 
     # set weights
     self._default_weights = {"msa_ent":0.01,"pae":1.0,"plddt":1.0,"con":0.5}
@@ -469,7 +477,7 @@ class mk_design_model:
     
     if self.protocol == "fixbb":
       # compute sequence recovery
-      seqid = (self._outs["seq"].argmax(-1) == self._batch["aatype"]).mean()
+      seqid = (self._outs["seq"].argmax(-1) == self._wt_aatype).mean()
       self._losses.update({"seqid":seqid,"rmsd":self._outs["rmsd"]})
 
     # save losses
@@ -478,12 +486,14 @@ class mk_design_model:
     # print losses      
     if verbose:
       I = ["model","recycles"]
-      F = ["soft","temp","loss","seqid","msa_ent",
-           "pae","pae_intra","pae_inter","plddt",
-           "con","con_intra","con_inter","dgram_cce","fape","rmsd"]
+      f = ["soft","temp","seqid"]
+      F = ["loss","msa_ent",
+           "pae","i_pae","plddt",
+           "con","i_con","dgram_cce","fape","rmsd"]
       I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
-      F = " ".join([f"{x}: {self._losses[x]:.3f}" for x in F if x in self._losses])
-      print(f"{self._k}\t{I} {F}")
+      f = " ".join([f"{x}: {self._losses[x]:.2f}" for x in f if x in self._losses])
+      F = " ".join([f"{x}: {self._losses[x]:.2f}" for x in F if x in self._losses])
+      print(f"{self._k}\t{I} {f} {F}")
 
     if self.args["num_recycles"] == self.opt["recycles"]:
       # save trajectory
@@ -568,7 +578,7 @@ class mk_design_model:
     if self.protocol == "binder":
       aatype_target = self._batch["aatype"][:self._target_len]
       aatype = np.concatenate([aatype_target,aatype])
-    if self.protocol == "hallucination" and self._copies > 1:
+    if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
       aatype = np.concatenate([aatype] * self._copies)
     p = {"residue_index":self._inputs["residue_index"][0],
          "aatype":aatype,
@@ -588,7 +598,8 @@ class mk_design_model:
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
     if self.protocol == "fixbb":
       pos_ref = self._batch["all_atom_positions"][:,1,:]
-      return make_animation(**sub_traj, pos_ref=pos_ref, dpi=dpi)
+      length = self._len if self._copies > 1 else None
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
     
     if self.protocol == "binder":
       outs = self._outs if self._best_outs is None else self._best_outs
@@ -599,10 +610,8 @@ class mk_design_model:
     if self.protocol == "hallucination":
       outs = self._outs if self._best_outs is None else self._best_outs
       pos_ref = outs["final_atom_positions"][:,1,:]
-      if self._copies > 1:
-        return make_animation(**sub_traj, pos_ref=pos_ref, length=self._len, dpi=dpi)
-      else:
-        return make_animation(**sub_traj, pos_ref=pos_ref, dpi=dpi)
+      length = self._len if self._copies > 1 else None
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
 
   def plot_pdb(self):
     '''use py3Dmol to plot pdb coordinates'''
@@ -619,11 +628,10 @@ class mk_design_model:
     view.zoomTo()
     view.show()
   
-  def plot_traj(self):
-    ## TODO
-    # currently only fixbb trajories support
-    fig, ax1 = plt.subplots(dpi=100)
+  def plot_traj(self, dpi=100):
+    fig, ax1 = plt.subplots(dpi=dpi)
     ax2 = ax1.twinx()
+    
     if self.protocol == "fixbb":
       ax1.plot(self.get_loss("rmsd"),color="black")
       ax2.plot(self.get_loss("seqid"),color="green",label="seqid")
@@ -638,10 +646,8 @@ class mk_design_model:
       ax2.plot(0.4*self.get_loss("soft"),color="yellow",label="soft")
       ax2.plot(0.4*self.get_loss("temp"),color="orange",label="temp")
       ax2.plot(0.4*self.get_loss("hard"),color="red",label="hard")
-    #if self.protocol == "hallucination":
-    #  ax1.set_ylim(0,1);ax2.set_ylim(0,1)
-    #  ax2.plot(self.get_loss("pae"),label="pae")
-    #  ax2.plot(self.get_loss("plddt"),label="plddt")
+    else:
+      print("TODO")
 
     plt.legend()
     plt.show()
@@ -649,6 +655,10 @@ class mk_design_model:
 #####################################################################
 # UTILS
 #####################################################################
+
+def repeat_idx(idx, copies=1, offset=50):
+  idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
+  return np.tile(idx,copies) + idx_offset
 
 def make_animation(xyz, seq, plddt=None, pae=None,
                    pos_ref=None, line_w=2.0,

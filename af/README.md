@@ -88,18 +88,17 @@ model.opt["con_cutoff"] = 8.0
 ```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python
-model.prep_inputs(...,hotspot="1-10,15,3")
+model.prep_inputs(..., hotspot="1-10,15,3")
 ```
 #### Can I design homo-oligomers?
 ```python
-model = mk_design_model(protocol="fixbb", copies=2)
-model = mk_design_model(protocol="hallucination", copies=2)
+model.prep_inputs(..., copies=2)
 # specify interface contact and/or pae loss
-model.opt["weights"].update({"i_con":0.0,"i_pae":0.0})
+model.opt["weights"].update({"i_con":0.0, "i_pae":0.0})
 ```
 #### How do I set the random seed for reproducibility?
 ```python
-model.prep_inputs(...,seed=0)
+model.prep_inputs(..., seed=0)
 # or
 model.restart(seed=0)
 ```

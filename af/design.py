@@ -364,7 +364,7 @@ class mk_design_model:
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
     if copies > 1:
-      self._inputs["residue_index"] = repeat_idx(self._inputs["residue_index"][0], copies)[None]
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
 
     # set weights
     self._default_weights = {"msa_ent":0.01,"pae":1.0,"plddt":1.0,"con":0.5}

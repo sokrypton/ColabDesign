@@ -97,12 +97,12 @@ model.design_???(dropout=True)
 model = mk_design_model(num_recycles=1, recycle_mode="sample")
 ```
 - `num_recycles` - max number of recycles to use during design (for denovo proteins we find 0 is often enough)
-- `recycle_model` - When using more than 1 > `num_recycles`:
+- `recycle_model` - When `num_recycles` > 0:
   - `sample` - at each iteration, randomly select number of recycles to use. (Recommended)
   - `add_prev` - add prediction logits (dgram, pae, plddt) across all recycles. (Most stable, but slow and requires more memory).
   - `last` - only use gradients from last recycle. (NOT recommended).
 #### How do I control which model params are used during design?
-By default all five models are used during optimization. If `num_models` > 0, then multiple params are evaluated at each iteration 
+By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_mode="fixed"`.
 ```python
 model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)

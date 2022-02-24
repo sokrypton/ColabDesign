@@ -78,6 +78,7 @@ class mk_design_model:
       cfg.data.common.num_recycle = num_recycles
 
     # backprop through recycles
+    cfg.model.add_prev = recycle_mode == "add_prev"
     cfg.model.backprop_recycle = recycle_mode == "backprop"
     cfg.model.embeddings_and_evoformer.backprop_dgram = recycle_mode == "backprop"
 
@@ -178,7 +179,7 @@ class mk_design_model:
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
       # set number of recycles to use
-      if self.args["recycle_mode"] != "backprop":
+      if self.args["recycle_mode"] not in ["backprop","add_prev"]:
         inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
@@ -439,17 +440,20 @@ class mk_design_model:
   ######################################
   def _run(self, model_params, key):
     if self.args["recycle_mode"] == "average":
-      # average gradients across recycles
       L = self._inputs["residue_index"].shape[-1]
-      self._inputs.update({'init_pos':jnp.zeros([1, L, 37, 3]),
-                           'init_msa_first_row': jnp.zeros([1, L, 256]),
-                           'init_pair': jnp.zeros([1, L, L, 128])})
-      grad = []
+      self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
+                           'init_msa_first_row': np.zeros([1, L, 256]),
+                           'init_pair': np.zeros([1, L, L, 128])})
+      # get gradients for each recycle
+      g = []
       for _ in range(self.opt["recycles"]+1):
         (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
-        grad.append(_grad)
+        g.append(_grad["seq_logits"])
         self._inputs.update(outs["init"])
-      return (loss, outs), jax.tree_multimap(lambda *v: jnp.mean(jnp.asarray(v), axis=0), *grad)
+      # compute weighted average of gradients (w/ bias towards last recycle)
+      w = np.arange(len(g)) + 1
+      g = ((w/w.sum())[:,None,None,None]*jnp.asarray(g)).mean(0)
+      return (loss, outs), {"seq_logits":g}
     else:
       return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
     

@@ -31,7 +31,7 @@ class mk_design_model:
   ######################################
   def __init__(self, num_seq=1, protocol="fixbb",
                num_models=1, model_mode="sample", model_parallel=False,
-               num_recycles=0, recycle_mode="sample",
+               num_recycles=0, recycle_mode="add_prev",
                use_templates=None):
     
     # decide if templates should be used
@@ -70,11 +70,14 @@ class mk_design_model:
     cfg.data.eval.masked_msa_replace_fraction = 0
 
     # number of recycles
-    cfg.model.num_recycle = num_recycles
-    cfg.data.common.num_recycle = num_recycles
+    if recycle_mode == "add_prev":
+      cfg.model.num_recycle = 0
+      cfg.data.common.num_recycle = 0
+    else:
+      cfg.model.num_recycle = num_recycles
+      cfg.data.common.num_recycle = num_recycles
 
     # backprop through recycles
-    #cfg.model.add_prev = recycle_mode == "add_prev"
     cfg.model.backprop_recycle = recycle_mode == "backprop"
     cfg.model.embeddings_and_evoformer.backprop_dgram = recycle_mode == "backprop"
 
@@ -175,9 +178,7 @@ class mk_design_model:
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
       # set number of recycles to use
-      if self.args["recycle_mode"] == "add_prev":
-        inputs["prev"] = jax.tree_map(lambda x:x[None] opt["prev"])
-      elif self.args["recycle_mode"] != "backprop":
+      if self.args["recycle_mode"] != "backprop":
         inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
@@ -187,9 +188,9 @@ class mk_design_model:
       # get outputs
       outputs = self._runner.apply(model_params, key, inputs)
       if self.args["recycle_mode"] == "add_prev":
-        aux["prev"] = {'prev_pos':outputs['structure_module']['final_atom_positions'],
-                       'prev_msa_first_row': outputs['representations']['msa_first_row'],
-                       'prev_pair': outputs['representations']['pair']}
+        aux["init"] = {'init_pos':outputs['structure_module']['final_atom_positions'][None],
+                       'init_msa_first_row': outputs['representations']['msa_first_row'][None],
+                       'init_pair': outputs['representations']['pair'][None]}
               
       # confidence losses
       pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
@@ -440,14 +441,14 @@ class mk_design_model:
     if self.args["recycle_mode"] == "add_prev":
       # average gradients across recycles
       L = self._inputs["residue_index"].shape[-1]
-      self.opt["prev"] = {'prev_pos':jnp.zeros([L, 37, 3]),
-                          'prev_msa_first_row': jnp.zeros([L, 256]),
-                          'prev_pair': jnp.zeros([L, L, 128])}
+      self._inputs.update({'init_pos':jnp.zeros([1, L, 37, 3]),
+                           'init_msa_first_row': jnp.zeros([1, L, 256]),
+                           'init_pair': jnp.zeros([1, L, L, 128])})
       grad = []
-      for _ in range(self.args["num_recycles"]+1):
+      for _ in range(self.opt["recycles"]+1):
         (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
-        self.opt["prev"] = outs["prev"]
         grad.append(_grad)
+        self._inputs.update(outs["init"])
       return (loss, outs), jax.tree_multimap(lambda *v: jnp.mean(jnp.asarray(v), axis=0), *grad)
     else:
       return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
@@ -526,12 +527,11 @@ class mk_design_model:
       F = " ".join([f"{x}: {self._losses[x]:.2f}" for x in F if x in self._losses])
       print(f"{self._k}\t{I} {f} {F}")
 
-    if self.args["num_recycles"] == self.opt["recycles"]:
-      # save trajectory
-      ca_xyz = self._outs["final_atom_positions"][:,1,:]
-      traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq_pseudo"]}
-      if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
-      for k,v in traj.items(): self._traj[k].append(np.array(v))
+    # save trajectory
+    ca_xyz = self._outs["final_atom_positions"][:,1,:]
+    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq_pseudo"]}
+    if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
+    for k,v in traj.items(): self._traj[k].append(np.array(v))
       
   def _step(self, weights=None, grad_scale=1.0, **kwargs):
     '''do one step'''

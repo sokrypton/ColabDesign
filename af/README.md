@@ -142,7 +142,7 @@ def design_custom(self):
   # set options
   self.opt.update({"dropout":True, "soft":0.0, "hard":False"})
   # set number of recycles
-  self.args["num_recycles"] = 0
+  self.ops["num_recycles"] = 0
   # take 100 steps
   for _ in range(100): self._step()
   # increase weight for plddt
@@ -150,11 +150,11 @@ def design_custom(self):
   # take another 100 steps
   for _ in range(100): self._step()
   # increase number of recycles
-  self.args["num_recycles"] = 1
+  self.ops["num_recycles"] = 1
   # take another 100 steps
   for _ in range(100): self._step()
   # etc...
   
-model = mk_design_model(...,num_recycles=2,recycle_mode="last")
+model = mk_design_model()
 design_custom(model)
 ```

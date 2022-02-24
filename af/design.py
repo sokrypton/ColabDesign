@@ -74,7 +74,7 @@ class mk_design_model:
     cfg.data.common.num_recycle = num_recycles
 
     # backprop through recycles
-    cfg.model.add_prev = recycle_mode == "add_prev"
+    #cfg.model.add_prev = recycle_mode == "add_prev"
     cfg.model.backprop_recycle = recycle_mode == "backprop"
     cfg.model.embeddings_and_evoformer.backprop_dgram = recycle_mode == "backprop"
 
@@ -175,7 +175,9 @@ class mk_design_model:
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
       # set number of recycles to use
-      if self.args["recycle_mode"] not in ["add_prev","backprop"]:
+      if self.args["recycle_mode"] == "add_prev":
+        inputs["prev"] = jax.tree_map(lambda x:x[None] opt["prev"])
+      elif self.args["recycle_mode"] != "backprop":
         inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
@@ -184,6 +186,10 @@ class mk_design_model:
 
       # get outputs
       outputs = self._runner.apply(model_params, key, inputs)
+      if self.args["recycle_mode"] == "add_prev":
+        aux["prev"] = {'prev_pos':outputs['structure_module']['final_atom_positions'],
+                       'prev_msa_first_row': outputs['representations']['msa_first_row'],
+                       'prev_pair': outputs['representations']['pair']}
               
       # confidence losses
       pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
@@ -430,6 +436,22 @@ class mk_design_model:
   ######################################
   # design function
   ######################################
+  def _run(self, model_params, key):
+    if self.args["recycle_mode"] == "add_prev":
+      # average gradients across recycles
+      L = self._inputs["residue_index"].shape[-1]
+      self.opt["prev"] = {'prev_pos':jnp.zeros([L, 37, 3]),
+                          'prev_msa_first_row': jnp.zeros([L, 256]),
+                          'prev_pair': jnp.zeros([L, L, 128])}
+      grad = []
+      for _ in range(self.args["num_recycles"]+1):
+        (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
+        self.opt["prev"] = outs["prev"]
+        grad.append(_grad)
+      return (loss, outs), jax.tree_multimap(lambda *v: jnp.mean(jnp.asarray(v), axis=0), *grad)
+    else:
+      return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
+    
   def _update_grad(self):
     '''update the gradient'''
     self._key, *_key = jax.random.split(self._key,4)
@@ -456,7 +478,7 @@ class mk_design_model:
       p = self._model_params
       if self.args["model_mode"] == "sample":
         p = self._sample_params(p, self._model_num)
-      (l,o),g = self._grad_fn(self._params, p, self._inputs, _key[2], self.opt)
+      (l,o),g = self._run(p, _key[2])
       self._grad = jax.tree_map(lambda x: x.mean(0), g)
       self._loss,self._outs = l.mean(),jax.tree_map(lambda x:x[0],o)
       self._losses = jax.tree_map(lambda x: x.mean(0), o["losses"])
@@ -465,8 +487,7 @@ class mk_design_model:
     else:
       _loss, _losses, _outs, _grad = [],[],[],[]
       for n in self._model_num:
-        (l,o),g = self._grad_fn(self._params, self._model_params[n],
-                                self._inputs, _key[2], self.opt)
+        (l,o),g = self._run(self._model_params[n], _key[2])
         _loss.append(l); _outs.append(o); _grad.append(g)
         _losses.append(o["losses"])
 
@@ -615,7 +636,7 @@ class mk_design_model:
       outs = self._outs if self._best_outs is None else self._best_outs
       pos_ref = outs["final_atom_positions"][:,1,:]
       return make_animation(**sub_traj, pos_ref=pos_ref,
-                            length=self._target_len, dpi=dpi)    
+                            length=self._target_len, dpi=dpi)
 
     if self.protocol == "hallucination":
       outs = self._outs if self._best_outs is None else self._best_outs

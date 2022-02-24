@@ -419,7 +419,7 @@ class mk_design_model:
     if weights is not None: self.opt["weights"].update(weights)
     self.opt.update({"temp":0.5, "soft":1.0, "hard":True,
                      "dropout":True, "dropout_scale":1.0,
-                     "gumbel":False})
+                     "gumbel":False, "recycles":self.args["num_recycles"]})
 
     # setup optimizer
     self._setup_optimizer(lr=lr, optimizer=optimizer, **kwargs)    
@@ -460,8 +460,6 @@ class mk_design_model:
     # decide number of recycles to use
     if self.args["recycle_mode"] == "sample":
       self.opt["recycles"] = int(jax.random.randint(_key[0],[],0,self.args["num_recycles"]+1))
-    else:
-      self.opt["recycles"] = self.args["num_recycles"]
 
     # decide which model params to use
     m = self.args["num_models"]

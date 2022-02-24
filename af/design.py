@@ -31,7 +31,7 @@ class mk_design_model:
   ######################################
   def __init__(self, num_seq=1, protocol="fixbb",
                num_models=1, model_mode="sample", model_parallel=False,
-               num_recycles=0, recycle_mode="add_prev",
+               num_recycles=0, recycle_mode="average",
                use_templates=None):
     
     # decide if templates should be used
@@ -70,7 +70,7 @@ class mk_design_model:
     cfg.data.eval.masked_msa_replace_fraction = 0
 
     # number of recycles
-    if recycle_mode == "add_prev":
+    if recycle_mode == "average":
       cfg.model.num_recycle = 0
       cfg.data.common.num_recycle = 0
     else:
@@ -187,7 +187,7 @@ class mk_design_model:
 
       # get outputs
       outputs = self._runner.apply(model_params, key, inputs)
-      if self.args["recycle_mode"] == "add_prev":
+      if self.args["recycle_mode"] == "average":
         aux["init"] = {'init_pos':outputs['structure_module']['final_atom_positions'][None],
                        'init_msa_first_row': outputs['representations']['msa_first_row'][None],
                        'init_pair': outputs['representations']['pair'][None]}
@@ -438,7 +438,7 @@ class mk_design_model:
   # design function
   ######################################
   def _run(self, model_params, key):
-    if self.args["recycle_mode"] == "add_prev":
+    if self.args["recycle_mode"] == "average":
       # average gradients across recycles
       L = self._inputs["residue_index"].shape[-1]
       self._inputs.update({'init_pos':jnp.zeros([1, L, 37, 3]),

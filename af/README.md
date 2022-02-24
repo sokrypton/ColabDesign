@@ -68,6 +68,7 @@ model = mk_design_model(num_recycles=1, recycle_mode="sample")
 - `recycle_model` - When `num_recycles` > 0:
   - `average` - compute loss at each recycle and average gradients. (Recommend).
   - `sample` - at each iteration, randomly select number of recycles to use, use gradients from last recycle.
+  - `add_prev` - average the logits (dgram, plddt, pae) across all recycles.
   - `last` - only use gradients from last recycle. (NOT recommended).
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 

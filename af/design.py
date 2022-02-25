@@ -454,7 +454,8 @@ class mk_design_model:
     def normalize_grad(grad):
       g = grad["seq_logits"]
       gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-      return grad["seq_logits"] * grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
+      grad["seq_logits"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
+      return grad
     
     def recycle(model_params, key):
       if self.args["recycle_mode"] == "average":

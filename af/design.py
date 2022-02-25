@@ -467,7 +467,7 @@ class mk_design_model:
         for _ in range(self.opt["recycles"]+1):
           key, _key = jax.random.split(key)
           (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, _key, self.opt)
-          grad.append(self._normalize_grad(_grad))
+          grad.append(normalize_grad(_grad))
           self._inputs.update(outs["init"])
         grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
         return (loss, outs), grad
@@ -479,7 +479,7 @@ class mk_design_model:
           self.opt["recycles"] = int(jax.random.randint(_key,[],0,self.args["num_recycles"]+1))
         
         (loss,outs),grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
-        return (loss,outs),self._normalize_grad(grad)
+        return (loss,outs), normalize_grad(grad)
 
     # get current params
     self._params = self._get_params(self._state)

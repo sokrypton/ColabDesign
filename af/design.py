@@ -129,21 +129,21 @@ class mk_design_model:
       w = opt["weights"]
 
       # set sequence
-      seq_logits = params["seq_logits"] - params["seq_logits"].mean(-1,keepdims=True)
+      seq = params["seq"] - params["seq"].mean(-1,keepdims=True)
 
       # shuffle msa
       if self.args["num_seq"] > 1:
-        i = jax.random.randint(key,[],0,seq_logits.shape[0])
-        seq_logits = seq_logits.at[0].set(seq_logits[i]).at[i].set(seq_logits[0])
+        i = jax.random.randint(key,[],0,seq.shape[0])
+        seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
 
       # straight-through/reparameterization
-      seq = seq_logits + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_logits.shape), 0.0)
-      seq_soft = jax.nn.softmax(seq / opt["temp"])
-      seq_hard = jax.nn.one_hot(seq_soft.argmax(-1),20)
+      seq_logits = seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
+      seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
+      seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
       seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
 
       # create pseudo sequence
-      seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq_logits
+      seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq
       seq_pseudo = jnp.where(opt["hard"], seq_hard, seq_pseudo)
       
       # save for aux output
@@ -268,11 +268,8 @@ class mk_design_model:
     num_seq = self.args["num_seq"]
     sequence = "A" * length
     feature_dict = {
-        **pipeline.make_sequence_features(sequence=sequence, description="none",
-                                          num_res=length),
-        **pipeline.make_msa_features(msas=[length*[sequence]],
-                                     deletion_matrices=[num_seq*[[0]*length]])
-        }
+        **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
+        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])}
     if template_features is not None: feature_dict.update(template_features)    
     inputs = self._runner.process_features(feature_dict, random_seed=0)
     if num_seq > 1:
@@ -336,8 +333,7 @@ class mk_design_model:
     # offset residue index for binder
     self._inputs["residue_index"] = self._inputs["residue_index"].copy()
     self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
-    for k in ["seq_mask","msa_mask"]:
-      self._inputs[k] = np.ones_like(self._inputs[k])
+    for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
@@ -365,8 +361,7 @@ class mk_design_model:
       self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
       self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
-      for k in ["seq_mask","msa_mask"]:
-        self._inputs[k] = np.ones_like(self._inputs[k])
+      for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
       self._default_weights.update({"pae":0.05,"i_pae":0.05,
                                     "con":0.00,"i_con":0.00})
     else:
@@ -397,10 +392,10 @@ class mk_design_model:
     self._init_fun, self._update_fun, self._get_params = optimizer(lr, **kwargs)
     self._k = 0
 
-  def _init_seq(self, x=None):
+  def _init_seq(self, x=None, rm_aa=None):
     '''initialize sequence'''
     self._key, _key = jax.random.split(self._key)
-    shape = (self.args["num_seq"],self._len,20)
+    shape = (self.args["num_seq"], self._len, 20)
     if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
       y = jnp.broadcast_to(x, shape)
     elif isinstance(x, str):
@@ -408,10 +403,14 @@ class mk_design_model:
       if x == "zeros": y = jnp.zeros(shape)
     else:
       y = 0.01 * jax.random.normal(_key, shape)
-    self._params = {"seq_logits":y}
+    self.opt["bias"] = np.zeros(20)
+    if rm_aa is not None:
+      for aa in rm_aa.split(","):
+        self.opt["bias"] -= 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
+    self._params = {"seq":y}
     self._state = self._init_fun(self._params)
 
-  def restart(self, weights=None, seed=None, seq_init=None,
+  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None,
               lr=0.1, optimizer=None, **kwargs):    
     
     # set weights and options
@@ -428,7 +427,7 @@ class mk_design_model:
     # initialize sequence
     if seed is None: seed = np.random.randint(100000)
     self._key = jax.random.PRNGKey(seed)
-    self._init_seq(seq_init)
+    self._init_seq(seq_init, rm_aa)
 
     # initialize trajectory
     self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
@@ -445,9 +444,9 @@ class mk_design_model:
     self._update_grad()
 
     # normalize gradient
-    g = self._grad["seq_logits"]
+    g = self._grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self._grad["seq_logits"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
+    self._grad["seq"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
 
     # apply gradient
     self._state = self._update_fun(self._k, self._grad, self._state)
@@ -456,6 +455,7 @@ class mk_design_model:
 
   def _update_grad(self):
     '''update the gradient'''
+    
     def recycle(model_params, key):
       if self.args["recycle_mode"] == "average":
         # average gradients across all recycles

@@ -183,13 +183,12 @@ class mk_design_model:
         inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
-      inputs["scale_rate"] = jnp.where(opt["dropout"],
-                                       jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
+      inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
 
       # get outputs
       outputs = self._runner.apply(model_params, key, inputs)
       if self.args["recycle_mode"] == "average":
-        aux["init"] = {'init_pos':outputs['structure_module']['final_atom_positions'][None],
+        aux["init"] = {'init_pos': outputs['structure_module']['final_atom_positions'][None],
                        'init_msa_first_row': outputs['representations']['msa_first_row'][None],
                        'init_pair': outputs['representations']['pair'][None]}
               

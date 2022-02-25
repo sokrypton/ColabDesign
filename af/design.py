@@ -445,15 +445,14 @@ class mk_design_model:
                            'init_msa_first_row': np.zeros([1, L, 256]),
                            'init_pair': np.zeros([1, L, L, 128])})
       # get gradients for each recycle
-      g = []
+      grad = []
       for _ in range(self.opt["recycles"]+1):
-        (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
-        g.append(_grad["seq_logits"])
+        key, _key = jax.random.split(key)
+        (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, _key, self.opt)
+        grad.append(_grad)
         self._inputs.update(outs["init"])
-      # compute weighted average of gradients (w/ bias towards last recycle)
-      w = np.arange(len(g)) + 1
-      g = ((w/w.sum())[:,None,None,None]*jnp.asarray(g)).mean(0)
-      return (loss, outs), {"seq_logits":g}
+      grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
+      return (loss, outs), grad
     else:
       return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
     
@@ -494,9 +493,9 @@ class mk_design_model:
         _loss.append(l); _outs.append(o); _grad.append(g)
         _losses.append(o["losses"])
 
-      self._grad = jax.tree_multimap(lambda *v: jnp.mean(jnp.asarray(v), axis=0), *_grad)
+      self._grad = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(0), *_grad)
       self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
-      self._losses = jax.tree_multimap(lambda *v: jnp.mean(jnp.asarray(v)), *_losses)
+      self._losses = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(), *_losses)
 
   def _save_results(self, save_best=False, verbose=True):
     '''save the results and update trajectory'''

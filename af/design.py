@@ -437,31 +437,55 @@ class mk_design_model:
   ######################################
   # design function
   ######################################
-  def _run(self, model_params, key):
-    if self.args["recycle_mode"] == "average":
-      L = self._inputs["residue_index"].shape[-1]
-      self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
-                           'init_msa_first_row': np.zeros([1, L, 256]),
-                           'init_pair': np.zeros([1, L, L, 128])})
-      # get gradients for each recycle
-      grad = []
-      for _ in range(self.opt["recycles"]+1):
-        key, _key = jax.random.split(key)
-        (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, _key, self.opt)
-        grad.append(_grad)
-        self._inputs.update(outs["init"])
-      grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
-      return (loss, outs), grad
-    else:
-      return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
+  def _step(self, weights=None, grad_scale=1.0, **kwargs):
+    '''do one step'''
+    if weights is not None: self.opt["weights"].update(weights)
     
-  def _update_grad(self):
-    '''update the gradient'''
-    self._key, *_key = jax.random.split(self._key,4)
+    # update gradient
+    self._update_grad(grad_scale)
 
-    # decide number of recycles to use
-    if self.args["recycle_mode"] == "sample":
-      self.opt["recycles"] = int(jax.random.randint(_key[0],[],0,self.args["num_recycles"]+1))
+    # apply gradient
+    self._state = self._update_fun(self._k, self._grad, self._state)
+    self._k += 1
+    self._save_results(**kwargs)
+
+  def _update_grad(self, grad_scale=1.0):
+    '''update the gradient'''
+    def normalize_grad(grad):
+      g = grad["seq_logits"]
+      gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
+      return grad["seq_logits"] * grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
+    
+    def recycle(model_params, key):
+      if self.args["recycle_mode"] == "average":
+        # average gradients across all recycles
+        L = self._inputs["residue_index"].shape[-1]
+        self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
+                             'init_msa_first_row': np.zeros([1, L, 256]),
+                             'init_pair': np.zeros([1, L, L, 128])})
+        grad = []
+        for _ in range(self.opt["recycles"]+1):
+          key, _key = jax.random.split(key)
+          (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, _key, self.opt)
+          grad.append(self._normalize_grad(_grad))
+          self._inputs.update(outs["init"])
+        grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
+        return (loss, outs), grad
+      else:
+        # use gradients from last recycle
+        if self.args["recycle_mode"] == "sample":
+          # decide number of recycles to use
+          key, _key = jax.random.split(key)
+          self.opt["recycles"] = int(jax.random.randint(_key,[],0,self.args["num_recycles"]+1))
+        
+        (loss,outs),grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
+        return (loss,outs),self._normalize_grad(grad)
+
+    # get current params
+    self._params = self._get_params(self._state)
+
+    # update key
+    self._key, key = jax.random.split(self._key)
 
     # decide which model params to use
     m = self.args["num_models"]
@@ -469,17 +493,15 @@ class mk_design_model:
     if self.args["model_mode"] == "fixed" or m == len(ns):
       self._model_num = ns
     elif self.args["model_mode"] == "sample":
-      self._model_num = jax.random.choice(_key[1],ns,(m,),replace=False)
-
-    # get current params
-    self._params = self._get_params(self._state)
+      key,_key = jax.random.split(key)
+      self._model_num = jax.random.choice(_key,ns,(m,),replace=False)
     
     # run in parallel
     if self.args["model_parallel"]:
       p = self._model_params
       if self.args["model_mode"] == "sample":
         p = self._sample_params(p, self._model_num)
-      (l,o),g = self._run(p, _key[2])
+      (l,o),g = recycle(p, key)
       self._grad = jax.tree_map(lambda x: x.mean(0), g)
       self._loss,self._outs = l.mean(),jax.tree_map(lambda x:x[0],o)
       self._losses = jax.tree_map(lambda x: x.mean(0), o["losses"])
@@ -488,7 +510,8 @@ class mk_design_model:
     else:
       _loss, _losses, _outs, _grad = [],[],[],[]
       for n in self._model_num:
-        (l,o),g = self._run(self._model_params[n], _key[2])
+        p = self._model_params[n]
+        (l,o),g = recycle(p, key)
         _loss.append(l); _outs.append(o); _grad.append(g)
         _losses.append(o["losses"])
 
@@ -532,23 +555,6 @@ class mk_design_model:
     traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq_pseudo"]}
     if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
     for k,v in traj.items(): self._traj[k].append(np.array(v))
-      
-  def _step(self, weights=None, grad_scale=1.0, **kwargs):
-    '''do one step'''
-    if weights is not None: self.opt["weights"].update(weights)
-    
-    # update gradient
-    self._update_grad()
-
-    # normalize gradient
-    g = self._grad["seq_logits"]
-    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self._grad["seq_logits"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
-
-    # apply gradient
-    self._state = self._update_fun(self._k, self._grad, self._state)
-    self._k += 1
-    self._save_results(**kwargs)
 
   ##############################################################################
   # DESIGN FUNCTIONS

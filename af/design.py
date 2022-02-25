@@ -442,21 +442,20 @@ class mk_design_model:
     if weights is not None: self.opt["weights"].update(weights)
     
     # update gradient
-    self._update_grad(grad_scale)
+    self._update_grad()
+
+    # normalize gradient
+    g = self._grad["seq_logits"]
+    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    self._grad["seq_logits"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
 
     # apply gradient
     self._state = self._update_fun(self._k, self._grad, self._state)
     self._k += 1
     self._save_results(**kwargs)
 
-  def _update_grad(self, grad_scale=1.0):
+  def _update_grad(self):
     '''update the gradient'''
-    def normalize_grad(grad):
-      g = grad["seq_logits"]
-      gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-      grad["seq_logits"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
-      return grad
-    
     def recycle(model_params, key):
       if self.args["recycle_mode"] == "average":
         # average gradients across all recycles
@@ -468,7 +467,7 @@ class mk_design_model:
         for _ in range(self.opt["recycles"]+1):
           key, _key = jax.random.split(key)
           (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, _key, self.opt)
-          grad.append(normalize_grad(_grad))
+          grad.append(_grad)
           self._inputs.update(outs["init"])
         grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
         return (loss, outs), grad
@@ -479,8 +478,7 @@ class mk_design_model:
           key, _key = jax.random.split(key)
           self.opt["recycles"] = int(jax.random.randint(_key,[],0,self.args["num_recycles"]+1))
         
-        (loss,outs),grad = self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
-        return (loss,outs), normalize_grad(grad)
+        return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
 
     # get current params
     self._params = self._get_params(self._state)

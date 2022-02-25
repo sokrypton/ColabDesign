@@ -44,6 +44,9 @@ model = mk_design_model(protocol="binder")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_len=19)
 model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
 ```
+# Updates
+- **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
+Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
 # FAQ
 #### Can I reuse the same model without needing to recompile?
 ```python
@@ -142,7 +145,7 @@ def design_custom(self):
   # set options
   self.opt.update({"dropout":True, "soft":0.0, "hard":False"})
   # set number of recycles
-  self.ops["num_recycles"] = 0
+  self.ops["recycles"] = 0
   # take 100 steps
   for _ in range(100): self._step()
   # increase weight for plddt
@@ -150,7 +153,7 @@ def design_custom(self):
   # take another 100 steps
   for _ in range(100): self._step()
   # increase number of recycles
-  self.ops["num_recycles"] = 1
+  self.ops["recycles"] = 1
   # take another 100 steps
   for _ in range(100): self._step()
   # etc...

@@ -100,10 +100,14 @@ model.prep_inputs(..., copies=2)
 # specify interface contact and/or pae loss
 model.opt["weights"].update({"i_con":0.0, "i_pae":0.0})
 ```
+#### How do I disable certain amino acids?
+```python
+model.prep_inputs(..., rm_aa="C,W")
+model.restart(rm_aa="C,W")
+```
 #### How do I set the random seed for reproducibility?
 ```python
 model.prep_inputs(..., seed=0)
-# or
 model.restart(seed=0)
 ```
 #### What are all the different `design_???` methods?

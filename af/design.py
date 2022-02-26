@@ -569,7 +569,7 @@ class mk_design_model:
     if e_temp is None: e_temp = temp
     if e_norm is None: e_norm = norm
     for i in range(iters):
-      self.opt["temp"] = temp + (e_temp-temp) * i/(iters-1)
+      self.opt["temp"] = temp * ((e_temp/temp) ** (1/(iters-1))) ** i
       self.opt["soft"] = soft + (e_soft-soft) * i/(iters-1)
       min_norm         = norm + (e_norm-norm) * i/(iters-1)
       self._step(min_norm=min_norm, **kwargs)

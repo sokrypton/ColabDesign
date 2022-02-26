@@ -436,7 +436,7 @@ class mk_design_model:
   ######################################
   # design function
   ######################################
-  def _step(self, weights=None, grad_scale=1.0, **kwargs):
+  def _step(self, weights=None, min_norm=1e-7, **kwargs):
     '''do one step'''
     if weights is not None: self.opt["weights"].update(weights)
     
@@ -446,7 +446,8 @@ class mk_design_model:
     # normalize gradient
     g = self._grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self._grad["seq"] *= grad_scale * jnp.sqrt(self._len)/(gn+1e-7)
+    max_norm = jnp.sqrt(self._len)
+    self._grad["seq"] *= max_norm / np.maximum(min_norm * max_norm, gn)
 
     # apply gradient
     self._state = self._update_fun(self._k, self._grad, self._state)
@@ -561,15 +562,17 @@ class mk_design_model:
   def design(self, iters,
              temp=0.5, e_temp=None,
              soft=False, e_soft=None,
-             hard=False, dropout=True, **kwargs):
+             hard=False, dropout=True,
+             norm=1e-7, e_norm=None, **kwargs):
     self.opt.update({"hard":hard,"dropout":dropout})
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
+    if e_norm is None: e_norm = norm
     for i in range(iters):
-      self.opt["temp"] = temp * ((e_temp/temp) ** (1/(iters-1))) ** i
+      self.opt["temp"] = temp + (e_temp-temp) * i/(iters-1)
       self.opt["soft"] = soft + (e_soft-soft) * i/(iters-1)
-      grad_scale = (1-self.opt["soft"]) + self.opt["soft"] * 2 * self.opt["temp"]
-      self._step(grad_scale=grad_scale, **kwargs)
+      min_norm         = norm + (e_norm-norm) * i/(iters-1)
+      self._step(min_norm=min_norm, **kwargs)
 
   def design_logits(self, iters, **kwargs):
     '''optimize logits'''
@@ -591,9 +594,9 @@ class mk_design_model:
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.design(soft_iters, soft=False, e_soft=True, **kwargs)
-    self.design(temp_iters, soft=True, temp=0.5, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
+    self.design(soft_iters, e_soft=True, **kwargs)
+    self.design(temp_iters, soft=True, e_norm=1.0, e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, norm=1.0, temp=1e-2, hard=True, save_best=True, **kwargs)
   
   ######################################
   # utils

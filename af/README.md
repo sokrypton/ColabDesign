@@ -11,7 +11,7 @@ pip -q install biopython dm-haiku==0.0.5 ml-collections py3Dmol
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
 wget -qnc https://raw.githubusercontent.com/sokrypton/ColabFold/main/beta/colabfold.py
-wget -qnc https://raw.githubusercontent.com/sokrypton/ColabDesign/main/af/design.py
+wget -qnc https://raw.githubusercontent.com/sokrypton/ColabDesign/beta/af/design.py
 ```
 ```python
 import numpy as np

@@ -593,7 +593,7 @@ class mk_design_model:
     self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, logit_iters=100, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
+  def design_3stage(self, logit_iters=0, soft_iters=400, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(logit_iters, **kwargs)
     self.design(soft_iters, e_soft=True, **kwargs)

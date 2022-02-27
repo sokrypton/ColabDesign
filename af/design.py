@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -137,8 +138,7 @@ class mk_design_model:
         seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
 
       # straight-through/reparameterization
-      std = jax.lax.stop_gradient(seq.std(-1,keepdims=True))
-      seq_logits = seq/(std + 1e-7) + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
+      seq_logits = seq * 2.0 + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
       seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
       seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
       seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
@@ -426,7 +426,9 @@ class mk_design_model:
     self._lr = lr    
     
     # initialize sequence
-    if seed is None: seed = np.random.randint(100000)
+    if seed is None:
+      # TODO (not sure if this is good practice...)
+      seed = random.randint(0,2147483647)
     self._key = jax.random.PRNGKey(seed)
     self._init_seq(seq_init, rm_aa)
 
@@ -588,15 +590,15 @@ class mk_design_model:
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50, **kwargs):
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, **kwargs)
-    self.design(temp_iters, dropout=False, soft=True, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
+    self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, logit_iters=100, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(logit_iters, **kwargs)
     self.design(soft_iters, e_soft=True, **kwargs)
-    self.design(temp_iters, dropout=False, soft=True, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)  
+    self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)  
   ######################################
   # utils
   ######################################

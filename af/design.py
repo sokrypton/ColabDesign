@@ -667,27 +667,35 @@ class mk_design_model:
     view.show()
   
   def plot_traj(self, dpi=100):
-    fig, ax1 = plt.subplots(dpi=dpi)
-    ax2 = ax1.twinx()
+    fig = plt.figure(figsize=(5,5), dpi=dpi)
+    gs = GridSpec(4,1, figure=fig)
+    ax1 = fig.add_subplot(gs[:3,:])
+    ax2 = fig.add_subplot(gs[3:,:])
+    ax1_ = ax1.twinx()
     
     if self.protocol == "fixbb":
-      ax1.plot(self.get_loss("rmsd"),color="black")
-      ax2.plot(self.get_loss("seqid"),color="green",label="seqid")
+      rmsd = self.get_loss("rmsd")
+      for k in [0.5,1,2,4,8,16,32]:
+        ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")
+      ax1.plot(rmsd,color="black")
+      ax1_.plot(self.get_loss("seqid"),color="green",label="seqid")
       # axes labels
       ax1.set_yscale("log")
       ticks = [0.25,0.5,1,2,4,8,16,32,64]
+      ax1.set(xticks=[])
       ax1.set_yticks(ticks);ax1.set_yticklabels(ticks)
-      ax1.set_ylabel("rmsd",color="black");ax2.set_ylabel("seqid",color="green")
-      ax1.set_xlabel("iterations")
-      ax1.set_ylim(0.25,64);ax2.set_ylim(0,0.4)    
+      ax1.set_ylabel("RMSD",color="black");ax1_.set_ylabel("seqid",color="green")
+      ax1.set_ylim(0.25,64)
+      ax1_.set_ylim(0,0.4)
       # extras
-      ax2.plot(0.4*self.get_loss("soft"),color="yellow",label="soft")
-      ax2.plot(0.4*self.get_loss("temp"),color="orange",label="temp")
-      ax2.plot(0.4*self.get_loss("hard"),color="red",label="hard")
+      ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
+      ax2.plot(self.get_loss("temp"),color="orange",label="temp")
+      ax2.plot(self.get_loss("hard"),color="red",label="hard")
+      ax2.set_ylim(-0.1,1.1)
+      ax2.set_xlabel("iterations")
+      ax2.legend(loc='center left')
     else:
       print("TODO")
-
-    plt.legend()
     plt.show()
 
 #####################################################################

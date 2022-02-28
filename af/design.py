@@ -202,19 +202,18 @@ class mk_design_model:
       
       dgram = outputs["distogram"]["logits"]
       dgram_prob = jax.nn.softmax(dgram)
-      dgram_ent = -(dgram_prob * jax.nn.log_softmax(dgram)).sum(-1)
+      dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
       
       # define contact
-      dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
       con_bins = dgram_bins < (opt["con_cutoff"] if "con_cutoff" in opt else dgram_bins[-1])
-      con_loss = -jnp.log((con_bins * dgram_prob).sum(-1) + 1e-7)
+      con_loss = -jnp.log((con_bins * dgram_prob).max(-1) + 1e-7)
 
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:
         L = self._target_len if self.protocol == "binder" else self._len
         H = self._hotspot if hasattr(self,"_hotspot") else None
         inter,intra = {},{}
-        for k,v in zip(["pae","con","ent"],[pae_loss,con_loss,dgram_ent]):
+        for k,v in zip(["pae","con"],[pae_loss,con_loss]):
           aa = v[:L,:L].mean()
           bb = v[L:,L:].mean()
           ab = v[:L,L:] if H is None else v[H,L:]
@@ -229,13 +228,11 @@ class mk_design_model:
             inter[k] = (ab.mean()+ba.mean())/2
           intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
         losses.update({"i_con":inter["con"],"con":intra["con"],
-                       "i_pae":inter["pae"],"pae":intra["pae"],
-                       "i_ent":inter["ent"],"ent":intra["ent"]})
+                       "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
         losses.update({"con":con_loss.mean(),
-                       "pae":pae_loss.mean(),
-                       "ent":dgram_ent.mean()})
+                       "pae":pae_loss.mean()})
 
       # protocol specific losses
       if self.protocol == "binder":
@@ -345,8 +342,7 @@ class mk_design_model:
 
     self._default_weights = {"msa_ent":0.01,
                              "plddt":0.0, "pae":0.0,"i_pae":0.0,
-                             "con":0.1,"i_con":0.5,
-                             "ent":0.1,"i_ent":0.5}
+                             "con":0.1,"i_con":0.5}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -362,7 +358,7 @@ class mk_design_model:
     self._default_weights = {"msa_ent":0.01,
                              "dgram_cce":1.0,
                              "fape":0.0,"pae":0.0,
-                             "plddt":0.0,"con":0.0,"ent":0.0}
+                             "plddt":0.0,"con":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -371,8 +367,7 @@ class mk_design_model:
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
       self._default_weights.update({"pae":0.0,"i_pae":0.0,
-                                    "con":0.0,"i_con":0.0,
-                                    "ent":0.0,"i_ent":0.0})
+                                    "con":0.0,"i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -385,13 +380,11 @@ class mk_design_model:
     self._copies = copies
     # set weights
     self._default_weights = {"msa_ent":0.01,
-                             "pae":0.0,"plddt":0.0,
-                             "ent":1.0, "con":0.5}
+                             "pae":0.0,"plddt":0.0, "con":0.5}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
       self._default_weights.update({"pae":0.0,"i_pae":0.0,
-                                    "con":0.5,"i_con":0.0,
-                                    "ent":1.0,"i_ent":0.0})
+                                    "con":0.5,"i_con":0.0})
 
     self.restart(**kwargs)
 
@@ -603,9 +596,9 @@ class mk_design_model:
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, **kwargs)
     self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, logit_iters=0, soft_iters=400, temp_iters=100, hard_iters=50, **kwargs):
+  def design_3stage(self, logit_iters=0, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(logit_iters, **kwargs)
     self.design(soft_iters, e_soft=True, **kwargs)

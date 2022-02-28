@@ -200,27 +200,28 @@ class mk_design_model:
       plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
       plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
       
+      dgram = outputs["distogram"]["logits"]
+      dgram_prob = jax.nn.softmax(dgram)
+      dgram_ent = -(dgram_prob * jax.nn.log_softmax(dgram)).sum(-1)
+      
       # define contact
       dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-      if "con_cutoff" in opt:
-        con_bins = dgram_bins < opt["con_cutoff"]
-      else:
-        con_bins = dgram_bins < dgram_bins[-1]
-      con_prob = jax.nn.softmax(outputs["distogram"]["logits"])
-      con_loss = -jnp.log((con_bins*con_prob).sum(-1) + 1e-7)
+      con_bins = dgram_bins < opt["con_cutoff"] if "con_cutoff" in opt else dgram_bins[-1]
+      con_loss = -jnp.log((con_bins * dgram_prob).sum(-1) + 1e-7)
 
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:
         L = self._target_len if self.protocol == "binder" else self._len
         H = self._hotspot if hasattr(self,"_hotspot") else None
         inter,intra = {},{}
-        for k,v in zip(["pae","con"],[pae_loss,con_loss]):
+        for k,v in zip(["pae","con","ent"],[pae_loss,con_loss,dgram_ent]):
           aa = v[:L,:L].mean()
           bb = v[L:,L:].mean()
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
           if hasattr(self,"_copies"):
             # only optimize one interface
+            # TODO: extend to multiple interfaces using soft_topk
             ab = ab.reshape(-1,self._copies-1,self._len).mean((0,-1))
             ba = ba.reshape(self._copies-1,self._len,-1).mean((1,-1))
             inter[k] = (ab+ba).min()/2
@@ -228,10 +229,13 @@ class mk_design_model:
             inter[k] = (ab.mean()+ba.mean())/2
           intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
         losses.update({"i_con":inter["con"],"con":intra["con"],
-                       "i_pae":inter["pae"],"pae":intra["pae"]})
+                       "i_pae":inter["pae"],"pae":intra["pae"],
+                       "i_ent":inter["ent"],"ent":inter["ent"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        losses.update({"con":con_loss.mean(),"pae":pae_loss.mean()})
+        losses.update({"con":con_loss.mean(),
+                       "pae":pae_loss.mean(),
+                       "ent":dgram_ent.mean()})
 
       # protocol specific losses
       if self.protocol == "binder":
@@ -339,9 +343,10 @@ class mk_design_model:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights = {"msa_ent":0.01,"plddt":0.1,
-                             "pae":0.1,"i_pae":1.0,
-                             "con":0.1,"i_con":0.5}
+    self._default_weights = {"msa_ent":0.01,
+                             "plddt":0.0, "pae":0.0,"i_pae":0.0,
+                             "con":0.1,"i_con":0.5,
+                             "ent":0.1,"i_ent":0.5}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -354,8 +359,10 @@ class mk_design_model:
     self._copies = copies
     
     # set weights
-    self._default_weights = {"msa_ent":0.01,"dgram_cce":1.0,
-                             "fape":0.0,"pae":0.1,"plddt":0.1,"con":0.0}
+    self._default_weights = {"msa_ent":0.01,
+                             "dgram_cce":1.0,
+                             "fape":0.0,"pae":0.0,
+                             "plddt":0.0,"con":0.0,"ent":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -363,8 +370,9 @@ class mk_design_model:
       self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_weights.update({"pae":0.05,"i_pae":0.05,
-                                    "con":0.00,"i_con":0.00})
+      self._default_weights.update({"pae":0.0,"i_pae":0.0,
+                                    "con":0.0,"i_con":0.0,
+                                    "ent":0.0,"i_ent":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -376,18 +384,21 @@ class mk_design_model:
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
     # set weights
-    self._default_weights = {"msa_ent":0.01,"pae":1.0,"plddt":1.0,"con":0.5}
+    self._default_weights = {"msa_ent":0.01,
+                             "pae":0.0,"plddt":0.0,
+                             "ent":1.0, "con":0.5}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"pae":0.5,"i_pae":0.5,
-                                    "con":0.5,"i_con":0.0})
+      self._default_weights.update({"pae":0.0,"i_pae":0.0,
+                                    "con":0.5,"i_con":0.0,
+                                    "ent":1.0,"i_ent":0.0})
 
     self.restart(**kwargs)
 
   #################################
   # initialization/restart function
   #################################
-  def _setup_optimizer(self, optimizer="adam", lr_scale=1.0, **kwargs):
+  def _setup_optimizer(self, optimizer="sgd", lr_scale=1.0, **kwargs):
     '''setup which optimizer to use'''
     if optimizer == "adam":
       optimizer = adam

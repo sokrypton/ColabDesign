@@ -1,8 +1,7 @@
-import random
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.example_libraries.optimizers import sgd
+from jax.example_libraries.optimizers import sgd, adam
 
 def clear_mem():
   backend = jax.lib.xla_bridge.get_backend()
@@ -145,7 +144,7 @@ class mk_design_model:
 
       # create pseudo sequence
       seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq
-      seq_pseudo = jnp.where(opt["hard"], seq_hard, seq_pseudo)
+      seq_pseudo = opt["hard"] * seq_hard + (1-opt["hard"]) * seq_pseudo
       
       # save for aux output
       aux = {"seq":seq_hard,"seq_pseudo":seq_pseudo}
@@ -387,9 +386,15 @@ class mk_design_model:
   #################################
   # initialization/restart function
   #################################
-  def _setup_optimizer(self, lr=0.1, optimizer=None, **kwargs):
+  def _setup_optimizer(self, optimizer="adam", lr_scale=1.0, **kwargs):
     '''setup which optimizer to use'''
-    if optimizer is None: optimizer = sgd
+    if optimizer == "adam":
+      optimizer = adam
+      lr = 0.02 * lr_scale
+    else:
+      optimizer = sgd
+      lr = 0.1 * lr_scale
+
     self._init_fun, self._update_fun, self._get_params = optimizer(lr, **kwargs)
     self._k = 0
 
@@ -426,9 +431,7 @@ class mk_design_model:
     self._lr = lr    
     
     # initialize sequence
-    if seed is None:
-      # TODO (not sure if this is good practice...)
-      seed = random.randint(0,2147483647)
+    if seed is None: seed = np.random.randint(100000)
     self._key = jax.random.PRNGKey(seed)
     self._init_seq(seq_init, rm_aa)
 
@@ -516,8 +519,7 @@ class mk_design_model:
         (l,o),g = recycle(p, key)
         _loss.append(l); _outs.append(o); _grad.append(g)
         _losses.append(o["losses"])
-
-      self._grad = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(0), *_grad)
+      self._grad = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(0), *_grad)      
       self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
       self._losses = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(), *_losses)
 
@@ -590,15 +592,15 @@ class mk_design_model:
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50, **kwargs):
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, **kwargs)
-    self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
+    self.design(temp_iters, dropout=False, soft=True, e_temp=1e-2, **kwargs)
+    self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, logit_iters=0, soft_iters=400, temp_iters=100, hard_iters=50, **kwargs):
+  def design_3stage(self, logit_iters=100, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(logit_iters, **kwargs)
     self.design(soft_iters, e_soft=True, **kwargs)
-    self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)  
+    self.design(temp_iters, dropout=False, soft=True, e_temp=1e-2, **kwargs)
+    self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)  
   ######################################
   # utils
   ######################################

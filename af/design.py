@@ -206,7 +206,7 @@ class mk_design_model:
       
       # define contact
       dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-      con_bins = dgram_bins < opt["con_cutoff"] if "con_cutoff" in opt else dgram_bins[-1]
+      con_bins = dgram_bins < (opt["con_cutoff"] if "con_cutoff" in opt else dgram_bins[-1])
       con_loss = -jnp.log((con_bins * dgram_prob).sum(-1) + 1e-7)
 
       # if more than 1 chain, split pae/con into inter/intra
@@ -230,7 +230,7 @@ class mk_design_model:
           intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
         losses.update({"i_con":inter["con"],"con":intra["con"],
                        "i_pae":inter["pae"],"pae":intra["pae"],
-                       "i_ent":inter["ent"],"ent":inter["ent"]})
+                       "i_ent":inter["ent"],"ent":intra["ent"]})
         aux.update({"pae":get_pae(outputs)})
       else:
         losses.update({"con":con_loss.mean(),

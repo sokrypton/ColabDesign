@@ -221,15 +221,13 @@ class mk_design_model:
           bb = v[L:,L:].mean()
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
-          if hasattr(self,"_copies"):
-            # only optimize one interface
-            # TODO: extend to multiple interfaces using soft_topk
-            ab = ab.reshape(-1,self._copies-1,self._len).mean((0,-1))
-            ba = ba.reshape(self._copies-1,self._len,-1).mean((1,-1))
-            inter[k] = (ab+ba).min()/2
+          # minimize one contact per residue
+          if self.protocol == "binder":
+            intra[k] = bb.mean()
+            inter[k] = 0.5 * (ab+ba.T).min(1).mean()
           else:
-            inter[k] = (ab.mean()+ba.mean())/2
-          intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
+            intra[k] = aa.mean()
+            inter[k] = 0.5 * (ab+ba.T).min(0).mean()          
         losses.update({"i_con":inter["con"],"con":intra["con"],
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})

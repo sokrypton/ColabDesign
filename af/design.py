@@ -340,9 +340,8 @@ class mk_design_model:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights = {"msa_ent":0.01,
-                             "plddt":0.0, "pae":0.0,"i_pae":0.0,
-                             "con":0.1,"i_con":0.5}
+    self._default_weights = {"msa_ent":0.01, "plddt":0.0, "pae":0.0, "i_pae":0.0,
+                             "con":0.1, "i_con":0.5}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -355,10 +354,8 @@ class mk_design_model:
     self._copies = copies
     
     # set weights
-    self._default_weights = {"msa_ent":0.01,
-                             "dgram_cce":1.0,
-                             "fape":0.0,"pae":0.0,
-                             "plddt":0.0,"con":0.0}
+    self._default_weights = {"msa_ent":0.01, "dgram_cce":1.0,
+                             "fape":0.0, "pae":0.0, "plddt":0.0,"con":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -366,8 +363,7 @@ class mk_design_model:
       self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_weights.update({"pae":0.0,"i_pae":0.0,
-                                    "con":0.0,"i_con":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -379,12 +375,10 @@ class mk_design_model:
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
     # set weights
-    self._default_weights = {"msa_ent":0.01,
-                             "pae":0.0,"plddt":0.0, "con":0.5}
+    self._default_weights = {"msa_ent":0.01, "pae":0.0, "plddt":0.0, "con":1.0}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"pae":0.0,"i_pae":0.0,
-                                    "con":0.5,"i_con":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0})
 
     self.restart(**kwargs)
 

@@ -201,12 +201,15 @@ class mk_design_model:
       plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
       
       dgram = outputs["distogram"]["logits"]
-      dgram_prob = jax.nn.softmax(dgram)
       dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
       
       # define contact
       con_bins = dgram_bins < (opt["con_cutoff"] if "con_cutoff" in opt else dgram_bins[-1])
-      con_loss = -jnp.log((con_bins * dgram_prob).max(-1) + 1e-7)
+      con_prob = jax.nn.softmax(dgram - 1e7 * (1-con_bins))
+      con_loss = -(con_prob * jax.nn.log_softmax(dgram)).sum(-1)
+      
+      # dgram_prob = jax.nn.softmax(dgram)
+      # con_loss = -jnp.log((con_bins * dgram_prob).max(-1) + 1e-7)
 
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:
@@ -341,7 +344,7 @@ class mk_design_model:
     self._binder_len = self._len = binder_len
 
     self._default_weights = {"msa_ent":0.01, "plddt":0.0, "pae":0.0, "i_pae":0.0,
-                             "con":0.1, "i_con":0.5}
+                             "con":0.5, "i_con":0.5}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -378,7 +381,7 @@ class mk_design_model:
     self._default_weights = {"msa_ent":0.01, "pae":0.0, "plddt":0.0, "con":1.0}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0})
+      self._default_weights.update({"i_pae":0.0, "con":0.5, "i_con":0.5})
 
     self.restart(**kwargs)
 
@@ -544,8 +547,8 @@ class mk_design_model:
       I = ["model","recycles"]
       f = ["soft","temp","seqid"]
       F = ["loss","msa_ent",
-           "pae","i_pae","plddt",
-           "con","i_con","dgram_cce","fape","rmsd"]
+           "plddt","pae","i_pae","con","i_con",
+           "dgram_cce","fape","rmsd"]
       I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
       f = " ".join([f"{x}: {self._losses[x]:.2f}" for x in f if x in self._losses])
       F = " ".join([f"{x}: {self._losses[x]:.2f}" for x in F if x in self._losses])

@@ -1,3 +1,4 @@
+import random
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -416,22 +417,20 @@ class mk_design_model:
     self._params = {"seq":y}
     self._state = self._init_fun(self._params)
 
-  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None,
-              lr=0.1, optimizer=None, **kwargs):    
+  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None, **kwargs):    
     
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
     if weights is not None: self.opt["weights"].update(weights)
-    self.opt.update({"temp":1.0, "soft":1.0, "hard":True,
+    self.opt.update({"temp":1.0, "soft":True, "hard":True,
                      "dropout":True, "dropout_scale":1.0,
                      "gumbel":False, "recycles":self.args["num_recycles"]})
 
     # setup optimizer
-    self._setup_optimizer(lr=lr, optimizer=optimizer, **kwargs)    
-    self._lr = lr    
+    self._setup_optimizer(**kwargs)    
     
     # initialize sequence
-    if seed is None: seed = np.random.randint(100000)
+    if seed is None: seed = random.randint(0,2147483647)
     self._key = jax.random.PRNGKey(seed)
     self._init_seq(seq_init, rm_aa)
 
@@ -592,15 +591,15 @@ class mk_design_model:
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50, **kwargs):
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, **kwargs)
-    self.design(temp_iters, dropout=False, soft=True, e_temp=1e-2, **kwargs)
+    self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
     self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, logit_iters=100, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
+  def design_3stage(self, logit_iters=0, soft_iters=400, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(logit_iters, **kwargs)
     self.design(soft_iters, e_soft=True, **kwargs)
-    self.design(temp_iters, dropout=False, soft=True, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, dropout=False, soft=True, temp=1e-2, hard=True, save_best=True, **kwargs)  
+    self.design(temp_iters, soft=True,   e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)    
   ######################################
   # utils
   ######################################

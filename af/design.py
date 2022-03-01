@@ -46,6 +46,12 @@ class mk_design_model:
     
     self.protocol = protocol
 
+    self._default_opt = {"temp":1.0, "soft":True, "hard":True,
+                         "dropout":True, "dropout_scale":1.0,
+                         "gumbel":False, "recycles":self.args["num_recycles"],
+                         "con_cutoff":14.0, #21.6875,
+                         "con_k":9}
+
     # setup which model params to use
     if use_templates:
       model_name = "model_1_ptm"
@@ -211,6 +217,11 @@ class mk_design_model:
       # dgram_prob = jax.nn.softmax(dgram)
       # con_loss = -jnp.log((con_bins * dgram_prob).max(-1) + 1e-7)
 
+      def add_diag(x, k=0, val=1e8):
+        L = x.shape[-1]
+        m = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) <= k
+        return x + m * val
+
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:
         L = self._target_len if self.protocol == "binder" else self._len
@@ -222,19 +233,14 @@ class mk_design_model:
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
           abba = (ab + ba.T)/2
-          aux.update({f"abba_{k}":abba, f"aa_{k}":aa, f"bb_{k}":bb})
-
-          def add_diag(x, k=0, val=1e8):
-            m = jnp.tril(jnp.triu(jnp.full_like(x, val),-k),k)
-            return x + m
           
           if k == "con":
             # TODO replace min() with soft_topk().mean()
             if self.protocol == "binder":
-              intra[k] = add_diag(bb).min(0).mean()
+              intra[k] = add_diag(bb,opt["con_k"]).min(0).mean()
               inter[k] = abba.min(1).mean()
             else:
-              intra[k] = add_diag(aa).min(0).mean()
+              intra[k] = add_diag(aa,opt["con_k"]).min(0).mean()
               inter[k] = abba.min(0).mean()   
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
@@ -244,7 +250,7 @@ class mk_design_model:
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        losses.update({"con":con_loss.mean(),
+        losses.update({"con":add_diag(con_loss,opt["con_k"]).min(0).mean(),
                        "pae":pae_loss.mean()})
 
       # protocol specific losses
@@ -433,10 +439,7 @@ class mk_design_model:
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
     if weights is not None: self.opt["weights"].update(weights)
-    self.opt.update({"temp":1.0, "soft":True, "hard":True,
-                     "dropout":True, "dropout_scale":1.0,
-                     "gumbel":False, "recycles":self.args["num_recycles"],
-                     "con_cutoff":21.6875, "con_triu":12})
+    self.opt.update(self._default_opt.copy())
 
     # setup optimizer
     self._setup_optimizer(**kwargs)    

@@ -32,8 +32,7 @@ class mk_design_model:
   ######################################
   def __init__(self, num_seq=1, protocol="fixbb",
                num_models=1, model_mode="sample", model_parallel=False,
-               num_recycles=0, recycle_mode="average",
-               num_contacts=1, use_templates=None):
+               num_recycles=0, recycle_mode="average", use_templates=None):
     
     # decide if templates should be used
     if use_templates is None:
@@ -218,7 +217,7 @@ class mk_design_model:
         m = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) <= opt["con_seqsep"]
         return x + m * 1e8
 
-      def soft_min(x, axis):
+      def soft_min(x, axis=-1):
         return (x * jax.nn.softmax(-x * opt["con_eps"], axis)).sum(axis)
 
       # if more than 1 chain, split pae/con into inter/intra
@@ -231,18 +230,13 @@ class mk_design_model:
           bb = v[L:,L:]
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
-          abba = (ab + ba.T)/2
-          aux.update({f"aa_{k}":aa,
-                      f"bb_{k}":bb,
-                      f"ab_{k}":ab,
-                      f"ba_{k}":ba})
-          
+          abba = (ab + ba.T)/2          
           if k == "con":
             if self.protocol == "binder":
-              intra[k] = soft_min(mod_diag(bb),0).mean()
-              inter[k] = soft_min(abba,1).mean()
+              intra[k] = soft_min(mod_diag(bb)).mean()
+              inter[k] = soft_min(abba).mean()
             else:
-              intra[k] = soft_min(mod_diag(aa),0).mean()
+              intra[k] = soft_min(mod_diag(aa)).mean()
               inter[k] = soft_min(abba,0).mean()
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
@@ -252,8 +246,7 @@ class mk_design_model:
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        aux.update({"aa_con":con_loss,"aa_pae":pae_loss})
-        losses.update({"con":soft_min(mod_diag(con_loss),0).mean(),
+        losses.update({"con":soft_min(mod_diag(con_loss)).mean(),
                        "pae":pae_loss.mean()})
 
       # protocol specific losses

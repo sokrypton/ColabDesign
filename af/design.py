@@ -50,7 +50,7 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con_cutoff":14.0, #21.6875,
-                         "con_k":9}
+                         "con_seqsep":9}
 
     # setup which model params to use
     if use_templates:
@@ -237,10 +237,10 @@ class mk_design_model:
           if k == "con":
             # TODO replace min() with soft_topk().mean()
             if self.protocol == "binder":
-              intra[k] = add_diag(bb,opt["con_k"]).min(0).mean()
+              intra[k] = add_diag(bb,opt["con_seqsep"]).min(0).mean()
               inter[k] = abba.min(1).mean()
             else:
-              intra[k] = add_diag(aa,opt["con_k"]).min(0).mean()
+              intra[k] = add_diag(aa,opt["con_seqsep"]).min(0).mean()
               inter[k] = abba.min(0).mean()   
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
@@ -250,7 +250,7 @@ class mk_design_model:
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        losses.update({"con":add_diag(con_loss,opt["con_k"]).min(0).mean(),
+        losses.update({"con":add_diag(con_loss,opt["con_seqsep"]).min(0).mean(),
                        "pae":pae_loss.mean()})
 
       # protocol specific losses

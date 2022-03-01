@@ -88,10 +88,9 @@ model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
 #### How is contact defined? How do I change it?
-`con` is defined using the distogram, where bins < 20 angstroms are summed. To change the cutoff use:
-```python
-model.opt["con_cutoff"] = 8.0
-```
+*con* is defined using the distogram, where bins < 20 angstroms are summed. 
+- To change the cutoff used: `model.opt["con_cutoff"] = 8.0`
+- To change the sequence seperation cutoff use: `model.opt["con_triu"] = 9`
 #### For binder hallucination, can I specify the site I want to bind?
 ```python
 model.prep_inputs(..., hotspot="1-10,15,3")

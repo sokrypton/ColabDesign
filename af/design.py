@@ -138,7 +138,7 @@ class mk_design_model:
         seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
 
       # straight-through/reparameterization
-      seq_logits = seq * 2.0 + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
+      seq_logits = seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
       seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
       seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
       seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
@@ -222,11 +222,24 @@ class mk_design_model:
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
           # minimize one contact per residue
+          def diag_mask(x,k):
+            m = jnp.ones_like(x)
+            m = jnp.tril(jnp.triu(m,-k),k)
+            x = jnp.triu(x,k+1) + jnp.tril(x,-k-1) + m * 1e8
+            return x
+          if k == "con":
+            aa = diag_mask(aa).min(0).mean()
+            bb = diag_mask(bb).min(0).mean()
+            #aa = jnp.triu(aa,opt["con_triu"]).sum()/jnp.triu(jnp.ones_like(aa)).sum()
+            #bb = jnp.triu(bb,opt["con_triu"]).sum()/jnp.triu(jnp.ones_like(bb)).sum()
+          else:
+            aa = aa.mean()
+            bb = bb.mean()
           if self.protocol == "binder":
-            intra[k] = bb.mean()
+            intra[k] = bb
             inter[k] = 0.5 * (ab+ba.T).min(1).mean()
           else:
-            intra[k] = aa.mean()
+            intra[k] = aa
             inter[k] = 0.5 * (ab+ba.T).min(0).mean()          
         losses.update({"i_con":inter["con"],"con":intra["con"],
                        "i_pae":inter["pae"],"pae":intra["pae"]})
@@ -423,7 +436,8 @@ class mk_design_model:
     if weights is not None: self.opt["weights"].update(weights)
     self.opt.update({"temp":1.0, "soft":True, "hard":True,
                      "dropout":True, "dropout_scale":1.0,
-                     "gumbel":False, "recycles":self.args["num_recycles"]})
+                     "gumbel":False, "recycles":self.args["num_recycles"],
+                     "con_cutoff":21.6875, "con_triu":12})
 
     # setup optimizer
     self._setup_optimizer(**kwargs)    
@@ -593,11 +607,10 @@ class mk_design_model:
     self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, logit_iters=0, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.design(logit_iters, **kwargs)
-    self.design(soft_iters, e_soft=True, **kwargs)
-    self.design(temp_iters, soft=True,   e_temp=1e-2, **kwargs)
+    self.design(soft_iters, e_soft=True, temp=0.5, **kwargs)
+    self.design(temp_iters, soft=True,   temp=0.5, e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)    
   ######################################
   # utils

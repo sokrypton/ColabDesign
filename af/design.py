@@ -217,8 +217,8 @@ class mk_design_model:
         H = self._hotspot if hasattr(self,"_hotspot") else None
         inter,intra = {},{}
         for k,v in zip(["pae","con"],[pae_loss,con_loss]):
-          aa = v[:L,:L].mean()
-          bb = v[L:,L:].mean()
+          aa = v[:L,:L]
+          bb = v[L:,L:]
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
           abba = (ab + ba.T)/2

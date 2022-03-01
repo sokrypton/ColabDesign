@@ -221,26 +221,25 @@ class mk_design_model:
           bb = v[L:,L:].mean()
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
-          # minimize one contact per residue
-          def diag_mask(x,k):
-            m = jnp.ones_like(x)
-            m = jnp.tril(jnp.triu(m,-k),k)
-            x = jnp.triu(x,k+1) + jnp.tril(x,-k-1) + m * 1e8
-            return x
+          abba = (ab + ba.T)/2
+          aux.update({f"abba_{k}":abba, f"aa_{k}":aa, f"bb_{k}":bb})
+
+          def add_diag(x, k=0, val=1e8):
+            m = jnp.tril(jnp.triu(jnp.full_like(x, val),-k),k)
+            return x + m
+          
           if k == "con":
-            aa = diag_mask(aa).min(0).mean()
-            bb = diag_mask(bb).min(0).mean()
-            #aa = jnp.triu(aa,opt["con_triu"]).sum()/jnp.triu(jnp.ones_like(aa)).sum()
-            #bb = jnp.triu(bb,opt["con_triu"]).sum()/jnp.triu(jnp.ones_like(bb)).sum()
+            # TODO replace min() with soft_topk().mean()
+            if self.protocol == "binder":
+              intra[k] = add_diag(bb).min(0).mean()
+              inter[k] = abba.min(1).mean()
+            else:
+              intra[k] = add_diag(aa).min(0).mean()
+              inter[k] = abba.min(0).mean()   
           else:
-            aa = aa.mean()
-            bb = bb.mean()
-          if self.protocol == "binder":
-            intra[k] = bb
-            inter[k] = 0.5 * (ab+ba.T).min(1).mean()
-          else:
-            intra[k] = aa
-            inter[k] = 0.5 * (ab+ba.T).min(0).mean()          
+            intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
+            inter[k] = abba.mean()
+
         losses.update({"i_con":inter["con"],"con":intra["con"],
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})

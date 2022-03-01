@@ -33,24 +33,23 @@ class mk_design_model:
   def __init__(self, num_seq=1, protocol="fixbb",
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               use_templates=None):
+               num_contacts=1, use_templates=None):
     
     # decide if templates should be used
     if use_templates is None:
       use_templates = True if protocol=="binder" else False
 
+    self.protocol = protocol
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "num_models":num_models,
                  "model_mode":model_mode, "model_parallel": model_parallel,
                  "num_recycles":num_recycles, "recycle_mode":recycle_mode}
     
-    self.protocol = protocol
-
     self._default_opt = {"temp":1.0, "soft":True, "hard":True,
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
-                         "con_cutoff":14.0, #21.6875,
-                         "con_seqsep":9}
+                         "con_cutoff":14.0, # 21.6875 (previous default)
+                         "con_seqsep":9, "con_eps":10.0}
 
     # setup which model params to use
     if use_templates:
@@ -119,7 +118,7 @@ class mk_design_model:
       self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]
 
     # define input function
-    if protocol == "fixbb":          self.prep_inputs = self._prep_fixbb
+    if protocol == "fixbb":           self.prep_inputs = self._prep_fixbb
     if protocol == "hallucination":  self.prep_inputs = self._prep_hallucination
     if protocol == "binder":         self.prep_inputs = self._prep_binder
 
@@ -144,7 +143,7 @@ class mk_design_model:
         seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
 
       # straight-through/reparameterization
-      seq_logits = seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
+      seq_logits = 2.0 * seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
       seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
       seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
       seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
@@ -214,13 +213,13 @@ class mk_design_model:
       con_prob = jax.nn.softmax(dgram - 1e7 * (1-con_bins))
       con_loss = -(con_prob * jax.nn.log_softmax(dgram)).sum(-1)
       
-      # dgram_prob = jax.nn.softmax(dgram)
-      # con_loss = -jnp.log((con_bins * dgram_prob).max(-1) + 1e-7)
-
-      def add_diag(x, k=0, val=1e8):
+      def mod_diag(x):
         L = x.shape[-1]
-        m = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) <= k
-        return x + m * val
+        m = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) <= opt["con_seqsep"]
+        return x + m * 1e8
+
+      def soft_min(x, axis):
+        return (x * jax.nn.softmax(-x * opt["con_eps"], axis)).sum(axis)
 
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:
@@ -233,15 +232,18 @@ class mk_design_model:
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
           abba = (ab + ba.T)/2
+          aux.update({f"aa_{k}":aa,
+                      f"bb_{k}":bb,
+                      f"ab_{k}":ab,
+                      f"ba_{k}":ba})
           
           if k == "con":
-            # TODO replace min() with soft_topk().mean()
             if self.protocol == "binder":
-              intra[k] = add_diag(bb,opt["con_seqsep"]).min(0).mean()
-              inter[k] = abba.min(1).mean()
+              intra[k] = soft_min(mod_diag(bb),0).mean()
+              inter[k] = soft_min(abba,1).mean()
             else:
-              intra[k] = add_diag(aa,opt["con_seqsep"]).min(0).mean()
-              inter[k] = abba.min(0).mean()   
+              intra[k] = soft_min(mod_diag(aa),0).mean()
+              inter[k] = soft_min(abba,0).mean()
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
             inter[k] = abba.mean()
@@ -250,7 +252,8 @@ class mk_design_model:
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        losses.update({"con":add_diag(con_loss,opt["con_seqsep"]).min(0).mean(),
+        aux.update({"aa_con":con_loss,"aa_pae":pae_loss})
+        losses.update({"con":soft_min(mod_diag(con_loss),0).mean(),
                        "pae":pae_loss.mean()})
 
       # protocol specific losses
@@ -611,8 +614,8 @@ class mk_design_model:
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.design(soft_iters, e_soft=True, temp=0.5, **kwargs)
-    self.design(temp_iters, soft=True,   temp=0.5, e_temp=1e-2, **kwargs)
+    self.design(soft_iters, e_soft=True, **kwargs)
+    self.design(temp_iters, soft=True,   e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)    
   ######################################
   # utils

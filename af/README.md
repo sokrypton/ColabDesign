@@ -48,7 +48,7 @@ model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
 - **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
 Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
 - **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default.
-- **28Feb2022** - The definition of [con]tact loss was updated from `-log(softmax(logits)[:-1].sum())` to `-log(softmax(logits)[:-1].max())`. The original definition maximized the sum of the probability distribution within cutoff, while the new definition also minimizes the entropy within the cutoff.
+- **28Feb2022** - The definition of [con]tact loss was updated from `-log(softmax(logits)[:-1].sum())` to `-(softmax(logits[:-1])*log_softmax(logits)[:-1]).sum()`. The original definition maximized the sum of the probability distribution within cutoff, while the new definition also minimizes the entropy within the cutoff.
 # FAQ
 #### Can I reuse the same model without needing to recompile?
 ```python

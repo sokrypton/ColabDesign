@@ -604,6 +604,7 @@ class mk_design_model:
   ######################################
   def get_seqs(self):
     outs = self._outs if self._best_outs is None else self._best_outs
+    outs = jax.tree_map(lambda x:np.asarray(x), outs)
     x = np.array(outs["seq"]).argmax(-1)
     return ["".join([order_restype[a] for a in s]) for s in x]
   
@@ -614,6 +615,7 @@ class mk_design_model:
   def save_pdb(self, filename=None):
     '''save pdb coordinates'''
     outs = self._outs if self._best_outs is None else self._best_outs
+    outs = jax.tree_map(lambda x:np.asarray(x), outs)
     aatype = outs["seq"].argmax(-1)[0]
     if self.protocol == "binder":
       aatype_target = self._batch["aatype"][:self._target_len]
@@ -621,13 +623,14 @@ class mk_design_model:
     if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
       aatype = np.concatenate([aatype] * self._copies)
     p = {"residue_index":self._inputs["residue_index"][0],
-         "aatype":aatype,
-         "atom_positions":outs["final_atom_positions"],
-         "atom_mask":outs["final_atom_mask"]}
+          "aatype":aatype,
+          "atom_positions":outs["final_atom_positions"],
+          "atom_mask":outs["final_atom_mask"]}
     b_factors = outs["plddt"][:,None] * p["atom_mask"]
     p = protein.Protein(**p,b_factors=b_factors)
     pdb_lines = protein.to_pdb(p)
-    if filename is None: return pdb_lines
+    if filename is None:
+      return pdb_lines
     else:
       with open(filename, 'w') as f: f.write(pdb_lines)
   

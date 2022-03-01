@@ -419,7 +419,7 @@ class mk_design_model:
     if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
       y = jnp.broadcast_to(x, shape)
     elif isinstance(x, str):
-      if x == "gumbel": y = jax.random.gumbel(_key, shape)
+      if x == "gumbel": y = 0.5 * jax.random.gumbel(_key, shape)
       if x == "zeros": y = jnp.zeros(shape)
     else:
       y = 0.01 * jax.random.normal(_key, shape)
@@ -599,16 +599,18 @@ class mk_design_model:
     ''' optimize argmax(logits)'''
     self.design(iters, soft=True, hard=True, **kwargs)
 
-  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50, **kwargs):
+  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
+                    temp=1.0, dropout=True, **kwargs):
     '''two stage design (soft→hard)'''
-    self.design(soft_iters, soft=True, **kwargs)
-    self.design(temp_iters, soft=True, e_temp=1e-2, **kwargs)
+    self.design(soft_iters, soft=True, temp=temp, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True, temp=temp, dropout=dropout, e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, **kwargs):
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, 
+                    temp=1.0, dropout=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.design(soft_iters, e_soft=True, **kwargs)
-    self.design(temp_iters, soft=True,   e_temp=1e-2, **kwargs)
+    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)    
   ######################################
   # utils

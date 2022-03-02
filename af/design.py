@@ -47,7 +47,7 @@ class mk_design_model:
     self._default_opt = {"temp":1.0, "soft":True, "hard":True,
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
-                         "con_cutoff":14.0, # 21.6875 (previous default)
+                         "con_cutoff":21.6875, "con_restrict":True,
                          "con_seqsep":9, "con_eps":10.0}
 
     # setup which model params to use
@@ -208,7 +208,7 @@ class mk_design_model:
       dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
       
       # define contact
-      con_bins = dgram_bins < (opt["con_cutoff"] if "con_cutoff" in opt else dgram_bins[-1])
+      con_bins = dgram_bins < opt["con_cutoff"]
       con_prob = jax.nn.softmax(dgram - 1e7 * (1-con_bins))
       con_loss = -(con_prob * jax.nn.log_softmax(dgram)).sum(-1)
       
@@ -233,10 +233,10 @@ class mk_design_model:
           abba = (ab + ba.T)/2          
           if k == "con":
             if self.protocol == "binder":
-              intra[k] = bb.mean() #TODO: soft_min(mod_diag(bb)).mean()
+              intra[k] = jnp.where(opt["con_restrict"], soft_min(mod_diag(bb)).mean(), bb.mean())
               inter[k] = soft_min(abba,0).mean()
             else:
-              intra[k] = aa.mean() #TODO: soft_min(mod_diag(aa)).mean()
+              intra[k] = jnp.where(opt["con_restrict"], soft_min(mod_diag(aa)).mean(), aa.mean())
               inter[k] = soft_min(abba,1).mean()
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
@@ -246,7 +246,7 @@ class mk_design_model:
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        losses.update({"con":con_loss.mean(), #TODO: soft_min(mod_diag(con_loss)).mean(),
+        losses.update({"con":jnp.where(opt["con_restrict"], soft_min(mod_diag(con_loss)).mean(), con_loss.mean()),
                        "pae":pae_loss.mean()})
 
       # protocol specific losses
@@ -602,14 +602,18 @@ class mk_design_model:
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
                     temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''two stage design (soft→hard)'''
+    self.opt["con_restrict"] = False
     self.design(soft_iters, soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
+    self.opt["con_restrict"] = True
     self.design(temp_iters, soft=True, temp=temp, dropout=dropout, gumbel=False,  e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False,   gumbel=False,  hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, 
                     temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''three stage design (logits→soft→hard)'''
+    self.opt["con_restrict"] = False
     self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
+    self.opt["con_restrict"] = True
     self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, gumbel=False, e_temp=1e-2,**kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False,   gumbel=False, hard=True, save_best=True, **kwargs)    
   ######################################

@@ -32,14 +32,12 @@ class mk_design_model:
   ######################################
   def __init__(self, num_seq=1, protocol="fixbb",
                num_models=1, model_mode="sample", model_parallel=False,
-               num_recycles=0, recycle_mode="average", use_templates=None):
+               num_recycles=0, recycle_mode="average",
+               pdb_mode="template"):
     
-    # decide if templates should be used
-    if use_templates is None:
-      use_templates = True if protocol=="binder" else False
 
     self.protocol = protocol
-    self.args = {"num_seq":num_seq, "use_templates":use_templates,
+    self.args = {"num_seq":num_seq, "pdb_mode":pdb_mode,
                  "num_models":num_models,
                  "model_mode":model_mode, "model_parallel": model_parallel,
                  "num_recycles":num_recycles, "recycle_mode":recycle_mode}
@@ -48,14 +46,18 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con_cutoff":14.0, # 21.6875 (previous default)
-                         "con_seqsep":9}
+                         "con_num":1, "con_seqsep":9}
+
+    # decide if templates should be used
+    self.args["use_templates"] = True if (protocol=="binder" and pdb_mode == "template") else False
 
     # setup which model params to use
-    if use_templates:
+    if self.args["use_templates"]:
       model_name = "model_1_ptm"
       self.args["num_models"] = min(num_models, 2)
     else:
       model_name = "model_3_ptm"
+    
     cfg = config.model_config(model_name)
 
     # enable checkpointing
@@ -65,7 +67,7 @@ class mk_design_model:
     cfg.model.global_config.subbatch_size = None
 
     # number of sequences
-    if use_templates:
+    if self.args["use_templates"]:
       cfg.data.eval.max_templates = 1
       cfg.data.eval.max_msa_clusters = num_seq + 1
     else:
@@ -94,7 +96,7 @@ class mk_design_model:
     self._runner = model.RunModel(self._config, self._model_params[0], is_training=True)
 
     # load the other model_params
-    if use_templates:
+    if self.args["use_templates"]:
       model_names = ["model_2_ptm"]
     else:
       model_names = ["model_1_ptm","model_2_ptm","model_4_ptm","model_5_ptm"]
@@ -117,7 +119,7 @@ class mk_design_model:
       self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]
 
     # define input function
-    if protocol == "fixbb":           self.prep_inputs = self._prep_fixbb
+    if protocol == "fixbb":          self.prep_inputs = self._prep_fixbb
     if protocol == "hallucination":  self.prep_inputs = self._prep_hallucination
     if protocol == "binder":         self.prep_inputs = self._prep_binder
 
@@ -216,15 +218,14 @@ class mk_design_model:
         L = x.shape[-1]
         m = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) <= opt["con_seqsep"]
         return x + m * 1e8
-
+      
       # if more than 1 chain, split pae/con into inter/intra
       if self.protocol == "binder" or self._copies > 1:
         L = self._target_len if self.protocol == "binder" else self._len
         H = self._hotspot if hasattr(self,"_hotspot") else None
         inter,intra = {},{}
         for k,v in zip(["pae","con"],[pae_loss,con_loss]):
-          aa = v[:L,:L]
-          bb = v[L:,L:]
+          aa,bb = v[:L,:L],v[L:,L:]
           ab = v[:L,L:] if H is None else v[H,L:]
           ba = v[L:,:L] if H is None else v[L:,H]
           abba = (ab + ba.T)/2          
@@ -471,11 +472,16 @@ class mk_design_model:
     
     def recycle(model_params, key):
       if self.args["recycle_mode"] == "average":
+        #----------------------------------------
         # average gradients across all recycles
+        #----------------------------------------
         L = self._inputs["residue_index"].shape[-1]
         self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
                              'init_msa_first_row': np.zeros([1, L, 256]),
                              'init_pair': np.zeros([1, L, L, 128])})
+        if self.args["pdb_mode"] == "init":
+          self._inputs["init_pos"] = self._batch["all_atom_positions"][None]
+        
         grad = []
         for _ in range(self.opt["recycles"]+1):
           key, _key = jax.random.split(key)
@@ -485,7 +491,11 @@ class mk_design_model:
         grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
         return (loss, outs), grad
       else:
+        #----------------------------------------
         # use gradients from last recycle
+        #----------------------------------------
+        if self.args["pdb_mode"] == "init":
+          self._inputs["init_pos"] = self._batch["all_atom_positions"][None]          
         if self.args["recycle_mode"] == "sample":
           # decide number of recycles to use
           key, _key = jax.random.split(key)

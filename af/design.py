@@ -234,10 +234,10 @@ class mk_design_model:
           if k == "con":
             if self.protocol == "binder":
               intra[k] = soft_min(mod_diag(bb)).mean()
-              inter[k] = soft_min(abba).mean()
+              inter[k] = soft_min(abba,0).mean()
             else:
               intra[k] = soft_min(mod_diag(aa)).mean()
-              inter[k] = soft_min(abba,0).mean()
+              inter[k] = soft_min(abba).mean()
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
             inter[k] = abba.mean()

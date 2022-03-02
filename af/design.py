@@ -33,11 +33,17 @@ class mk_design_model:
   def __init__(self, num_seq=1, protocol="fixbb",
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               pdb_mode="template"):
-    
+               use_templates=None, use_init_pos=None):
+
+    # decide if templates should be used
+    if use_templates is None:
+      use_templates = True if (protocol == "binder" and use_init_pos is None) else False
+    if use_init_pos is None:
+      use_init_pos = True if (protocol == "binder" and use_templates is None) else False
 
     self.protocol = protocol
-    self.args = {"num_seq":num_seq, "pdb_mode":pdb_mode,
+    self.args = {"num_seq":num_seq, 
+                 "use_templates":use_templates, "use_init_pos":use_init_pos,
                  "num_models":num_models,
                  "model_mode":model_mode, "model_parallel": model_parallel,
                  "num_recycles":num_recycles, "recycle_mode":recycle_mode}
@@ -46,13 +52,11 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con_cutoff":14.0, # 21.6875 (previous default)
-                         "con_num":1, "con_seqsep":9}
+                         "con_seqsep":9}
 
-    # decide if templates should be used
-    self.args["use_templates"] = True if (protocol=="binder" and pdb_mode == "template") else False
 
     # setup which model params to use
-    if self.args["use_templates"]:
+    if use_templates:
       model_name = "model_1_ptm"
       self.args["num_models"] = min(num_models, 2)
     else:
@@ -67,7 +71,7 @@ class mk_design_model:
     cfg.model.global_config.subbatch_size = None
 
     # number of sequences
-    if self.args["use_templates"]:
+    if use_templates:
       cfg.data.eval.max_templates = 1
       cfg.data.eval.max_msa_clusters = num_seq + 1
     else:
@@ -96,7 +100,7 @@ class mk_design_model:
     self._runner = model.RunModel(self._config, self._model_params[0], is_training=True)
 
     # load the other model_params
-    if self.args["use_templates"]:
+    if use_templates:
       model_names = ["model_2_ptm"]
     else:
       model_names = ["model_1_ptm","model_2_ptm","model_4_ptm","model_5_ptm"]
@@ -166,7 +170,8 @@ class mk_design_model:
         seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
         seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
         seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
-        seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
+        if self.args["use_templates"]:
+          seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
       
       if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
         seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
@@ -231,10 +236,10 @@ class mk_design_model:
           abba = (ab + ba.T)/2          
           if k == "con":
             if self.protocol == "binder":
-              intra[k] = mod_diag(bb).min(0).mean()
+              intra[k] = bb.mean() #mod_diag(bb).min(0).mean()
               inter[k] = abba.min(0).mean()
             else:
-              intra[k] = mod_diag(aa).min(0).mean()
+              intra[k] = aa.mean() #mod_diag(aa).min(0).mean()
               inter[k] = abba.min(1).mean()
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
@@ -244,7 +249,7 @@ class mk_design_model:
                        "i_pae": inter["pae"], "pae": intra["pae"]})
         aux.update({"pae": get_pae(outputs)})
       else:
-        losses.update({"con": mod_diag(con_loss).min(0).mean(),
+        losses.update({"con": con_loss.mean(), #mod_diag(con_loss).min(0).mean(),
                        "pae": pae_loss.mean()})
 
       # protocol specific losses
@@ -448,7 +453,7 @@ class mk_design_model:
     self._best_loss, self._best_outs = np.inf, None
 
   ######################################
-  # design function
+  # STEP FUNCTION
   ######################################
   def _step(self, weights=None, lr_scale=1.0, **kwargs):
     '''do one step'''
@@ -467,6 +472,9 @@ class mk_design_model:
     self._k += 1
     self._save_results(**kwargs)
 
+  #################################
+  # UPDATE GRADIENTS
+  #################################
   def _update_grad(self):
     '''update the gradient'''
     
@@ -479,7 +487,7 @@ class mk_design_model:
         self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
                              'init_msa_first_row': np.zeros([1, L, 256]),
                              'init_pair': np.zeros([1, L, L, 128])})
-        if self.args["pdb_mode"] == "init":
+        if self.args["use_init_pos"]:
           self._inputs["init_pos"] = self._batch["all_atom_positions"][None]
         
         grad = []
@@ -494,8 +502,8 @@ class mk_design_model:
         #----------------------------------------
         # use gradients from last recycle
         #----------------------------------------
-        if self.args["pdb_mode"] == "init":
-          self._inputs["init_pos"] = self._batch["all_atom_positions"][None]          
+        if self.args["use_init_pos"]:
+          self._inputs["init_pos"] = self._batch["all_atom_positions"][None]        
         if self.args["recycle_mode"] == "sample":
           # decide number of recycles to use
           key, _key = jax.random.split(key)
@@ -518,7 +526,9 @@ class mk_design_model:
       key,_key = jax.random.split(key)
       self._model_num = jax.random.choice(_key,ns,(m,),replace=False)
     
+    #------------------------
     # run in parallel
+    #------------------------
     if self.args["model_parallel"]:
       p = self._model_params
       if self.args["model_mode"] == "sample":
@@ -528,7 +538,9 @@ class mk_design_model:
       self._loss,self._outs = l.mean(),jax.tree_map(lambda x:x[0],o)
       self._losses = jax.tree_map(lambda x: x.mean(0), o["losses"])
 
+    #------------------------
     # run in serial
+    #------------------------
     else:
       _loss, _losses, _outs, _grad = [],[],[],[]
       for n in self._model_num:
@@ -540,6 +552,9 @@ class mk_design_model:
       self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
       self._losses = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(), *_losses)
 
+  #########################
+  # SAVE RESULTS
+  #########################
   def _save_results(self, save_best=False, verbose=True):
     '''save the results and update trajectory'''
 

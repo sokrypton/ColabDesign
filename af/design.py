@@ -576,8 +576,8 @@ class mk_design_model:
   def design(self, iters,
               temp=1.0, e_temp=None,
               soft=False, e_soft=None,
-              hard=False, dropout=True, **kwargs):
-    self.opt.update({"hard":hard,"dropout":dropout})
+              hard=False, dropout=True, gumbel=False, **kwargs):
+    self.opt.update({"hard":hard,"dropout":dropout,"gumbel":gumbel})
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
@@ -600,18 +600,18 @@ class mk_design_model:
     self.design(iters, soft=True, hard=True, **kwargs)
 
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
-                    temp=1.0, dropout=True, **kwargs):
+                    temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''two stage design (soft→hard)'''
-    self.design(soft_iters, soft=True, temp=temp, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True, temp=temp, dropout=dropout, e_temp=1e-2, **kwargs)
-    self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
+    self.design(soft_iters, soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
+    self.design(temp_iters, soft=True, temp=temp, dropout=dropout, gumbel=False,  e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, dropout=False,   gumbel=False,  hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, 
-                    temp=1.0, dropout=True, **kwargs):
+                    temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
-    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)    
+    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
+    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, gumbel=False, e_temp=1e-2,**kwargs)
+    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False,   gumbel=False, hard=True, save_best=True, **kwargs)    
   ######################################
   # utils
   ######################################

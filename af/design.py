@@ -233,10 +233,10 @@ class mk_design_model:
           abba = (ab + ba.T)/2          
           if k == "con":
             if self.protocol == "binder":
-              intra[k] = soft_min(mod_diag(bb)).mean()
+              intra[k] = bb.mean() #TODO: soft_min(mod_diag(bb)).mean()
               inter[k] = soft_min(abba,0).mean()
             else:
-              intra[k] = soft_min(mod_diag(aa)).mean()
+              intra[k] = aa.mean() #TODO: soft_min(mod_diag(aa)).mean()
               inter[k] = soft_min(abba,1).mean()
           else:
             intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
@@ -246,7 +246,7 @@ class mk_design_model:
                        "i_pae":inter["pae"],"pae":intra["pae"]})
         aux.update({"pae":get_pae(outputs)})
       else:
-        losses.update({"con":soft_min(mod_diag(con_loss)).mean(),
+        losses.update({"con":con_loss.mean(), #TODO: soft_min(mod_diag(con_loss)).mean(),
                        "pae":pae_loss.mean()})
 
       # protocol specific losses

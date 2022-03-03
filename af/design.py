@@ -1,4 +1,4 @@
-import random
+import random, copy
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -51,10 +51,9 @@ class mk_design_model:
     self._default_opt = {"temp":1.0, "soft":True, "hard":True,
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
-                         "con":{"cutoff":8.0, "num":2,
-                                "seqsep":5, "ent":False,
-                                "i_num":1, "i_cutoff":21.6875,
-                                "i_ent":False}
+                         "con":{"num":2, "cutoff":8.0, "binary":True, "seqsep":5, 
+                                "i_num":1, "i_cutoff":14.0, "i_binary":False}
+                                # 21.6875 (previous cutoff default)
                         }
 
     # setup which model params to use
@@ -399,14 +398,14 @@ class mk_design_model:
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
     if weights is not None: self.opt["weights"].update(weights)
-    self.opt.update(self._default_opt.copy())
+    self.opt.update(copy.deepcopy(self._default_opt))
 
     # setup optimizer
     self._setup_optimizer(**kwargs)    
     
     # initialize sequence
-    if seed is None: seed = random.randint(0,2147483647)
-    self._key = jax.random.PRNGKey(seed)
+    self._seed = random.randint(0,2147483647) if seed is None else seed
+    self._key = jax.random.PRNGKey(self._seed)
     self._init_seq(seq_init, rm_aa)
 
     # initialize trajectory
@@ -593,14 +592,14 @@ def _get_pairwise_loss(self, outputs, opt):
   # define contact
   dgram = outputs["distogram"]["logits"]
   dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-  def get_con(x, cutoff, cce=True):
+  def get_con(x, cutoff, binary=True):
     con_bins = dgram_bins < cutoff
     con_prob = jax.nn.softmax(x - 1e7 * (1-con_bins))
     con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
     con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x)).sum(-1))
-    return jnp.where(cce, con_loss_cce, con_loss_bce)
+    return jnp.where(binary, con_loss_bce, con_loss_cce)
   
-  def set_diag(x, k, val):
+  def set_diag(x, k, val=0.0):
     L = x.shape[-1]
     mask = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) < k
     return jnp.where(mask, val, x)      
@@ -611,6 +610,9 @@ def _get_pairwise_loss(self, outputs, opt):
     x = jnp.sort(x)
     mask = jnp.arange(x.shape[-1]) < k
     return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
+
+  def soft_min(x, axis=-1, temp=0.1):
+    return (x*jax.nn.softmax(-x/temp, axis=axis)).sum(axis)
     
   # if more than 1 chain, split pae/con into inter/intra
   c = opt["con"]
@@ -624,15 +626,15 @@ def _get_pairwise_loss(self, outputs, opt):
       ba = v[L:,:L] if H is None else v[L:,H]
       abba = (ab + jnp.swapaxes(ba,0,1))/2
       if k == "con":
-        aa = get_con(aa,c["cutoff"],c["ent"])
-        bb = get_con(bb,c["cutoff"],c["ent"])
-        abba = get_con(abba,c["i_cutoff"],c["i_ent"])
+        aa = get_con(aa,c["cutoff"],c["binary"])
+        bb = get_con(bb,c["cutoff"],c["binary"])
+        abba = get_con(abba,c["i_cutoff"],c["i_binary"])
         if self.protocol == "binder":
           intra[k] = min_k(bb,c["num"],c["seqsep"]).mean()
-          inter[k] = min_k(abba.T,c["i_num"]).mean()
+          inter[k] = min_k(soft_min(abba,0),c["i_num"])
         else:
           intra[k] = min_k(aa,c["num"],c["seqsep"]).mean()
-          inter[k] = min_k(abba,c["i_num"]).mean()
+          inter[k] = min_k(soft_min(abba,1),c["i_num"])
       else:
         intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
         inter[k] = abba.mean()
@@ -641,7 +643,7 @@ def _get_pairwise_loss(self, outputs, opt):
                    "i_pae": inter["pae"], "pae": intra["pae"]})
     aux.update({"pae": get_pae(outputs)})
   else:
-    con = get_con(dgram,c["cutoff"],c["ent"])
+    con = get_con(dgram,c["cutoff"],c["binary"])
     aux.update({"con":con})
     losses.update({"con": min_k(con,c["num"],c["seqsep"]).mean(),
                    "pae": pae_loss.mean()})

@@ -1,5 +1,3 @@
-#@title
-%%writefile design.py
 import random, copy
 import numpy as np
 import jax

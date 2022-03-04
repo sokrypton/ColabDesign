@@ -1,3 +1,5 @@
+#@title
+%%writefile design.py
 import random, copy
 import numpy as np
 import jax
@@ -48,13 +50,11 @@ class mk_design_model:
                  "model_mode":model_mode, "model_parallel": model_parallel,
                  "num_recycles":num_recycles, "recycle_mode":recycle_mode}
     
-    self._default_opt = {"temp":1.0, "soft":True, "hard":True,
+    self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":{"num":2, "cutoff":8.0, "binary":True, "seqsep":5, 
-                                "i_num":1, "i_cutoff":14.0, "i_binary":False}
-                                # 21.6875 (previous cutoff default)
-                        }
+                                "i_num":1, "i_cutoff":14.0, "i_binary":True}}
 
     # setup which model params to use
     if use_templates:
@@ -207,7 +207,7 @@ class mk_design_model:
               
       
       # pairwise loss
-      losses_, aux_ = _get_pairwise_loss(self, outputs, opt)
+      losses_, aux_ = _get_pairwise_loss(self, inputs, outputs, opt)
       losses.update(losses_); aux.update(aux_)
 
       # confidence losses      
@@ -317,9 +317,10 @@ class mk_design_model:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights = {"msa_ent":0.01, "plddt":0.25, 
+    self._default_weights = {"msa_ent":0.01, "plddt":0.0, 
                              "pae":0.0, "i_pae":0.0,
-                             "con":0.25, "i_con":0.50}
+                             "con":0.5, "i_con":0.5,
+                             "bkg":0.0, "i_bkg":0.0}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -333,7 +334,8 @@ class mk_design_model:
     
     # set weights
     self._default_weights = {"msa_ent":0.01, "dgram_cce":1.0,
-                             "fape":0.0, "pae":0.0, "plddt":0.0,"con":0.0}
+                             "fape":0.0, "pae":0.0, "plddt":0.0,
+                             "con":0.0,"bkg":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -341,7 +343,7 @@ class mk_design_model:
       self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0, "i_bkg":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -353,10 +355,11 @@ class mk_design_model:
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
     # set weights
-    self._default_weights = {"msa_ent":0.01, "pae":0.0, "plddt":0.5, "con":0.5}
+    self._default_weights = {"msa_ent":0.01, "plddt":0.0,
+                             "pae":0.0, "con":0.5, "bkg":0.5}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.0, "con":0.25, "i_con":0.25})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0, "i_bkg":0.0})
 
     self.restart(**kwargs)
 
@@ -412,11 +415,24 @@ class mk_design_model:
     self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
     self._best_loss, self._best_outs = np.inf, None
 
+    # initialize background
+    if "bkg" not in self._inputs:
+      L = self._inputs["residue_index"].shape[-1]
+      self._inputs["bkg"] = jnp.zeros((1,L,L,64))
+      self._compute_bkg = True
+
   ######################################
   # STEP FUNCTION
   ######################################
   def _step(self, weights=None, lr_scale=1.0, **kwargs):
     '''do one step'''
+
+    # compute background distribution
+    if self._compute_bkg:
+      print("computing background distribution")
+      _get_bkg(self)
+      self._compute_bkg = False
+
     if weights is not None: self.opt["weights"].update(weights)
     
     # update gradient
@@ -440,7 +456,7 @@ class mk_design_model:
               temp=1.0, e_temp=None,
               soft=False, e_soft=None,
               hard=False, dropout=True, gumbel=False, **kwargs):
-    self.opt.update({"hard":hard,"dropout":dropout,"gumbel":gumbel})
+    self.opt.update({"hard":1.0 if hard else 0.0,"dropout":dropout,"gumbel":gumbel})
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
@@ -582,108 +598,113 @@ class mk_design_model:
 #####################################################################
 # subclass functions
 #####################################################################
-def _get_pairwise_loss(self, outputs, opt):
+def _get_pairwise_loss(self, inputs, outputs, opt):
   '''compute pairwise losses (contact and pae)'''
 
   losses, aux = {},{}
+  # pae loss
   pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
-  pae_loss = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
+  pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
   
-  # define contact
+  # define distogram
   dgram = outputs["distogram"]["logits"]
   dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+  aux.update({"dgram":dgram})
+
+  # KL background loss
+  diff = jax.nn.log_softmax(dgram) - jax.nn.log_softmax(inputs["bkg"][0])
+  bkg = -(jax.nn.softmax(dgram) * diff).sum(-1)
+
+  # contact
+  c = opt["con"]
   def get_con(x, cutoff, binary=True):
     con_bins = dgram_bins < cutoff
     con_prob = jax.nn.softmax(x - 1e7 * (1-con_bins))
     con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
     con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x)).sum(-1))
     return jnp.where(binary, con_loss_bce, con_loss_cce)
-  
   def set_diag(x, k, val=0.0):
     L = x.shape[-1]
     mask = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) < k
     return jnp.where(mask, val, x)      
-  
   def min_k(x, k=1, ss=None):
     if ss is not None:
       x = set_diag(x,ss,1e8)
     x = jnp.sort(x)
     mask = jnp.arange(x.shape[-1]) < k
     return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
-
   def soft_min(x, axis=-1, temp=0.1):
     return (x*jax.nn.softmax(-x/temp, axis=axis)).sum(axis)
-    
-  # if more than 1 chain, split pae/con into inter/intra
-  c = opt["con"]
+  
+  # if more than 1 chain, split pae/con/bkg into inter/intra
   if self.protocol == "binder" or self._copies > 1:
+    aux.update({"pae": get_pae(outputs)})
+
     L = self._target_len if self.protocol == "binder" else self._len
     H = self._hotspot if hasattr(self,"_hotspot") else None
-    inter,intra = {},{}
-    for k,v in zip(["pae","con"],[pae_loss,dgram]):
+    for k,v in zip(["pae","con","bkg"],[pae,dgram,bkg]):
       aa, bb = v[:L,:L], v[L:,L:]
       ab = v[:L,L:] if H is None else v[H,L:]
       ba = v[L:,:L] if H is None else v[L:,H]
       abba = (ab + jnp.swapaxes(ba,0,1))/2
+
       if k == "con":
         aa = get_con(aa,c["cutoff"],c["binary"])
         bb = get_con(bb,c["cutoff"],c["binary"])
         abba = get_con(abba,c["i_cutoff"],c["i_binary"])
         if self.protocol == "binder":
-          intra[k] = min_k(bb,c["num"],c["seqsep"]).mean()
-          inter[k] = min_k(soft_min(abba,0),c["i_num"])
+          x = min_k(bb,c["num"],c["seqsep"]).mean()
+          ix = min_k(soft_min(abba,0),c["i_num"])
         else:
-          intra[k] = min_k(aa,c["num"],c["seqsep"]).mean()
-          inter[k] = min_k(soft_min(abba,1),c["i_num"])
+          x = min_k(aa,c["num"],c["seqsep"]).mean()
+          ix = min_k(soft_min(abba,1),c["i_num"])
       else:
-        intra[k] = bb.mean() if self.protocol == "binder" else aa.mean()
-        inter[k] = abba.mean()
-
-    losses.update({"i_con": inter["con"], "con": intra["con"],
-                   "i_pae": inter["pae"], "pae": intra["pae"]})
-    aux.update({"pae": get_pae(outputs)})
+        x = bb.mean() if self.protocol == "binder" else aa.mean()
+        ix = abba.mean()
+      losses.update({f"i_{k}":ix, k:x})
   else:
     con = get_con(dgram,c["cutoff"],c["binary"])
-    aux.update({"con":con})
-    losses.update({"con": min_k(con,c["num"],c["seqsep"]).mean(),
-                   "pae": pae_loss.mean()})
+    con = min_k(con,c["num"],c["seqsep"]).mean()
+    losses.update({"bkg":bkg.mean(), "con":con, "pae":pae.mean()})
   return losses, aux
-                       
+
+def _recycle(self, model_params, key, params=None, opt=None):
+  if params is None: params = self._params
+  if opt is None: opt = self.opt
+  if self.args["recycle_mode"] == "average":
+    #----------------------------------------
+    # average gradients across all recycles
+    #----------------------------------------
+    L = self._inputs["residue_index"].shape[-1]
+    self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
+                          'init_msa_first_row': np.zeros([1, L, 256]),
+                          'init_pair': np.zeros([1, L, L, 128])})
+    if self.args["use_init_pos"]:
+      self._inputs["init_pos"] = self._batch["all_atom_positions"][None]
+    
+    grad = []
+    for _ in range(opt["recycles"]+1):
+      key, _key = jax.random.split(key)
+      (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, opt)
+      grad.append(_grad)
+      self._inputs.update(outs["init"])
+    grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
+    return (loss, outs), grad
+  else:
+    #----------------------------------------
+    # use gradients from last recycle
+    #----------------------------------------
+    if self.args["use_init_pos"]:
+      self._inputs["init_pos"] = self._batch["all_atom_positions"][None]        
+    if self.args["recycle_mode"] == "sample":
+      # decide number of recycles to use
+      key, _key = jax.random.split(key)
+      opt["recycles"] = int(jax.random.randint(_key,[],0,self.args["num_recycles"]+1))
+    
+    return self._grad_fn(params, model_params, self._inputs, key, opt)
+    
 def _update_grad(self):
   '''update the gradient'''
-  
-  def recycle(model_params, key):
-    if self.args["recycle_mode"] == "average":
-      #----------------------------------------
-      # average gradients across all recycles
-      #----------------------------------------
-      L = self._inputs["residue_index"].shape[-1]
-      self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
-                            'init_msa_first_row': np.zeros([1, L, 256]),
-                            'init_pair': np.zeros([1, L, L, 128])})
-      if self.args["use_init_pos"]:
-        self._inputs["init_pos"] = self._batch["all_atom_positions"][None]
-      
-      grad = []
-      for _ in range(self.opt["recycles"]+1):
-        key, _key = jax.random.split(key)
-        (loss,outs),_grad = self._grad_fn(self._params, model_params, self._inputs, _key, self.opt)
-        grad.append(_grad)
-        self._inputs.update(outs["init"])
-      grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
-      return (loss, outs), grad
-    else:
-      #----------------------------------------
-      # use gradients from last recycle
-      #----------------------------------------
-      if self.args["use_init_pos"]:
-        self._inputs["init_pos"] = self._batch["all_atom_positions"][None]        
-      if self.args["recycle_mode"] == "sample":
-        # decide number of recycles to use
-        key, _key = jax.random.split(key)
-        self.opt["recycles"] = int(jax.random.randint(_key,[],0,self.args["num_recycles"]+1))
-      
-      return self._grad_fn(self._params, model_params, self._inputs, key, self.opt)
 
   # get current params
   self._params = self._get_params(self._state)
@@ -707,7 +728,7 @@ def _update_grad(self):
     p = self._model_params
     if self.args["model_mode"] == "sample":
       p = self._sample_params(p, self._model_num)
-    (l,o),g = recycle(p, key)
+    (l,o),g = _recycle(self, p, key)
     self._grad = jax.tree_map(lambda x: x.mean(0), g)
     self._loss, self._outs = l.mean(),jax.tree_map(lambda x:x[0],o)
     self._losses = jax.tree_map(lambda x: x.mean(0), o["losses"])
@@ -719,7 +740,7 @@ def _update_grad(self):
     _loss, _losses, _outs, _grad = [],[],[],[]
     for n in self._model_num:
       p = self._model_params[n]
-      (l,o),g = recycle(p, key)
+      (l,o),g = _recycle(self, p, key)
       _loss.append(l); _outs.append(o); _grad.append(g)
       _losses.append(o["losses"])
     self._grad = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(0), *_grad)      
@@ -750,7 +771,7 @@ def _save_results(self, save_best=False, verbose=True):
     I = ["model","recycles"]
     f = ["soft","temp","seqid"]
     F = ["loss","msa_ent",
-          "plddt","pae","i_pae","con","i_con",
+          "plddt","pae","i_pae","con","i_con","bkg","i_bkg",
           "dgram_cce","fape","rmsd"]
     I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
     f = " ".join([f"{x}: {self._losses[x]:.2f}" for x in f if x in self._losses])
@@ -763,6 +784,23 @@ def _save_results(self, save_best=False, verbose=True):
   if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
   for k,v in traj.items(): self._traj[k].append(np.array(v))
 
+def _get_bkg(self):
+
+  opt = copy.deepcopy(self.opt)
+  opt.update({"hard":0.0, "soft":0.0,
+              "temp":1.0, "dropout":False, "recycles":0})
+  params = copy.deepcopy(self._params)
+  params["seq"] = jnp.zeros_like(params["seq"])
+  if self.args["model_parallel"]:
+    (_,o),_ = _recycle(self, self._model_params, self._key, params, opt)
+    self._inputs["bkg"] = o["dgram"].mean(0)[None]
+  else:
+    _bkg = []
+    ns = np.arange(2) if self.args["use_templates"] else np.arange(5)
+    for n in ns:
+      (_,o),_ = _recycle(self, self._model_params[n], self._key, params, opt)
+      _bkg.append(o["dgram"])
+    self._inputs["bkg"] = (sum(_bkg)/len(_bkg))[None]
 #####################################################################
 # UTILS
 #####################################################################
@@ -862,3 +900,4 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)
   plt.close()
   return ani.to_html5_video()
+

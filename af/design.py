@@ -52,7 +52,7 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":{"num":2, "cutoff":8.0, "binary":True, "seqsep":5, 
-                                "i_num":1, "i_cutoff":14.0, "i_binary":True}}
+                                "i_num":5, "i_cutoff":14.0, "i_binary":True}}
 
     # setup which model params to use
     if use_templates:
@@ -317,8 +317,8 @@ class mk_design_model:
 
     self._default_weights = {"msa_ent":0.01, "plddt":0.0, 
                              "pae":0.0, "i_pae":0.0,
-                             "con":0.5, "i_con":0.5,
-                             "bkg":0.0, "i_bkg":0.0}
+                             "con":0.25, "i_con":0.25,
+                             "bkg":0.25, "i_bkg":0.25}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -383,8 +383,9 @@ class mk_design_model:
     if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
       y = jnp.broadcast_to(x, shape)
     elif isinstance(x, str):
-      if x == "gumbel": y = 0.5 * jax.random.gumbel(_key, shape)
-      if x == "zeros": y = jnp.zeros(shape)
+      if "gumbel" in x: y = jax.random.gumbel(_key, shape)/2
+      if "zeros" in x: y = jnp.zeros(shape)
+      if "soft" in x: y = jax.nn.softmax(2 * y)        
     else:
       y = 0.01 * jax.random.normal(_key, shape)
     self.opt["bias"] = np.zeros(20)
@@ -898,4 +899,3 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)
   plt.close()
   return ani.to_html5_video()
-

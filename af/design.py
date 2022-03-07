@@ -51,8 +51,8 @@ class mk_design_model:
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
-                         "con":{"num":2, "cutoff":8.0, "binary":True, "seqsep":5, 
-                                "i_num":5, "i_cutoff":14.0, "i_binary":True}}
+                         "con":{"temp":1.0,     "cutoff":8.0,    "binary":True, "seqsep":5, 
+                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True}}
 
     # setup which model params to use
     if use_templates:
@@ -116,125 +116,14 @@ class mk_design_model:
       self._sample_params = jax.jit(lambda y,n:jax.tree_map(lambda x:x[n],y))
       in_axes = (None,0,None,None,None)
       self._model_params = jax.tree_multimap(lambda *x:jnp.stack(x),*self._model_params)
-      self._grad_fn, self._fn = [jax.jit(jax.vmap(x,in_axes)) for x in self._get_fn()]
-
+      self._grad_fn, self._fn = [jax.jit(jax.vmap(x,in_axes)) for x in _get_fn(self)]
     else:        
-      self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]
+      self._grad_fn, self._fn = [jax.jit(x) for x in _get_fn(self)]
 
     # define input function
     if protocol == "fixbb":          self.prep_inputs = self._prep_fixbb
     if protocol == "hallucination":  self.prep_inputs = self._prep_hallucination
     if protocol == "binder":         self.prep_inputs = self._prep_binder
-
-  ######################################
-  # SETUP LOSS FUNCTION
-  ######################################
-  def _get_fn(self):
-
-    # setup function to get gradients
-    def mod(params, model_params, inputs, key, opt):
-
-      # initialize the loss function
-      losses = {}
-      w = opt["weights"]
-
-      # set sequence
-      seq = params["seq"] - params["seq"].mean(-1,keepdims=True)
-
-      # shuffle msa
-      if self.args["num_seq"] > 1:
-        i = jax.random.randint(key,[],0,seq.shape[0])
-        seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
-
-      # straight-through/reparameterization
-      seq_logits = 2.0 * seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
-      seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
-      seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
-      seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
-
-      # create pseudo sequence
-      seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq
-      seq_pseudo = opt["hard"] * seq_hard + (1-opt["hard"]) * seq_pseudo
-      
-      # save for aux output
-      aux = {"seq":seq_hard,"seq_pseudo":seq_pseudo}
-
-      # entropy loss for msa
-      if self.args["num_seq"] > 1:
-        seq_prf = seq_hard.mean(0)
-        losses["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
-      
-      if self.protocol == "binder":
-        # concatenate target and binder sequence
-        seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
-        seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
-        seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
-        if self.args["use_templates"]:
-          seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
-      
-      if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-        seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
-      
-      # update sequence
-      update_seq(seq_pseudo, inputs)
-      
-      # update amino acid sidechain identity
-      N,L = inputs["aatype"].shape[:2]
-      aatype = jnp.broadcast_to(jax.nn.one_hot(seq_pseudo[0].argmax(-1),21),(N,L,21))
-      update_aatype(aatype, inputs)
-
-      # update template sequence
-      if self.protocol == "fixbb" and self.args["use_templates"]:
-        # TODO
-        inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(0)
-        inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
-
-      # set number of recycles to use
-      if self.args["recycle_mode"] not in ["backprop","add_prev"]:
-        inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
-      
-      # scale dropout rate
-      inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
-
-      # get outputs
-      outputs = self._runner.apply(model_params, key, inputs)
-      if self.args["recycle_mode"] == "average":
-        aux["init"] = {'init_pos': outputs['structure_module']['final_atom_positions'][None],
-                       'init_msa_first_row': outputs['representations']['msa_first_row'][None],
-                       'init_pair': outputs['representations']['pair'][None]}
-              
-      
-      # pairwise loss
-      losses_, aux_ = _get_pairwise_loss(self, inputs, outputs, opt)
-      losses.update(losses_); aux.update(aux_)
-
-      # confidence losses      
-      plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
-      plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
-      if self.protocol == "binder":
-        T = self._target_len
-        losses.update({"plddt":plddt_loss[...,T:].mean()})
-      if self.protocol == "hallucination":
-        losses.update({"plddt":plddt_loss.mean()})
-      
-      if self.protocol == "fixbb":
-        fape_loss = get_fape_loss(self._batch, outputs, model_config=self._config)      
-        dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config)
-        losses.update({"plddt":plddt_loss.mean(), "dgram_cce":dgram_cce_loss, "fape":fape_loss})
-        aux.update({"rmsd":get_rmsd_loss_w(self._batch, outputs)})
-
-      # loss
-      loss = sum([v*w[k] if k in w else v*0 for k,v in losses.items()])
-
-      # save aux outputs
-      aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
-                  "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                  "plddt":get_plddt(outputs),
-                  "losses":losses})
-
-      return loss, (aux)
-    
-    return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
   
   ######################################
   # input prep functions
@@ -317,8 +206,8 @@ class mk_design_model:
 
     self._default_weights = {"msa_ent":0.01, "plddt":0.0, 
                              "pae":0.0, "i_pae":0.0,
-                             "con":0.25, "i_con":0.25,
-                             "bkg":0.25, "i_bkg":0.25}
+                             "con":0.25, "i_con":0.25}
+                             #,"bkg":0.25, "i_bkg":0.25, "helix":0.0}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
@@ -333,7 +222,7 @@ class mk_design_model:
     # set weights
     self._default_weights = {"msa_ent":0.01, "dgram_cce":1.0,
                              "fape":0.0, "pae":0.0, "plddt":0.0,
-                             "con":0.0,"bkg":0.0}
+                             "con":0.0} #,"bkg":0.0, "helix":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -341,7 +230,7 @@ class mk_design_model:
       self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
       self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0}) #, "i_bkg":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -354,10 +243,10 @@ class mk_design_model:
     self._copies = copies
     # set weights
     self._default_weights = {"msa_ent":0.01, "plddt":0.0,
-                             "pae":0.0, "con":0.5, "bkg":0.5}
+                             "pae":0.0, "con":0.5} #, "bkg":0.5, "helix":0.0}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0}) #, "i_bkg":0.0})
 
     self.restart(**kwargs)
 
@@ -415,10 +304,15 @@ class mk_design_model:
     self._best_loss, self._best_outs = np.inf, None
 
     # initialize background
-    if "bkg" not in self._inputs:
-      L = self._inputs["residue_index"].shape[-1]
-      self._inputs["bkg"] = jnp.zeros((1,L,L,64))
-      self._compute_bkg = True
+    #if "bkg" not in self._model_params[0]:
+    #  L = self._inputs["residue_index"].shape[-1]
+    #  ns = np.arange(2) if self.args["use_templates"] else np.arange(5)
+    #  if self.args["model_parallel"]:
+    #    self._model_params["bkg"] = jnp.zeros((ns,L,L,64))
+    #  else:
+    #    for n in ns:
+    #     self._model_params[n]["bkg"] = jnp.zeros((L,L,64))
+    #  self._compute_bkg = True
 
   ######################################
   # STEP FUNCTION
@@ -427,10 +321,10 @@ class mk_design_model:
     '''do one step'''
 
     # compute background distribution
-    if self._compute_bkg:
-      print("computing background distribution")
-      _get_bkg(self)
-      self._compute_bkg = False
+    #if self._compute_bkg:
+    #  print("computing background distribution")
+    #  _get_bkg(self)
+    #  self._compute_bkg = False
 
     if weights is not None: self.opt["weights"].update(weights)
     
@@ -594,10 +488,123 @@ class mk_design_model:
       print("TODO")
     plt.show()
 
+######################################
+# SETUP LOSS FUNCTION
+######################################
+def _get_fn(self):
+
+  # setup function to get gradients
+  def mod(params, model_params, inputs, key, opt):
+
+    # initialize the loss function
+    losses = {}
+    w = opt["weights"]
+
+    # set sequence
+    seq = params["seq"] - params["seq"].mean(-1,keepdims=True)
+
+    # shuffle msa
+    if self.args["num_seq"] > 1:
+      i = jax.random.randint(key,[],0,seq.shape[0])
+      seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
+
+    # straight-through/reparameterization
+    seq_logits = 2.0 * seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
+    seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
+    seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
+    seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
+
+    # create pseudo sequence
+    seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq
+    seq_pseudo = opt["hard"] * seq_hard + (1-opt["hard"]) * seq_pseudo
+    
+    # save for aux output
+    aux = {"seq":seq_hard,"seq_pseudo":seq_pseudo}
+
+    # entropy loss for msa
+    if self.args["num_seq"] > 1:
+      seq_prf = seq_hard.mean(0)
+      losses["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
+    
+    if self.protocol == "binder":
+      # concatenate target and binder sequence
+      seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
+      seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
+      seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
+      if self.args["use_templates"]:
+        seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
+    
+    if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
+      seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
+    
+    # update sequence
+    update_seq(seq_pseudo, inputs)
+    
+    # update amino acid sidechain identity
+    N,L = inputs["aatype"].shape[:2]
+    aatype = jnp.broadcast_to(jax.nn.one_hot(seq_pseudo[0].argmax(-1),21),(N,L,21))
+    update_aatype(aatype, inputs)
+
+    # update template sequence
+    if self.protocol == "fixbb" and self.args["use_templates"]:
+      # TODO
+      inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(0)
+      inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
+
+    # set number of recycles to use
+    if self.args["recycle_mode"] not in ["backprop","add_prev"]:
+      inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
+    
+    # scale dropout rate
+    inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
+
+    # get background distribution
+    # bkg_dist = model_params.pop("bkg")
+    
+    # get outputs
+    outputs = self._runner.apply(model_params, key, inputs)
+
+    if self.args["recycle_mode"] == "average":
+      aux["init"] = {'init_pos': outputs['structure_module']['final_atom_positions'][None],
+                      'init_msa_first_row': outputs['representations']['msa_first_row'][None],
+                      'init_pair': outputs['representations']['pair'][None]}
+            
+    
+    # pairwise loss
+    losses_, aux_ = _get_pairwise_loss(self, outputs, opt) #, bkg_dist)
+    losses.update(losses_); aux.update(aux_)
+
+    # confidence losses      
+    plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
+    plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+    if self.protocol == "binder":
+      T = self._target_len
+      losses.update({"plddt":plddt_loss[...,T:].mean()})
+    if self.protocol == "hallucination":
+      losses.update({"plddt":plddt_loss.mean()})
+    
+    if self.protocol == "fixbb":
+      fape_loss = get_fape_loss(self._batch, outputs, model_config=self._config)      
+      dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config)
+      losses.update({"plddt":plddt_loss.mean(), "dgram_cce":dgram_cce_loss, "fape":fape_loss})
+      aux.update({"rmsd":get_rmsd_loss_w(self._batch, outputs)})
+
+    # loss
+    loss = sum([v*w[k] if k in w else v*0 for k,v in losses.items()])
+
+    # save aux outputs
+    aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
+                "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
+                "plddt":get_plddt(outputs),
+                "losses":losses})
+
+    return loss, (aux)
+  
+  return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
 #####################################################################
 # subclass functions
 #####################################################################
-def _get_pairwise_loss(self, inputs, outputs, opt):
+def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
   '''compute pairwise losses (contact and pae)'''
 
   losses, aux = {},{}
@@ -611,8 +618,8 @@ def _get_pairwise_loss(self, inputs, outputs, opt):
   aux.update({"dgram":dgram})
 
   # KL background loss
-  diff = jax.nn.log_softmax(dgram) - jax.nn.log_softmax(inputs["bkg"][0])
-  bkg = -(jax.nn.softmax(dgram) * diff).sum(-1)
+  # diff = jax.nn.log_softmax(dgram) - jax.nn.log_softmax(bkg_dist)
+  # bkg = -(jax.nn.softmax(dgram) * diff).sum(-1)
 
   # contact
   c = opt["con"]
@@ -622,49 +629,70 @@ def _get_pairwise_loss(self, inputs, outputs, opt):
     con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
     con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x)).sum(-1))
     return jnp.where(binary, con_loss_bce, con_loss_cce)
+
   def set_diag(x, k, val=0.0):
     L = x.shape[-1]
     mask = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) < k
     return jnp.where(mask, val, x)      
+  
   def min_k(x, k=1, ss=None):
     if ss is not None:
       x = set_diag(x,ss,1e8)
     x = jnp.sort(x)
     mask = jnp.arange(x.shape[-1]) < k
     return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
-  def soft_min(x, axis=-1, temp=0.1):
-    return (x*jax.nn.softmax(-x/temp, axis=axis)).sum(axis)
   
+  def soft_min(x, ss=None, temp=0.1, axis=-1):
+    y = x if ss is None else set_diag(x,ss,1e8)
+    m = jax.nn.softmax(-y/temp, axis=axis)
+    return (x*m).sum(axis)
+
   # if more than 1 chain, split pae/con/bkg into inter/intra
   if self.protocol == "binder" or self._copies > 1:
-    aux.update({"pae": get_pae(outputs)})
+    aux["pae"] = get_pae(outputs)
 
     L = self._target_len if self.protocol == "binder" else self._len
     H = self._hotspot if hasattr(self,"_hotspot") else None
-    for k,v in zip(["pae","con","bkg"],[pae,dgram,bkg]):
+
+    #for k,v in zip(["pae","con","bkg"],[pae,dgram,bkg]):
+    for k,v in zip(["pae","con"],[pae,dgram]):
+      
+      # split pairwise features into intra (x) and inter (ix)
       aa, bb = v[:L,:L], v[L:,L:]
       ab = v[:L,L:] if H is None else v[H,L:]
       ba = v[L:,:L] if H is None else v[L:,H]
-      abba = (ab + jnp.swapaxes(ba,0,1))/2
+      abba = (ab + ba.swapaxes(0,1)) / 2
+
+      if self.protocol == "binder":
+        x,ix = bb,abba.swapaxes(0,1)
+      else:
+        x,ix = aa,abba
 
       if k == "con":
-        aa = get_con(aa,c["cutoff"],c["binary"])
-        bb = get_con(bb,c["cutoff"],c["binary"])
-        abba = get_con(abba,c["i_cutoff"],c["i_binary"])
-        if self.protocol == "binder":
-          x = min_k(bb,c["num"],c["seqsep"]).mean()
-          ix = min_k(soft_min(abba,0),c["i_num"])
-        else:
-          x = min_k(aa,c["num"],c["seqsep"]).mean()
-          ix = min_k(soft_min(abba,1),c["i_num"])
+        losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
+        
+        x = get_con(x,c["cutoff"],c["binary"])
+        ix = get_con(ix,c["i_cutoff"],c["i_binary"])
+        x = set_diag(x,c["seqsep"],1e8).min(-1)
+        ix = ix.min(-1)
+
+        #x = soft_min(x,c["seqsep"],c["temp"]).mean()
+        #ix = soft_min(ix,None,c["i_temp"]).mean()        
       else:
-        x = bb.mean() if self.protocol == "binder" else aa.mean()
-        ix = abba.mean()
+        x,ix = x.mean(),ix.mean()
+
       losses.update({f"i_{k}":ix, k:x})
+  
   else:
     con = get_con(dgram,c["cutoff"],c["binary"])
-    con = min_k(con,c["num"],c["seqsep"]).mean()
-    losses.update({"bkg":bkg.mean(), "con":con, "pae":pae.mean()})
+    con = set_diag(con,c["seqsep"],1e8).min(-1)
+    #con = soft_min(con,c["seqsep"],c["temp"])
+    losses.update({#"bkg":bkg.mean(), 
+                   "con":con.mean(),
+                   "pae":pae.mean()
+                  })
+    #losses["helix"] = jnp.diagonal(get_con(dgram,8.0),3).mean()
+  
   return losses, aux
 
 def _recycle(self, model_params, key, params=None, opt=None):
@@ -770,7 +798,7 @@ def _save_results(self, save_best=False, verbose=True):
     I = ["model","recycles"]
     f = ["soft","temp","seqid"]
     F = ["loss","msa_ent",
-          "plddt","pae","i_pae","con","i_con","bkg","i_bkg",
+          "plddt","pae","i_pae","con","i_con", #"helix","bkg","i_bkg",
           "dgram_cce","fape","rmsd"]
     I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
     f = " ".join([f"{x}: {self._losses[x]:.2f}" for x in f if x in self._losses])
@@ -783,23 +811,20 @@ def _save_results(self, save_best=False, verbose=True):
   if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
   for k,v in traj.items(): self._traj[k].append(np.array(v))
 
-def _get_bkg(self):
+#def _get_bkg(self):
+#  opt,params = copy.deepcopy(self.opt),copy.deepcopy(self._params)
+#  opt.update({"hard":0.0, "soft":0.0,
+#              "temp":1.0, "dropout":False, "recycles":0})
+#  params["seq"] = jnp.zeros_like(params["seq"])
+#  if self.args["model_parallel"]:
+#    (_,o),_ = _recycle(self, self._model_params, self._key, params, opt)
+#    self._model_params["bkg"] = o["dgram"]
+#  else:
+#    ns = np.arange(2) if self.args["use_templates"] else np.arange(5)
+#    for n in ns:
+#      (_,o),_ = _recycle(self, self._model_params[n], self._key, params, opt)
+#      self._model_params[n]["bkg"] = o["dgram"]
 
-  opt = copy.deepcopy(self.opt)
-  opt.update({"hard":0.0, "soft":0.0,
-              "temp":1.0, "dropout":False, "recycles":0})
-  params = copy.deepcopy(self._params)
-  params["seq"] = jnp.zeros_like(params["seq"])
-  if self.args["model_parallel"]:
-    (_,o),_ = _recycle(self, self._model_params, self._key, params, opt)
-    self._inputs["bkg"] = o["dgram"].mean(0)[None]
-  else:
-    _bkg = []
-    ns = np.arange(2) if self.args["use_templates"] else np.arange(5)
-    for n in ns:
-      (_,o),_ = _recycle(self, self._model_params[n], self._key, params, opt)
-      _bkg.append(o["dgram"])
-    self._inputs["bkg"] = (sum(_bkg)/len(_bkg))[None]
 #####################################################################
 # UTILS
 #####################################################################

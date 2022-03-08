@@ -48,7 +48,6 @@ model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
 - **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
 Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
 - **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default.
-- **28Feb2022** - The definition of [con]tact loss was updated from `log(softmax(x)[:-1].sum())` to `(softmax(x[:-1])*log_softmax(x)[:-1]).sum()`. The original definition maximized the sum of the probability distribution within cutoff, while the new definition also minimizes the entropy within the cutoff.
 # FAQ
 #### Can I reuse the same model without needing to recompile?
 ```python
@@ -88,9 +87,9 @@ model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
 #### How is contact defined? How do I change it?
-[con]tact is defined as cβ-cβ < 14.0Å (where distogram bins < 14Å are summed) and sequence seperation ≥ 9. This can be changed with:
+[con]tact is defined as cβ-cβ < 8.0Å (where distogram bins < 8Å are summed) and sequence seperation ≥ 5. This can be changed with:
 ```python
-model.opt.update({"con_cutoff":14.0,"con_seqsep":9})
+model.opt["con"].update({"cutoff":14.0,"seqsep":9})
 ```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python

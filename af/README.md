@@ -99,8 +99,13 @@ model.prep_inputs(..., hotspot="1-10,15,3")
 #### Can I design homo-oligomers?
 ```python
 model.prep_inputs(..., copies=2)
-# specify interface contact and/or pae loss
+# specify interface specific contact and/or pae loss
 model.opt["weights"].update({"i_con":0.0, "i_pae":0.0})
+```
+#### For fixed backbone design, how do I force the sequence to be the same for homo-dimer optimization?
+```python
+model.prep_inputs(pdb_filename=get_pdb("3RET"), chain="A,B",
+                  copies=2, homooligomer=True)
 ```
 #### How do I disable certain amino acids?
 ```python

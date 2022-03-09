@@ -292,6 +292,10 @@ class mk_design_model:
         if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
         y = jnp.broadcast_to(y, shape)
       else:
+        if "wildtype" in x:
+          y = jax.nn.one_hot(self._wt_aatype,20)
+          if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
+          y = jnp.broadcast_to(y, shape)
         if "gumbel" in x: y = jax.random.gumbel(_key, shape)/2
         if "zeros" in x: y = jnp.zeros(shape)
         if "soft" in x: y = jax.nn.softmax(2 * y)

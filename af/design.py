@@ -30,7 +30,7 @@ class mk_design_model:
   ######################################
   # model initialization
   ######################################
-  def __init__(self, num_seq=1, protocol="fixbb",
+  def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
                use_templates=None, use_init_pos=None):
@@ -145,22 +145,32 @@ class mk_design_model:
 
   def _prep_pdb(self, pdb_filename, chain=None):
     '''extract features from pdb'''
-    protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
-    batch = {'aatype': protein_obj.aatype,
-             'all_atom_positions': protein_obj.atom_positions,
-             'all_atom_mask': protein_obj.atom_mask}
+    if chain is None: chains = [None]
+    else: chains = chain.split(",")
+    o,last = [],0
+    for chain in chains:
+      protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
+      batch = {'aatype': protein_obj.aatype,
+              'all_atom_positions': protein_obj.atom_positions,
+              'all_atom_mask': protein_obj.atom_mask}
 
-    has_ca = batch["all_atom_mask"][:,0] == 1
-    batch = jax.tree_map(lambda x:x[has_ca], batch)
-    batch.update(all_atom.atom37_to_frames(**batch))
+      has_ca = batch["all_atom_mask"][:,0] == 1
+      batch = jax.tree_map(lambda x:x[has_ca], batch)
+      batch.update(all_atom.atom37_to_frames(**batch))
 
-    template_features = {"template_aatype":jax.nn.one_hot(protein_obj.aatype[has_ca],22)[None],
-                         "template_all_atom_masks":protein_obj.atom_mask[has_ca][None],
-                         "template_all_atom_positions":protein_obj.atom_positions[has_ca][None],
-                         "template_domain_names":np.asarray(["None"])}
-    return {"batch":batch,
-            "template_features":template_features,
-            "residue_index": protein_obj.residue_index[has_ca]}
+      template_features = {"template_aatype":jax.nn.one_hot(protein_obj.aatype[has_ca],22),
+                          "template_all_atom_masks":protein_obj.atom_mask[has_ca],
+                          "template_all_atom_positions":protein_obj.atom_positions[has_ca]}
+      
+      residue_index = protein_obj.residue_index[has_ca] + last
+      last = residue_index[-1] + 50
+      o.append({"batch":batch,
+                "template_features":template_features,
+                "residue_index": residue_index})
+    o = jax.tree_multimap(lambda *x:np.concatenate(x,0),*o)
+    o["template_features"] = {"template_domain_names":np.asarray(["None"]),
+                              **jax.tree_map(lambda x:x[None],o["template_features"])}
+    return o                          
 
   def _prep_hotspot(self, hotspot):
     res_idx =  self._inputs["residue_index"][0]
@@ -210,7 +220,7 @@ class mk_design_model:
                              #,"bkg":0.25, "i_bkg":0.25, "helix":0.0}
     self.restart(**kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, **kwargs):
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
     '''prep inputs for fixed backbone design'''
     pdb = self._prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
@@ -226,10 +236,14 @@ class mk_design_model:
 
     # update residue index from pdb
     if copies > 1:
-      self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
-      self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
-      self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
-      for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+      if homooligomer:
+        self._len = self._len // copies
+        self._inputs["residue_index"] = pdb["residue_index"][None]
+      else:
+        self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
+        self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
+        self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
+        for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
       self._default_weights.update({"i_pae":0.0, "i_con":0.0}) #, "i_bkg":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
@@ -546,10 +560,10 @@ def _get_fn(self):
     update_aatype(aatype, inputs)
 
     # update template sequence
-    if self.protocol == "fixbb" and self.args["use_templates"]:
-      # TODO
-      inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(0)
-      inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
+    #if self.protocol == "fixbb" and self.args["use_templates"]:
+    #  # TODO
+    #  inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(0)
+    #  inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
     # set number of recycles to use
     if self.args["recycle_mode"] not in ["backprop","add_prev"]:
@@ -566,10 +580,9 @@ def _get_fn(self):
 
     if self.args["recycle_mode"] == "average":
       aux["init"] = {'init_pos': outputs['structure_module']['final_atom_positions'][None],
-                      'init_msa_first_row': outputs['representations']['msa_first_row'][None],
-                      'init_pair': outputs['representations']['pair'][None]}
+                     'init_msa_first_row': outputs['representations']['msa_first_row'][None],
+                     'init_pair': outputs['representations']['pair'][None]}
             
-    
     # pairwise loss
     losses_, aux_ = _get_pairwise_loss(self, outputs, opt) #, bkg_dist)
     losses.update(losses_); aux.update(aux_)
@@ -585,9 +598,10 @@ def _get_fn(self):
     
     if self.protocol == "fixbb":
       fape_loss = get_fape_loss(self._batch, outputs, model_config=self._config)      
-      dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config)
+      dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config,
+                                         copies=self._copies)
       losses.update({"plddt":plddt_loss.mean(), "dgram_cce":dgram_cce_loss, "fape":fape_loss})
-      aux.update({"rmsd":get_rmsd_loss_w(self._batch, outputs)})
+      aux.update({"rmsd":get_rmsd_loss_w(self._batch, outputs, copies=self._copies)})
 
     # loss
     loss = sum([v*w[k] if k in w else v*0 for k,v in losses.items()])
@@ -669,19 +683,17 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
         x,ix = aa,abba
 
       if k == "con":
-        losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
+        #losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
         
         x = get_con(x,c["cutoff"],c["binary"])
         ix = get_con(ix,c["i_cutoff"],c["i_binary"])
         x = set_diag(x,c["seqsep"],1e8).min(-1)
-        ix = ix.min(-1)
+        ix = ix.min(-1).mean()
 
         #x = soft_min(x,c["seqsep"],c["temp"]).mean()
         #ix = soft_min(ix,None,c["i_temp"]).mean()        
-      else:
-        x,ix = x.mean(),ix.mean()
 
-      losses.update({f"i_{k}":ix, k:x})
+      losses.update({f"i_{k}":ix.mean(), k:x.mean()})
   
   else:
     con = get_con(dgram,c["cutoff"],c["binary"])
@@ -787,7 +799,9 @@ def _save_results(self, save_best=False, verbose=True):
   
   if self.protocol == "fixbb":
     # compute sequence recovery
-    seqid = (self._outs["seq"].argmax(-1) == self._wt_aatype).mean()
+    _aatype = self._outs["seq"].argmax(-1)
+    L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
+    seqid = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
     self._losses.update({"seqid":seqid,"rmsd":self._outs["rmsd"]})
 
   # save losses

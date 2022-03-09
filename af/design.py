@@ -52,7 +52,8 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":{"temp":1.0,     "cutoff":8.0,    "binary":True, "seqsep":5, 
-                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True}}
+                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True},
+                         "bias":np.zeros(20)}
 
     # setup which model params to use
     if use_templates:
@@ -279,26 +280,30 @@ class mk_design_model:
     self._init_fun, self._update_fun, self._get_params = optimizer(lr, **kwargs)
     self._k = 0
 
-  def _init_seq(self, x=None, rm_aa=None):
+  def _init_seq(self, x=None, rm_aa=None, add_seq=False):
     '''initialize sequence'''
     self._key, _key = jax.random.split(self._key)
     shape = (self.args["num_seq"], self._len, 20)
     if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
       y = jnp.broadcast_to(x, shape)
     elif isinstance(x, str):
-      if "gumbel" in x: y = jax.random.gumbel(_key, shape)/2
-      if "zeros" in x: y = jnp.zeros(shape)
-      if "soft" in x: y = jax.nn.softmax(2 * y)        
+      if len(x) == self._len:
+        y = jax.nn.one_hot(jnp.array([residue_constants.restype_order.get(aa,-1) for aa in x]),20)
+        if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
+        y = jnp.broadcast_to(x, shape)
+      else:
+        if "gumbel" in x: y = jax.random.gumbel(_key, shape)/2
+        if "zeros" in x: y = jnp.zeros(shape)
+        if "soft" in x: y = jax.nn.softmax(2 * y)
     else:
       y = 0.01 * jax.random.normal(_key, shape)
-    self.opt["bias"] = np.zeros(20)
     if rm_aa is not None:
       for aa in rm_aa.split(","):
         self.opt["bias"] -= 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
     self._params = {"seq":y}
     self._state = self._init_fun(self._params)
 
-  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None, **kwargs):    
+  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None, add_seq=False, **kwargs):    
     
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
@@ -311,7 +316,7 @@ class mk_design_model:
     # initialize sequence
     self._seed = random.randint(0,2147483647) if seed is None else seed
     self._key = jax.random.PRNGKey(self._seed)
-    self._init_seq(seq_init, rm_aa)
+    self._init_seq(seq_init, rm_aa, add_seq)
 
     # initialize trajectory
     self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}

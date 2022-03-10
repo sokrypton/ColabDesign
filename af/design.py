@@ -303,7 +303,7 @@ class mk_design_model:
     self._params = {"seq":y}
     self._state = self._init_fun(self._params)
 
-  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None, add_seq=False, **kwargs):    
+  def restart(self, weights=None, seed=None, seq_init="soft_gumbel", rm_aa=None, add_seq=False, **kwargs):    
     
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}

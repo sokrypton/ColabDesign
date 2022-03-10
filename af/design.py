@@ -1,3 +1,5 @@
+#@title
+%%writefile design.py
 import random, copy
 import numpy as np
 import jax
@@ -33,13 +35,10 @@ class mk_design_model:
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               use_templates=None, use_init_pos=None):
+               use_templates=False, use_init_pos=False):
 
     # decide if templates should be used
-    if use_templates is None:
-      use_templates = True if (protocol == "binder" and use_init_pos is None) else False
-    if use_init_pos is None:
-      use_init_pos = True if (protocol == "binder" and use_templates is None) else False
+    if protocol == "binder": use_templates = True
 
     self.protocol = protocol
     self.args = {"num_seq":num_seq, 
@@ -52,8 +51,7 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":{"temp":1.0,     "cutoff":8.0,    "binary":True, "seqsep":5, 
-                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True},
-                         "bias":np.zeros(20)}
+                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True}}
 
     # setup which model params to use
     if use_templates:
@@ -106,7 +104,7 @@ class mk_design_model:
       model_names = ["model_1_ptm","model_2_ptm","model_4_ptm","model_5_ptm"]
 
     if self.args["model_mode"] == "fixed":
-      model_names = model_names[:self.args["num_models"]]
+      model_names = model_names[:(self.args["num_models"]-1)]
 
     for model_name in model_names:
       params = data.get_model_haiku_params(model_name, '.')
@@ -217,8 +215,7 @@ class mk_design_model:
 
     self._default_weights = {"msa_ent":0.01, "plddt":0.0, 
                              "pae":0.0, "i_pae":0.0,
-                             "con":0.25, "i_con":0.25}
-                             #,"bkg":0.25, "i_bkg":0.25, "helix":0.0}
+                             "con":0.5, "i_con":0.5}
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
@@ -233,7 +230,7 @@ class mk_design_model:
     # set weights
     self._default_weights = {"msa_ent":0.01, "dgram_cce":1.0,
                              "fape":0.0, "pae":0.0, "plddt":0.0,
-                             "con":0.0} #,"bkg":0.0, "helix":0.0}
+                             "con":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -245,7 +242,7 @@ class mk_design_model:
         self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
         self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
         for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0}) #, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -258,10 +255,10 @@ class mk_design_model:
     self._copies = copies
     # set weights
     self._default_weights = {"msa_ent":0.01, "plddt":0.0,
-                             "pae":0.0, "con":0.5} #, "bkg":0.5, "helix":0.0}
+                             "pae":0.0, "con":1.0}
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0}) #, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.0, "i_con":0.0})
 
     self.restart(**kwargs)
 
@@ -326,28 +323,11 @@ class mk_design_model:
     self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
     self._best_loss, self._best_outs = np.inf, None
 
-    # initialize background
-    #if "bkg" not in self._model_params[0]:
-    #  L = self._inputs["residue_index"].shape[-1]
-    #  ns = np.arange(2) if self.args["use_templates"] else np.arange(5)
-    #  if self.args["model_parallel"]:
-    #    self._model_params["bkg"] = jnp.zeros((ns,L,L,64))
-    #  else:
-    #    for n in ns:
-    #     self._model_params[n]["bkg"] = jnp.zeros((L,L,64))
-    #  self._compute_bkg = True
-
   ######################################
   # STEP FUNCTION
   ######################################
   def _step(self, weights=None, lr_scale=1.0, **kwargs):
     '''do one step'''
-
-    # compute background distribution
-    #if self._compute_bkg:
-    #  print("computing background distribution")
-    #  _get_bkg(self)
-    #  self._compute_bkg = False
 
     if weights is not None: self.opt["weights"].update(weights)
     
@@ -501,9 +481,12 @@ class mk_design_model:
       ax1.set_ylim(0.25,64)
       ax1_.set_ylim(0,0.4)
       # extras
-      ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
-      ax2.plot(self.get_loss("temp"),color="orange",label="temp")
-      ax2.plot(self.get_loss("hard"),color="red",label="hard")
+      if "soft" in self.losses[0]:
+        ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
+      if "temp" in self.losses[0]:
+        ax2.plot(self.get_loss("temp"),color="orange",label="temp")
+      if "hard" in self.losses[0]:
+        ax2.plot(self.get_loss("hard"),color="red",label="hard")
       ax2.set_ylim(-0.1,1.1)
       ax2.set_xlabel("iterations")
       ax2.legend(loc='center left')
@@ -580,9 +563,6 @@ def _get_fn(self):
     
     # scale dropout rate
     inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
-
-    # get background distribution
-    # bkg_dist = model_params.pop("bkg")
     
     # get outputs
     outputs = self._runner.apply(model_params, key, inputs)
@@ -639,10 +619,6 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
   dgram = outputs["distogram"]["logits"]
   dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
   aux.update({"dgram":dgram})
-
-  # KL background loss
-  # diff = jax.nn.log_softmax(dgram) - jax.nn.log_softmax(bkg_dist)
-  # bkg = -(jax.nn.softmax(dgram) * diff).sum(-1)
 
   # contact
   c = opt["con"]
@@ -708,10 +684,7 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
     con = get_con(dgram,c["cutoff"],c["binary"])
     con = set_diag(con,c["seqsep"],1e8).min(-1)
     #con = soft_min(con,c["seqsep"],c["temp"])
-    losses.update({#"bkg":bkg.mean(), 
-                   "con":con.mean(),
-                   "pae":pae.mean()
-                  })
+    losses.update({"con":con.mean(),"pae":pae.mean()})
     #losses["helix"] = jnp.diagonal(get_con(dgram,8.0),3).mean()
   
   return losses, aux
@@ -764,7 +737,7 @@ def _update_grad(self):
   m = self.args["num_models"]
   ns = jnp.arange(2) if self.args["use_templates"] else jnp.arange(5)
   if self.args["model_mode"] == "fixed" or m == len(ns):
-    self._model_num = ns
+    self._model_num = ns[:m]
   elif self.args["model_mode"] == "sample":
     key,_key = jax.random.split(key)
     self._model_num = jax.random.choice(_key,ns,(m,),replace=False)
@@ -785,6 +758,7 @@ def _update_grad(self):
   # run in serial
   #------------------------
   else:
+    self._model_num = np.array(self._model_num).tolist()    
     _loss, _losses, _outs, _grad = [],[],[],[]
     for n in self._model_num:
       p = self._model_params[n]
@@ -833,20 +807,6 @@ def _save_results(self, save_best=False, verbose=True):
   traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq_pseudo"]}
   if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
   for k,v in traj.items(): self._traj[k].append(np.array(v))
-
-#def _get_bkg(self):
-#  opt,params = copy.deepcopy(self.opt),copy.deepcopy(self._params)
-#  opt.update({"hard":0.0, "soft":0.0,
-#              "temp":1.0, "dropout":False, "recycles":0})
-#  params["seq"] = jnp.zeros_like(params["seq"])
-#  if self.args["model_parallel"]:
-#    (_,o),_ = _recycle(self, self._model_params, self._key, params, opt)
-#    self._model_params["bkg"] = o["dgram"]
-#  else:
-#    ns = np.arange(2) if self.args["use_templates"] else np.arange(5)
-#    for n in ns:
-#      (_,o),_ = _recycle(self, self._model_params[n], self._key, params, opt)
-#      self._model_params[n]["bkg"] = o["dgram"]
 
 #####################################################################
 # UTILS

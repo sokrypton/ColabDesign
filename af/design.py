@@ -1,5 +1,3 @@
-#@title
-%%writefile design.py
 import random, copy
 import numpy as np
 import jax
@@ -51,7 +49,8 @@ class mk_design_model:
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":{"temp":1.0,     "cutoff":8.0,    "binary":True, "seqsep":5, 
-                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True}}
+                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True},
+                         "bias":np.zeros(20)}
 
     # setup which model params to use
     if use_templates:

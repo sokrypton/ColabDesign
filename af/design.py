@@ -39,6 +39,7 @@ class mk_design_model:
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
+    
     self.args = {"num_seq":num_seq, 
                  "use_templates":use_templates, "use_init_pos":use_init_pos,
                  "num_models":num_models,
@@ -48,9 +49,12 @@ class mk_design_model:
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,
                          "dropout":True, "dropout_scale":1.0,
                          "gumbel":False, "recycles":self.args["num_recycles"],
-                         "con":{"temp":1.0,     "cutoff":8.0,    "binary":True, "seqsep":5, 
-                                "i_temp":1.0, "i_cutoff":14.0, "i_binary":True},
+                         "con":{  "num":1,    "cutoff":8.0,   "binary":True, "seqsep":5,
+                                "i_num":1, "i_cutoff":14.0, "i_binary":True},
                          "bias":np.zeros(20)}
+
+    self._default_weights = {"msa_ent":0.01, "helix":0.0,
+                             "plddt":0.0, "pae":0.0}
 
     # setup which model params to use
     if use_templates:
@@ -133,7 +137,8 @@ class mk_design_model:
     sequence = "A" * length
     feature_dict = {
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
-        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])}
+        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
+    }
     if template_features is not None: feature_dict.update(template_features)    
     inputs = self._runner.process_features(feature_dict, random_seed=0)
     if num_seq > 1:
@@ -212,9 +217,7 @@ class mk_design_model:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights = {"msa_ent":0.01, "plddt":0.0, 
-                             "pae":0.0, "i_pae":0.0,
-                             "con":0.5, "i_con":0.5}
+    self._default_weights.update({"i_pae":0.0, "con":0.5, "i_con":0.5})
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
@@ -227,9 +230,7 @@ class mk_design_model:
     self._copies = copies
     
     # set weights
-    self._default_weights = {"msa_ent":0.01, "dgram_cce":1.0,
-                             "fape":0.0, "pae":0.0, "plddt":0.0,
-                             "con":0.0}
+    self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "con":0.0}
 
     # update residue index from pdb
     if copies > 1:
@@ -253,8 +254,7 @@ class mk_design_model:
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
     # set weights
-    self._default_weights = {"msa_ent":0.01, "plddt":0.0,
-                             "pae":0.0, "con":1.0}
+    self._default_weights.update({"con":1.0})
     if copies > 1:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies)[None]
       self._default_weights.update({"i_pae":0.0, "i_con":0.0})
@@ -633,9 +633,7 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
     mask = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) < k
     return jnp.where(mask, val, x)      
   
-  def min_k(x, k=1, ss=None):
-    if ss is not None:
-      x = set_diag(x,ss,1e8)
+  def min_k(x, k=1):
     x = jnp.sort(x)
     mask = jnp.arange(x.shape[-1]) < k
     return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
@@ -652,7 +650,6 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
     L = self._target_len if self.protocol == "binder" else self._len
     H = self._hotspot if hasattr(self,"_hotspot") else None
 
-    #for k,v in zip(["pae","con","bkg"],[pae,dgram,bkg]):
     for k,v in zip(["pae","con"],[pae,dgram]):
       
       # split pairwise features into intra (x) and inter (ix)
@@ -665,26 +662,23 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
         x,ix = bb,abba.swapaxes(0,1)
       else:
         x,ix = aa,abba
-
+      
       if k == "con":
-        #losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
-        
         x = get_con(x,c["cutoff"],c["binary"])
+        x = add_diag(x,c["seqsep"],1e8)
+        x = min_k(x,c["num"])
         ix = get_con(ix,c["i_cutoff"],c["i_binary"])
-        x = set_diag(x,c["seqsep"],1e8).min(-1)
-        ix = ix.min(-1).mean()
-
-        #x = soft_min(x,c["seqsep"],c["temp"]).mean()
-        #ix = soft_min(ix,None,c["i_temp"]).mean()        
+        ix = min_k(ix,c["i_num"])
+        losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
 
       losses.update({f"i_{k}":ix.mean(), k:x.mean()})
   
   else:
-    con = get_con(dgram,c["cutoff"],c["binary"])
-    con = set_diag(con,c["seqsep"],1e8).min(-1)
-    #con = soft_min(con,c["seqsep"],c["temp"])
-    losses.update({"con":con.mean(),"pae":pae.mean()})
-    #losses["helix"] = jnp.diagonal(get_con(dgram,8.0),3).mean()
+    x = get_con(dgram,c["cutoff"],c["binary"])
+    x = set_diag(x,c["seqsep"],1e8)
+    x = min_k(x,c["num"])
+    losses.update({"con":x.mean(),"pae":pae.mean(),
+                   "helix":jnp.diagonal(get_con(dgram,8.0),3).mean()})
   
   return losses, aux
 
@@ -777,7 +771,8 @@ def _save_results(self, save_best=False, verbose=True):
     self._best_outs = self._outs
   
   # compile losses
-  self._losses.update({"model":self._model_num, "loss":self._loss})
+  self._losses.update({"model":self._model_num,"loss":self._loss, 
+                       **{k:self.opt[k] for k in ["soft","hard","temp"]}})
   
   if self.protocol == "fixbb":
     # compute sequence recovery

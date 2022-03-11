@@ -666,8 +666,7 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
       if k == "con":
         losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
         x = get_con(x,c["cutoff"],c["binary"])
-        x = set_diag(x,c["seqsep"],1e8)
-        x = min_k(x,c["num"])
+        x = min_k(set_diag(x,c["seqsep"],1e8),c["num"])
         ix = get_con(ix,c["i_cutoff"],c["i_binary"])
         ix = min_k(ix,c["i_num"])
 
@@ -675,8 +674,7 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
   
   else:
     x = get_con(dgram,c["cutoff"],c["binary"])
-    x = set_diag(x,c["seqsep"],1e8)
-    x = min_k(x,c["num"])
+    x = min_k(set_diag(x,c["seqsep"],1e8),c["num"])
     losses.update({"con":x.mean(),"pae":pae.mean(),
                    "helix":jnp.diagonal(get_con(dgram,8.0),3).mean()})
   
@@ -789,7 +787,7 @@ def _save_results(self, save_best=False, verbose=True):
     I = ["model","recycles"]
     f = ["soft","temp","seqid"]
     F = ["loss","msa_ent",
-          "plddt","pae","i_pae","con","i_con", #"helix","bkg","i_bkg",
+          "plddt","pae","i_pae","con","i_con","helix",
           "dgram_cce","fape","rmsd"]
     I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
     f = " ".join([f"{x}: {self._losses[x]:.2f}" for x in f if x in self._losses])

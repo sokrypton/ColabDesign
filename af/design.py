@@ -230,7 +230,7 @@ class mk_design_model:
     self._copies = copies
     
     # set weights
-    self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "con":0.0}
+    self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "con":0.0})
 
     # update residue index from pdb
     if copies > 1:

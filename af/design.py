@@ -665,11 +665,11 @@ def _get_pairwise_loss(self, outputs, opt, bkg_dist=None):
       
       if k == "con":
         x = get_con(x,c["cutoff"],c["binary"])
+        losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
         x = set_diag(x,c["seqsep"],1e8)
         x = min_k(x,c["num"])
         ix = get_con(ix,c["i_cutoff"],c["i_binary"])
         ix = min_k(ix,c["i_num"])
-        losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
 
       losses.update({f"i_{k}":ix.mean(), k:x.mean()})
   

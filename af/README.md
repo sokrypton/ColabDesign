@@ -59,11 +59,6 @@ model.opt["weights"].update({"pae":0.0,"plddt":1.0})
 model.opt["weights"]["pae"] = 0.0
 ```
 WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
-#### How do I disable or control dropout?
-```python
-model.opt["dropout_scale"] = 1.0
-model.design_???(dropout=True)
-```
 #### How do I control number of recycles used during design?
 ```python 
 model = mk_design_model(num_recycles=1, recycle_mode="sample")
@@ -87,9 +82,13 @@ model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
 #### How is contact defined? How do I change it?
-[con]tact is defined as cβ-cβ < 8.0Å (where distogram bins < 8Å are summed) and sequence seperation ≥ 5. This can be changed with:
+[con]tact is defined as cβ-cβ < 14.0Å (where distogram bins < 14Å are summed) and sequence seperation ≥ 9. This can be changed with:
 ```python
-model.opt["con"].update({"cutoff":14.0,"seqsep":9})
+model.opt["con"].update({"cutoff":8.0,"seqsep":5})
+```
+For interface:
+```python
+model.opt["i_con"].update(...)
 ```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python

@@ -73,9 +73,11 @@ class _af_init:
       batch = jax.tree_map(lambda x:x[has_ca], batch)
       batch.update(all_atom.atom37_to_frames(**batch))
 
-      template_features = {"template_aatype":jax.nn.one_hot(protein_obj.aatype[has_ca],22),
-                           "template_all_atom_masks":protein_obj.atom_mask[has_ca],
-                           "template_all_atom_positions":protein_obj.atom_positions[has_ca]}
+      seq = "".join([order_restype[a] for a in batch["aatype"]])
+      template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
+      template_features = {"template_aatype":template_aatype,
+                           "template_all_atom_masks":batch["all_atom_masks"],
+                           "template_all_atom_positions":batch["all_atom_positions"]}
       
       residue_index = protein_obj.residue_index[has_ca] + last
       last = residue_index[-1] + 50

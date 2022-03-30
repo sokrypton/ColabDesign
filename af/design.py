@@ -76,7 +76,7 @@ class _af_init:
       seq = "".join([order_restype[a] for a in batch["aatype"]])
       template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
       template_features = {"template_aatype":template_aatype,
-                           "template_all_atom_masks":batch["all_atom_masks"],
+                           "template_all_atom_masks":batch["all_atom_mask"],
                            "template_all_atom_positions":batch["all_atom_positions"]}
       
       residue_index = protein_obj.residue_index[has_ca] + last

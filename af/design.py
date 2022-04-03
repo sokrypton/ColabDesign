@@ -235,7 +235,7 @@ class _af_loss:
       # update template sequence
       if self.protocol == "fixbb" and self.args["use_templates"]:
         # TODO
-        inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(0)
+        inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(21)
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
       # set number of recycles to use

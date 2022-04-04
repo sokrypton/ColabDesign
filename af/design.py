@@ -235,7 +235,7 @@ class _af_loss:
       # update template sequence
       if self.protocol == "fixbb" and self.args["use_templates"]:
         # TODO
-        inputs["template_aatype"] = inputs["template_aatype"].at[...,:].set(21)
+        inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
       # set number of recycles to use
@@ -848,7 +848,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":  {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                          "i_con":{"num":1, "cutoff":20.0, "binary":False},
-                         "bias":np.zeros(20)}
+                         "bias":np.zeros(20), "template_aatype":21}
 
     self._default_weights = {"msa_ent":0.01, "helix":0.0,
                              "plddt":0.0, "pae":0.0, "bkg":0.1}

@@ -237,6 +237,10 @@ class _af_loss:
         # TODO
         inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
+        key, key_ = jax.random.split(key)
+        pos_mask = jax.random.bernoulli(key_,1-opt["template_dropout"],(L,))
+        inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"] * pos_mask[:,None]
+        inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"] * pos_mask
 
       # set number of recycles to use
       if self.args["recycle_mode"] not in ["backprop","add_prev"]:
@@ -830,7 +834,9 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               use_templates=False, use_init_pos=False):
+               use_templates=False,
+               use_template_tor=True,
+               use_init_pos=False):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -848,7 +854,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "gumbel":False, "recycles":self.args["num_recycles"],
                          "con":  {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                          "i_con":{"num":1, "cutoff":20.0, "binary":False},
-                         "bias":np.zeros(20), "template_aatype":21}
+                         "bias":np.zeros(20), "template_aatype":21,
+                         "template_dropout":0.0}
 
     self._default_weights = {"msa_ent":0.01, "helix":0.0,
                              "plddt":0.0, "pae":0.0, "bkg":0.1}
@@ -872,6 +879,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     if use_templates:
       cfg.data.eval.max_templates = 1
       cfg.data.eval.max_msa_clusters = num_seq + 1
+      cfg.model.embeddings_and_evoformer.template.embed_torsion_angles = use_template_tor
+
     else:
       cfg.data.eval.max_msa_clusters = num_seq
 

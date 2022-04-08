@@ -624,9 +624,9 @@ class _af_utils:
             else: out.append(f"{self._losses[k]:.{f}f}")
         return out
       out = [to_str(["model","recycles"],None),
-             to_str(["soft","temp","seqid","loss"]),
+             to_str(["soft","temp","seqid","rmsd","loss"]),
              to_str(["msa_ent","plddt","pae","helix","con","bkg",
-                     "i_pae","i_con","i_bkg","dgram_cce","fape","rmsd"])]
+                     "i_pae","i_con","i_bkg","dgram_cce","fape"])]
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 

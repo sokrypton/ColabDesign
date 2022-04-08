@@ -618,15 +618,15 @@ class _af_utils:
       def to_str(ks, f=2):
         out = []
         for k in ks:
-          if k in self._losses and self.opt["weights"].get(k,True):
+          if k in self._losses and (k == "rmsd" or self.opt["weights"].get(k,True)):
             out.append(f"{k}")
             if f is None: out.append(f"{self._losses[k]}")
             else: out.append(f"{self._losses[k]:.{f}f}")
         return out
       out = [to_str(["model","recycles"],None),
-             to_str(["soft","temp","seqid","rmsd","loss"]),
+             to_str(["soft","temp","seqid","loss"]),
              to_str(["msa_ent","plddt","pae","helix","con","bkg",
-                     "i_pae","i_con","i_bkg","dgram_cce","fape"])]
+                     "i_pae","i_con","i_bkg","dgram_cce","fape","rmsd"])]
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 

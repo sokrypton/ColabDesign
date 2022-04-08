@@ -188,7 +188,7 @@ class _af_loss:
       losses = {}
 
       # set sequence
-      seq = params["seq"] - params["seq"].mean(-1,keepdims=True)
+      seq = params["seq"]
 
       # shuffle msa
       if self.args["num_seq"] > 1:

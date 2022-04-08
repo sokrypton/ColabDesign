@@ -863,7 +863,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "bias":np.zeros(20), "template_aatype":21,
                          "template_dropout":0.0}
 
-    self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01, "bkg":0.0}
+    self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.0, "pae":0.0, "bkg":0.0}
 
     # setup which model params to use
     if use_templates:

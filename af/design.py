@@ -613,16 +613,22 @@ class _af_utils:
     # save losses
     self.losses.append(self._losses)
 
-    # print losses      
+    # print losses  
     if verbose:
-      I = ["model","recycles"]
-      f = ["soft","temp","seqid"]
-      F = ["loss","msa_ent", "plddt","pae","helix","con","bkg",
-          "i_pae","i_con","i_bkg","dgram_cce","fape","rmsd"]
-      I = " ".join([f"{x}: {self._losses[x]}" for x in I if x in self._losses])
-      f = " ".join([f"{x}: {self._losses[x]:.2f}" for x in f if x in self._losses])
-      F = " ".join([f"{x}: {self._losses[x]:.2f}" for x in F if x in self._losses])
-      print(f"{self._k}\t{I} {f} {F}")
+      def to_str(ks, f=2):
+        out = []
+        for k in ks:
+          if k in self._losses and self.opt["weights"].get(k,True):
+            out.append(f"{k}")
+            if f is None: out.append(f"{self._losses[k]}")
+            else: out.append(f"{self._losses[k]:.{f}f}")
+        return out
+      out = [to_str(["model","recycles"],None),
+             to_str(["soft","temp","seqid","loss"]),
+             to_str(["msa_ent","plddt","pae","helix","con","bkg",
+                     "i_pae","i_con","i_bkg","dgram_cce","fape","rmsd"])]
+      print_str = " ".join(sum(out,[]))
+      print(f"{self._k}\t{print_str}")
 
     # save trajectory
     ca_xyz = self._outs["final_atom_positions"][:,1,:]

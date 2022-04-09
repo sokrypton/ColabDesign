@@ -4,6 +4,8 @@
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
+For latest beta (in active development) version see: https://github.com/sokrypton/ColabDesign/tree/beta/af
+
 ### setup
 ```bash
 git clone https://github.com/sokrypton/af_backprop.git

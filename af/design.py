@@ -473,7 +473,7 @@ class _af_design:
       if self.args["recycle_mode"] == "sample":
         # decide number of recycles to use
         key, _key = jax.random.split(key)
-        opt["recycles"] = int(jax.random.randint(_key,[],0,self.args["num_recycles"]+1))
+        opt["recycles"] = int(jax.random.randint(_key,[],0,self._default_opt["recycles"]+1))
       
       return self._grad_fn(params, model_params, self._inputs, key, opt)
       
@@ -487,7 +487,8 @@ class _af_design:
     self._key, key = jax.random.split(self._key)
 
     # decide which model params to use
-    m = self.args["num_models"]
+    # m = self.args["num_models"]
+    m = self.opt["models"]
     ns = jnp.arange(2) if self.args["use_templates"] else jnp.arange(5)
     if self.args["model_mode"] == "fixed" or m == len(ns):
       self._model_num = ns[:m]
@@ -851,17 +852,16 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     
     self.args = {"num_seq":num_seq, 
                  "use_templates":use_templates, "use_init_pos":use_init_pos,
-                 "num_models":num_models,
                  "model_mode":model_mode, "model_parallel": model_parallel,
-                 "num_recycles":num_recycles, "recycle_mode":recycle_mode}
+                 "recycle_mode":recycle_mode}
     
-    self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,
+    self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
-                         "gumbel":False, "recycles":self.args["num_recycles"],
+                         "recycles":num_recycles, "models":num_models,
                          "con":  {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                          "i_con":{"num":1, "cutoff":20.0, "binary":False},
-                         "bias":np.zeros(20), "template_aatype":21,
-                         "template_dropout":0.0}
+                         "bias":np.zeros(20),
+                         "template_aatype":21,"template_dropout":0.0}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0,
                              "plddt":0.01, "pae":0.01, "bkg":0.0}
@@ -869,7 +869,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     # setup which model params to use
     if use_templates:
       model_name = "model_1_ptm"
-      self.args["num_models"] = min(num_models, 2)
+      self._default_opt["models"] = min(num_models, 2)
     else:
       model_name = "model_3_ptm"
     
@@ -921,8 +921,6 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     else:
       model_names = ["model_1_ptm","model_2_ptm","model_4_ptm","model_5_ptm"]
 
-    if self.args["model_mode"] == "fixed":
-      model_names = model_names[:(self.args["num_models"]-1)]
 
     for model_name in model_names:
       params = data.get_model_haiku_params(model_name, '.')

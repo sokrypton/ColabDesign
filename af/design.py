@@ -131,7 +131,7 @@ class _af_init:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights.update({"con":0.5, "i_pae":0.0, "i_con":0.5, "i_bkg":0.1})
+    self._default_weights.update({"con":0.5, "i_pae":0.0, "i_con":0.5, "i_bkg":0.0})
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
@@ -157,7 +157,7 @@ class _af_init:
         self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
         for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0, "i_bkg":0.1})
+      self._default_weights.update({"i_pae":0.01, "i_con":0.0, "i_bkg":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -172,7 +172,7 @@ class _af_init:
     self._default_weights.update({"con":1.0})
     if copies > 1:
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.0, "i_con":0.0, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.01, "i_con":0.0, "i_bkg":0.0})
 
     self.restart(**kwargs)
     
@@ -863,7 +863,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "bias":np.zeros(20), "template_aatype":21,
                          "template_dropout":0.0}
 
-    self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.0, "pae":0.0, "bkg":0.0}
+    self._default_weights = {"msa_ent":0.0, "helix":0.0,
+                             "plddt":0.01, "pae":0.01, "bkg":0.0}
 
     # setup which model params to use
     if use_templates:

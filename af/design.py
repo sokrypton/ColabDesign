@@ -131,7 +131,7 @@ class _af_init:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights.update({"con":0.5, "i_pae":0.0, "i_con":0.5, "i_bkg":0.0})
+    self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5, "i_bkg":0.0})
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):

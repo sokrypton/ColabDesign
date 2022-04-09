@@ -112,12 +112,10 @@ model.prep_inputs(pdb_filename="6Q40.pdb", chain="A,B", copies=2, homooligomer=T
 WARNING, this functionality assumes the input chains are of equal length.
 #### How do I disable certain amino acids?
 ```python
-model.prep_inputs(..., rm_aa="C,W")
 model.restart(rm_aa="C,W")
 ```
 #### How do I set the random seed for reproducibility?
 ```python
-model.prep_inputs(..., seed=0)
 model.restart(seed=0)
 ```
 #### What are all the different `design_???` methods?

@@ -902,9 +902,12 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
       cfg.data.common.num_recycle = num_recycles
 
     # backprop through recycles
-    cfg.model.add_prev = recycle_mode == "add_prev"
-    cfg.model.backprop_recycle = recycle_mode == "backprop"
-    cfg.model.embeddings_and_evoformer.backprop_dgram = recycle_mode == "backprop"
+    if recycle_mode == "add_prev":
+      cfg.model.add_prev = True
+    if recycle_mode == "backprop":
+      cfg.model.backprop_recycle = True
+      cfg.model.embeddings_and_evoformer.backprop_dgram = True
+      cfg.model.embeddings_and_evoformer.backprop_dgram_temp = 2.0
 
     self._config = cfg
 

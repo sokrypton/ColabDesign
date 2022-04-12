@@ -325,7 +325,7 @@ class _af_loss:
       con_bins = dgram_bins < cutoff
       con_prob = jax.nn.softmax(x - 1e7 * (1-con_bins))
       con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
-      con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x)).sum(-1))
+      con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x) + 1e-8).sum(-1))
       return jnp.where(binary, con_loss_bce, con_loss_cce)
 
     def set_diag(x, k, val=0.0):

@@ -325,7 +325,7 @@ class _af_loss:
       con_bins = dgram_bins < cutoff
       con_prob = jax.nn.softmax(x - 1e7 * (1-con_bins))
       con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
-      con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x)).sum(-1) + 1e-8)
+      con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x) + 1e-8).sum(-1))
       return jnp.where(binary, con_loss_bce, con_loss_cce)
 
     def set_diag(x, k, val=0.0):
@@ -410,7 +410,10 @@ class _af_design:
       else:
         if "wt" in x or "wildtype" in x:
           y = jax.nn.one_hot(self._wt_aatype,20)
-          if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
+          if self.protocol == "fixbb":
+            y = y[...,:self._len,:]
+          if add_seq:
+            self.opt["bias"] = np.array(y * 1e8) # force the sequence
           y = jnp.broadcast_to(2 * y, shape)
         if "gumbel" in x: y = jax.random.gumbel(_key, shape)/2
         if "zeros" in x: y = jnp.zeros(shape)

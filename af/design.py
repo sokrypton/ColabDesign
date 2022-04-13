@@ -172,7 +172,7 @@ class _af_init:
     self._default_weights.update({"con":1.0})
     if copies > 1:
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.01, "i_con":0.0, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.01, "i_con":0.1, "i_bkg":0.0})
 
     self.restart(**kwargs)
     

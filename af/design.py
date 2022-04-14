@@ -2,7 +2,11 @@ import random, copy, os
 import numpy as np
 import jax
 import jax.numpy as jnp
-from jax.example_libraries.optimizers import sgd, adam
+
+try:
+  from jax.example_libraries.optimizers import sgd, adam
+except:
+  from jax.experimental.optimizers import sgd, adam
 
 def clear_mem():
   backend = jax.lib.xla_bridge.get_backend()
@@ -402,6 +406,7 @@ class _af_design:
     shape = (self.args["num_seq"], self._len, 20)
     if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
       y = jnp.broadcast_to(x, shape)
+      if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
     elif isinstance(x, str):
       if len(x) == self._len:
         y = jax.nn.one_hot(jnp.array([residue_constants.restype_order.get(aa,-1) for aa in x]),20)

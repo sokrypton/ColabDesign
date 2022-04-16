@@ -194,7 +194,7 @@ class _af_loss:
       # set sequence
       seq = params["seq"]
 
-      # shuffle msa
+      # shuffle msa (randomly pick which sequence is query)
       if self.args["num_seq"] > 1:
         i = jax.random.randint(key,[],0,seq.shape[0])
         seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
@@ -411,7 +411,7 @@ class _af_design:
       if len(x) == self._len:
         y = jax.nn.one_hot(jnp.array([residue_constants.restype_order.get(aa,-1) for aa in x]),20)
         if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
-        y = jnp.broadcast_to(2 * y, shape)
+        y = jnp.broadcast_to(y, shape)
       else:
         if "wt" in x or "wildtype" in x:
           y = jax.nn.one_hot(self._wt_aatype,20)
@@ -419,8 +419,8 @@ class _af_design:
             y = y[...,:self._len,:]
           if add_seq:
             self.opt["bias"] = np.array(y * 1e8) # force the sequence
-          y = jnp.broadcast_to(2 * y, shape)
-        if "gumbel" in x: y = jax.random.gumbel(_key, shape)/2
+          y = jnp.broadcast_to(y, shape)
+        if "gumbel" in x: y = jax.random.gumbel(_key, shape) / 2
         if "zeros" in x: y = jnp.zeros(shape)
         if "soft" in x: y = jax.nn.softmax(2 * y)
     else:

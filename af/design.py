@@ -19,6 +19,7 @@ from alphafold.common import residue_constants
 
 from alphafold.model import all_atom
 from alphafold.model import folding
+from alphafold.data import prep_inputs
 
 # custom functions
 from utils import *
@@ -29,15 +30,6 @@ import matplotlib
 from matplotlib import animation
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-
-# load background distogram distribution
-if os.path.exists("bkg_prob.txt"):
-  BKG_PROB = np.loadtxt("bkg_prob.txt")
-  BKG_PROB[32] = BKG_PROB[32:].mean(0)
-  BKG_PROB = BKG_PROB[:33]
-else:
-  print("ERROR 'bkg_prob.txt' not found")
-  BKG_PROB = np.ones((32,64))
  
 #################################################
 # AF_INIT - input prep functions
@@ -70,8 +62,8 @@ class _af_init:
     for chain in chains:
       protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
       batch = {'aatype': protein_obj.aatype,
-              'all_atom_positions': protein_obj.atom_positions,
-              'all_atom_mask': protein_obj.atom_mask}
+               'all_atom_positions': protein_obj.atom_positions,
+               'all_atom_mask': protein_obj.atom_mask}
 
       has_ca = batch["all_atom_mask"][:,0] == 1
       batch = jax.tree_map(lambda x:x[has_ca], batch)
@@ -93,19 +85,20 @@ class _af_init:
                               **jax.tree_map(lambda x:x[None],o["template_features"])}
     return o                          
 
-  def _prep_hotspot(self, hotspot):
-    res_idx =  self._inputs["residue_index"][0]
-    if len(hotspot) > 0:
-      hotspot_set = []
-      for idx in hotspot.split(","):
+  def _prep_pos(self, pos, res_idx=None):
+    if res_idx is None:
+      res_idx = self._inputs["residue_index"][0]
+    if len(pos) > 0:
+      pos_set = []
+      for idx in pos.split(","):
         i,j = idx.split("-") if "-" in idx else (idx,None)
-        if j is None: hotspot_set.append(int(i))
-        else: hotspot_set += list(range(int(i),int(j)+1))
-      hotspot_array = []
-      for i in hotspot_set:
+        if j is None: pos_set.append(int(i))
+        else: pos_set += list(range(int(i),int(j)+1))
+      pos_array = []
+      for i in pos_set:
         if i in res_idx:
-          hotspot_array.append(np.where(res_idx == i)[0][0])
-      return jnp.asarray(hotspot_array)
+          pos_array.append(np.where(res_idx == i)[0][0])
+      return jnp.asarray(pos_array)
     else:
       return None
   
@@ -117,10 +110,10 @@ class _af_init:
     pdb = self._prep_pdb(pdb_filename, chain=chain)
     target_len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(target_len, pdb["template_features"])
-    self._inputs["residue_index"][:,:] = pdb["residue_index"]
+    self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
     # gather hotspot info
-    self._hotspot = self._prep_hotspot(hotspot)
+    self._hotspot = self._prep_pos(hotspot)
 
     # pad inputs
     total_len = target_len + binder_len
@@ -135,7 +128,7 @@ class _af_init:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5, "i_bkg":0.0})
+    self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
@@ -161,7 +154,7 @@ class _af_init:
         self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
         for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         
-      self._default_weights.update({"i_pae":0.01, "i_con":0.0, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -176,10 +169,40 @@ class _af_init:
     self._default_weights.update({"con":1.0})
     if copies > 1:
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies)[None]
-      self._default_weights.update({"i_pae":0.01, "i_con":0.1, "i_bkg":0.0})
+      self._default_weights.update({"i_pae":0.01, "i_con":0.1})
 
     self.restart(**kwargs)
+
+  def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
+                    fix_seq=True, mainchain=True, sidechain=False, **kwargs):
+    '''prep input for partial hallucination'''
+    self.args.update({"mainchain":mainchain, "sidechain":sidechain, "fix_seq":fix_seq})
+    self._copies = 1
     
+    # get [pos]itions of interests
+    pdb = self._prep_pdb(pdb_filename, chain=chain)
+    if pos is None:
+      self._default_opt["pos"] = jnp.arange(pdb["residue_index"].shape[0])
+    else:
+      self._default_opt["pos"] = self._prep_pos(pos, pdb["residue_index"])
+
+    pos = np.asarray(self._default_opt["pos"])
+    self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
+    self._wt_aatype = self._batch["aatype"]
+
+    if sidechain:
+      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
+
+    self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._inputs = self._prep_features(self._len)
+    
+    weights = {"dgram_cce":1.0,"con":1.0}
+    if mainchain: weights.update({"fape":0.0, "rmsd":0.0})
+    if sidechain: weights.update({"sc_fape":0.0, "sc_rmsd":0.0})
+    self._default_weights.update(weights)
+    
+    self.restart(**kwargs)
+
 ####################################################
 # AF_LOSS - setup loss function
 ####################################################
@@ -208,7 +231,13 @@ class _af_loss:
       # create pseudo sequence
       seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq
       seq_pseudo = opt["hard"] * seq_hard + (1-opt["hard"]) * seq_pseudo
-      
+
+      # for partial hallucination, force sequence if sidechain constraints defined
+      if self.protocol == "partial" and (self.args["fix_seq"] or self.args["sidechain"]):
+        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
+        seq_pseudo = seq_pseudo.at[:,opt["pos"],:].set(seq_ref)
+        seq_hard = seq_hard.at[:,opt["pos"],:].set(seq_ref)
+
       # save for aux output
       aux = {"seq":seq_hard,"seq_pseudo":seq_pseudo}
 
@@ -227,7 +256,7 @@ class _af_loss:
       
       if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
         seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
-      
+            
       # update sequence
       update_seq(seq_pseudo, inputs)
       
@@ -238,9 +267,10 @@ class _af_loss:
 
       # update template sequence
       if self.protocol == "fixbb" and self.args["use_templates"]:
-        # TODO
         inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
+
+        # dropout template input features
         key, key_ = jax.random.split(key)
         pos_mask = jax.random.bernoulli(key_,1-opt["template_dropout"],(L,))
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"] * pos_mask[:,None]
@@ -258,42 +288,29 @@ class _af_loss:
 
       if self.args["recycle_mode"] == "average":
         aux["init"] = {'init_pos': outputs['structure_module']['final_atom_positions'][None],
-                      'init_msa_first_row': outputs['representations']['msa_first_row'][None],
-                      'init_pair': outputs['representations']['pair'][None]}
-              
-      
-      # get background weights      
-      if "offset" in inputs:
-        offset = inputs["offset"][0]
-      else:
-        idx = inputs["residue_index"][0]
-        offset = idx[:,None] - idx[None,:]
-      
-      offset = jnp.clip(jnp.abs(offset),0,32)
-      bkg_dist = jnp.asarray(np.log(BKG_PROB+1e-8))[offset]
-
+                       'init_msa_first_row': outputs['representations']['msa_first_row'][None],
+                       'init_pair': outputs['representations']['pair'][None]}
+                    
       # pairwise loss
-      losses_, aux_ = self._get_pairwise_loss(outputs, opt, bkg_dist)
-      losses.update(losses_); aux.update(aux_)
+      o = self._get_pairwise_loss(outputs, opt)
+      losses.update(o["losses"]); aux.update(o["aux"])
 
       # confidence losses      
       plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
       plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+
       if self.protocol == "binder":
-        T = self._target_len
-        losses.update({"plddt":plddt_loss[...,T:].mean()})
-      if self.protocol == "hallucination":
-        losses.update({"plddt":plddt_loss.mean()})
-      
+        losses["plddt"] = plddt_loss[...,self._target_len:].mean()
+      else:
+        losses["plddt"] = plddt_loss.mean()
+
       if self.protocol == "fixbb":
-        fape_loss = get_fape_loss(self._batch, outputs, model_config=self._config)      
-        dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config,
-                                          copies=self._copies)
-        rmsd_loss = get_rmsd_loss_w(self._batch, outputs, copies=self._copies)
-        losses.update({"plddt":plddt_loss.mean(),
-              "dgram_cce":dgram_cce_loss,
-              "fape":fape_loss,
-              "rmsd":rmsd_loss})
+        o = self._get_fixbb_loss(outputs, opt)
+        losses.update(o["losses"]); aux.update(o["aux"])
+
+      if self.protocol == "partial":
+        o = self._get_partial_loss(outputs, opt)
+        losses.update(o["losses"]); aux.update(o["aux"])
 
       # weighted loss
       loss = sum([v*opt["weights"][k] for k,v in losses.items()])
@@ -307,7 +324,57 @@ class _af_loss:
     
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
 
-  def _get_pairwise_loss(self, outputs, opt, bkg_dist):
+  def _get_fixbb_loss(self, outputs, outs):
+    losses, aux = {},{}
+    fape_loss = get_fape_loss(self._batch, outputs, model_config=self._config)      
+    dgram_cce_loss = get_dgram_loss(self._batch, outputs, model_config=self._config, copies=self._copies)
+    rmsd_loss = get_rmsd_loss_w(self._batch, outputs, copies=self._copies)
+    losses.update({"dgram_cce":dgram_cce_loss,
+                   "fape":fape_loss,
+                   "rmsd":rmsd_loss})
+    return {"losses":losses, "aux":aux}    
+
+  def _get_partial_loss(self, outputs, opt):
+    '''compute loss for partial hallucination protocol'''
+    losses, aux = {},{}
+    pos = opt["pos"]
+    _config = self._config.model.heads.structure_module
+
+    # dgram
+    dgram = outputs["distogram"]["logits"][:,pos][pos,:]
+    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, logits=dgram)
+
+    # rmsd
+    ca_true = self._batch["all_atom_positions"][:,1]
+    ca_pred = outputs["structure_module"]["final_atom_positions"][pos,1]
+    losses["rmsd"] = jnp_rmsd(ca_true, ca_pred)
+    
+    # fape
+    fape_loss = {"loss":0.0}
+    struct = outputs["structure_module"]
+    struct["traj"] = struct["traj"][...,pos,:]
+    folding.backbone_loss(fape_loss, self._batch, struct, _config)
+    losses["fape"] = fape_loss["loss"]
+
+    # sidechain specific losses
+    if self.args["sidechain"]:
+
+      pred_pos = struct["final_atom14_positions"][pos]
+
+      # sc_fape
+      struct.update(folding.compute_renamed_ground_truth(self._batch, pred_pos))
+      for k in ["frames","atom_pos"]:
+        struct["sidechains"][k] = jax.tree_map(lambda x:x[:,pos], struct["sidechains"][k])
+      losses["sc_fape"] = folding.sidechain_loss(self._batch, struct, _config)["loss"]
+
+      # sc_rmsd
+      true_aa = self._batch["aatype"]
+      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
+      losses["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
+
+    return {"losses":losses, "aux":aux}
+
+  def _get_pairwise_loss(self, outputs, opt):
     '''compute pairwise losses (contact and pae)'''
 
     losses, aux = {},{}
@@ -319,9 +386,6 @@ class _af_loss:
     dgram = outputs["distogram"]["logits"]
     dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
     aux.update({"dgram":dgram})
-
-    # background kl loss
-    bkg = -(jax.nn.softmax(dgram) * (jax.nn.log_softmax(dgram) - bkg_dist)).sum(-1)
 
     # contact
     c,ic = opt["con"],opt["i_con"]
@@ -342,19 +406,14 @@ class _af_loss:
       mask = jnp.arange(x.shape[-1]) < k
       return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
     
-    def soft_min(x, ss=None, temp=0.1, axis=-1):
-      y = x if ss is None else set_diag(x,ss,1e8)
-      m = jax.nn.softmax(-y/temp, axis=axis)
-      return (x*m).sum(axis)
-
-    # if more than 1 chain, split pae/con/bkg into inter/intra
+    # if more than 1 chain, split pae/con into inter/intra
     if self.protocol == "binder" or self._copies > 1:
       aux["pae"] = get_pae(outputs)
 
       L = self._target_len if self.protocol == "binder" else self._len
       H = self._hotspot if hasattr(self,"_hotspot") else None
 
-      for k,v in zip(["pae","con","bkg"],[pae,dgram,bkg]):
+      for k,v in zip(["pae","con"],[pae,dgram]):
         
         # split pairwise features into intra (x) and inter (ix)
         aa, bb = v[:L,:L], v[L:,L:]
@@ -379,10 +438,10 @@ class _af_loss:
     else:
       x = get_con(dgram,c["cutoff"],c["binary"])
       x = min_k(set_diag(x,c["seqsep"],1e8),c["num"])
-      losses.update({"con":x.mean(),"pae":pae.mean(),"bkg":bkg.mean(),
-                    "helix":jnp.diagonal(get_con(dgram,8.0),3).mean()})
+      losses.update({"con":x.mean(),"pae":pae.mean(),
+                     "helix":jnp.diagonal(get_con(dgram,8.0),3).mean()})
     
-    return losses, aux
+    return {"losses":losses, "aux":aux}
 
 ####################################################
 # AF_DESIGN - design functions
@@ -393,58 +452,86 @@ class _af_design:
     if optimizer == "adam":
       optimizer = adam
       lr = 0.02 * lr_scale
-    else:
+    elif optimizer == "sgd":
       optimizer = sgd
       lr = 0.1 * lr_scale
+    else:
+      lr = lr_scale
 
-    self._init_fun, self._update_fun, self._get_params = optimizer(lr, **kwargs)
+    self._init_fun, self._update_fun, self._get_params = optimizer(lr)
     self._k = 0
 
-  def _init_seq(self, x=None, rm_aa=None, add_seq=False):
+  def _init_seq(self, mode=None, seq=None, rm_aa=None, add_seq=False, **kwargs):
     '''initialize sequence'''
+
+    # backward compatibility
+    if "seq_init" in kwargs:
+      x = kwargs["seq_init"]
+      if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray): seq = x
+      elif isinstance(x, str):
+        if len(x) == self._len: seq = x
+        else: mode = x
+
+    if mode is None: mode = ""
+    
+    # initialize sequence
     self._key, _key = jax.random.split(self._key)
     shape = (self.args["num_seq"], self._len, 20)
-    if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray):
-      y = jnp.broadcast_to(x, shape)
-      if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
-    elif isinstance(x, str):
-      if len(x) == self._len:
-        y = jax.nn.one_hot(jnp.array([residue_constants.restype_order.get(aa,-1) for aa in x]),20)
-        if add_seq: self.opt["bias"] = np.array(y * 1e8) # force the sequence
-        y = jnp.broadcast_to(y, shape)
+    x = 0.01 * jax.random.normal(_key, shape)
+
+    # initialize bias
+    b = jnp.zeros(shape[1:])
+
+    if "gumbel" in mode:
+      x = jax.random.gumbel(_key, shape) / 2.0
+
+    if "soft" in mode:
+      x = jax.nn.softmax(x * 2.0)
+
+    if "wildtype" in mode or "wt" in mode:
+      wt = jax.nn.one_hot(self._wt_aatype, 20)
+      if self.protocol == "fixbb":
+        wt = wt[...,:self._len]
+      if self.protocol == "partial":
+        x = x.at[...,self.opt["pos"],:].set(wt)
+        if add_seq: b = b.at[self.opt["pos"],:].set(wt * 1e8)
       else:
-        if "wt" in x or "wildtype" in x:
-          y = jax.nn.one_hot(self._wt_aatype,20)
-          if self.protocol == "fixbb":
-            y = y[...,:self._len,:]
-          if add_seq:
-            self.opt["bias"] = np.array(y * 1e8) # force the sequence
-          y = jnp.broadcast_to(y, shape)
-        if "gumbel" in x: y = jax.random.gumbel(_key, shape) / 2
-        if "zeros" in x: y = jnp.zeros(shape)
-        if "soft" in x: y = jax.nn.softmax(2 * y)
-    else:
-      y = 0.01 * jax.random.normal(_key, shape)
+        x = x.at[...,:,:].set(wt)
+        if add_seq: b = b.at[:,:].set(wt * 1e8)
+
+    if seq is not None:
+      if isinstance(seq, np.ndarray) or isinstance(seq, jnp.ndarray):
+        x_ = seq
+      if isinstance(seq, str):
+        x_ = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
+        x_ = jax.nn.one_hot(x_,20)
+      x = x + x_
+      if add_seq: b = b + x_ * 1e8
+
     if rm_aa is not None:
       for aa in rm_aa.split(","):
-        self.opt["bias"] -= 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
-    self._params = {"seq":y}
+        b = b - 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
+
+    self.opt["bias"] = b
+    self._params = {"seq":x}
     self._state = self._init_fun(self._params)
 
-  def restart(self, weights=None, seed=None, seq_init=None, rm_aa=None, add_seq=False, **kwargs):    
+  def restart(self, seed=None, weights=None, opt=None, **kwargs):
     
     # set weights and options
     self.opt = {"weights":self._default_weights.copy()}
-    if weights is not None: self.opt["weights"].update(weights)
     self.opt.update(copy.deepcopy(self._default_opt))
 
+    if weights is not None: self.opt["weights"].update(weights)
+    if opt is not None: self.opt.update(opt)
+
     # setup optimizer
-    self._setup_optimizer(**kwargs)    
+    self._setup_optimizer(**kwargs)
     
     # initialize sequence
     self._seed = random.randint(0,2147483647) if seed is None else seed
     self._key = jax.random.PRNGKey(self._seed)
-    self._init_seq(seq_init, rm_aa, add_seq)
+    self._init_seq(**kwargs)
 
     # initialize trajectory
     self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
@@ -459,10 +546,8 @@ class _af_design:
       #----------------------------------------
       L = self._inputs["residue_index"].shape[-1]
       self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
-                            'init_msa_first_row': np.zeros([1, L, 256]),
-                            'init_pair': np.zeros([1, L, L, 128])})
-      if self.args["use_init_pos"]:
-        self._inputs["init_pos"] = self._batch["all_atom_positions"][None]
+                           'init_msa_first_row': np.zeros([1, L, 256]),
+                           'init_pair': np.zeros([1, L, L, 128])})
       
       grad = []
       for _ in range(opt["recycles"]+1):
@@ -495,7 +580,6 @@ class _af_design:
     self._key, key = jax.random.split(self._key)
 
     # decide which model params to use
-    # m = self.args["num_models"]
     m = self.opt["models"]
     ns = jnp.arange(2) if self.args["use_templates"] else jnp.arange(5)
     if self.args["model_mode"] == "fixed" or m == len(ns):
@@ -627,15 +711,17 @@ class _af_utils:
       def to_str(ks, f=2):
         out = []
         for k in ks:
-          if k in self._losses and (k == "rmsd" or self.opt["weights"].get(k,True)):
+          if k in self._losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
             out.append(f"{k}")
             if f is None: out.append(f"{self._losses[k]}")
             else: out.append(f"{self._losses[k]:.{f}f}")
         return out
       out = [to_str(["model","recycles"],None),
              to_str(["soft","temp","seqid","loss"]),
-             to_str(["msa_ent","plddt","pae","helix","con","bkg",
-                     "i_pae","i_con","i_bkg","dgram_cce","fape","rmsd"])]
+             to_str(["msa_ent","plddt","pae","helix","con",
+                     "i_pae","i_con",
+                     "sc_fape","sc_rmsd",
+                     "dgram_cce","fape","rmsd"])]
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 
@@ -693,7 +779,7 @@ class _af_utils:
       return make_animation(**sub_traj, pos_ref=pos_ref,
                             length=self._target_len, dpi=dpi)
 
-    if self.protocol == "hallucination":
+    if self.protocol in ["hallucination","partial"]:
       outs = self._outs if self._best_outs is None else self._best_outs
       pos_ref = outs["final_atom_positions"][:,1,:]
       length = self._len if self._copies > 1 else None
@@ -850,16 +936,14 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
                use_templates=False,
-               use_template_tor=True,
-               use_init_pos=False):
+               use_template_tor=True):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
     
-    self.args = {"num_seq":num_seq, 
-                 "use_templates":use_templates, "use_init_pos":use_init_pos,
+    self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "model_mode":model_mode, "model_parallel": model_parallel,
                  "recycle_mode":recycle_mode}
     
@@ -872,7 +956,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "template_aatype":21,"template_dropout":0.0}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0,
-                             "plddt":0.01, "pae":0.01, "bkg":0.0}
+                             "plddt":0.01, "pae":0.01}
 
     # setup which model params to use
     if use_templates:
@@ -947,3 +1031,4 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     if protocol == "fixbb":           self.prep_inputs = self._prep_fixbb
     if protocol == "hallucination":   self.prep_inputs = self._prep_hallucination
     if protocol == "binder":          self.prep_inputs = self._prep_binder
+    if protocol == "partial":         self.prep_inputs = self._prep_partial

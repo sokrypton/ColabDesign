@@ -129,7 +129,7 @@ class _af_init:
     self._binder_len = self._len = binder_len
 
     self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
-    self.restart(**kwargs)
+    self.restart(set_defaults=True, **kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
     '''prep inputs for fixed backbone design'''
@@ -158,7 +158,7 @@ class _af_init:
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
-    self.restart(**kwargs)
+    self.restart(set_defaults=True, **kwargs)
     
   def _prep_hallucination(self, length=100, copies=1, **kwargs):
     '''prep inputs for hallucination'''
@@ -171,7 +171,7 @@ class _af_init:
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies)[None]
       self._default_weights.update({"i_pae":0.01, "i_con":0.1})
 
-    self.restart(**kwargs)
+    self.restart(set_defaults=True, **kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, mainchain=True, sidechain=False, **kwargs):
@@ -194,14 +194,24 @@ class _af_init:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
     self._len = pdb["residue_index"].shape[0] if length is None else length
-    self._inputs = self._prep_features(self._len)
+    if self.args["use_templates"]:
+      temp_features = {'template_aatype': np.zeros([1,self._len,22]),
+                       'template_all_atom_masks': np.zeros([1,self._len,37]),
+                       'template_all_atom_positions': np.zeros([1,self._len,37,3]),
+                       'template_domain_names': np.asarray(["None"])}
+      self._inputs = self._prep_features(self._len, temp_features)
+      if fix_seq:
+        self._default_opt["template_aatype"] = self._batch["aatype"]
+
+    else:
+      self._inputs = self._prep_features(self._len)
     
     weights = {"dgram_cce":1.0,"con":1.0}
     if mainchain: weights.update({"fape":0.0, "rmsd":0.0})
     if sidechain: weights.update({"sc_fape":0.0, "sc_rmsd":0.0})
     self._default_weights.update(weights)
     
-    self.restart(**kwargs)
+    self.restart(set_defaults=True, **kwargs)
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -265,9 +275,27 @@ class _af_loss:
       aatype = jnp.broadcast_to(jax.nn.one_hot(seq_pseudo[0].argmax(-1),21),(N,L,21))
       update_aatype(aatype, inputs)
 
-      # update template sequence
-      if self.protocol == "fixbb" and self.args["use_templates"]:
-        inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])
+      # update template features
+      if self.args["use_templates"]:
+
+        if self.protocol == "partial":
+          pb, pb_mask = model.modules.pseudo_beta_fn(self._batch["aatype"],
+                                                     self._batch["all_atom_positions"],
+                                                     self._batch["all_atom_mask"])       
+          
+          template_feats = {"template_aatype":opt["template_aatype"],
+                            "template_all_atom_positions":self._batch["all_atom_positions"],
+                            "template_all_atom_masks":self._batch["all_atom_mask"],
+                            "template_pseudo_beta":pb,
+                            "template_pseudo_beta_mask":pb_mask}
+
+          for k,v in template_feats.items():
+            inputs[k] = inputs[k].at[:,:,opt["pos"]].set(v)
+
+        if self.protocol == "fixbb":
+          inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])
+        
+        # disable sidechains
         inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
         # dropout template input features
@@ -516,14 +544,19 @@ class _af_design:
     self._params = {"seq":x}
     self._state = self._init_fun(self._params)
 
-  def restart(self, seed=None, weights=None, opt=None, **kwargs):
+  def restart(self, seed=None, weights=None, opt=None, set_defaults=False, **kwargs):
     
     # set weights and options
-    self.opt = {"weights":self._default_weights.copy()}
-    self.opt.update(copy.deepcopy(self._default_opt))
+    if set_defaults:
+      if weights is not None: self._default_weights.update(weights)
+      if opt is not None: self._default_opt.update(opt)
 
-    if weights is not None: self.opt["weights"].update(weights)
-    if opt is not None: self.opt.update(opt)
+    self.opt = copy.deepcopy(self._default_opt)
+    self.opt["weights"] = self._default_weights.copy()
+
+    if not set_defaults:
+      if weights is not None: self.opt["weights"].update(weights)
+      if opt is not None: self.opt.update(opt)
 
     # setup optimizer
     self._setup_optimizer(**kwargs)
@@ -953,7 +986,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "con":  {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                          "i_con":{"num":1, "cutoff":20.0, "binary":False},
                          "bias":np.zeros(20),
-                         "template_aatype":21,"template_dropout":0.0}
+                         "template_aatype":21, "template_dropout":0.0}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0,
                              "plddt":0.01, "pae":0.01}

@@ -12,7 +12,6 @@ mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
 wget -qnc https://raw.githubusercontent.com/sokrypton/ColabFold/main/beta/colabfold.py
 wget -qnc https://raw.githubusercontent.com/sokrypton/ColabDesign/beta/af/design.py
-wget -qnc https://raw.githubusercontent.com/sokrypton/ColabDesign/beta/af/bkg_prob.txt
 ```
 ```python
 import numpy as np

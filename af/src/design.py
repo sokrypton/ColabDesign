@@ -1,3 +1,10 @@
+from af_backprop.utils import *
+import random, copy, os
+try:
+  from jax.example_libraries.optimizers import sgd, adam
+except:
+  from jax.experimental.optimizers import sgd, adam
+
 ####################################################
 # AF_DESIGN - design functions
 ####################################################

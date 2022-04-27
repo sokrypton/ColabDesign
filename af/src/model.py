@@ -1,3 +1,10 @@
+from alphafold.model import data, config, model, modules
+
+from af.src.init import _af_init
+from af.src.loss import _af_loss
+from af.src.utils import _af_utils
+from af.src.design import _af_design
+
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################

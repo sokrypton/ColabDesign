@@ -256,3 +256,7 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)
   plt.close()
   return ani.to_html5_video()
+
+def clear_mem():
+  backend = jax.lib.xla_bridge.get_backend()
+  for buf in backend.live_buffers(): buf.delete()

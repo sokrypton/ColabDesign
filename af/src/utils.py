@@ -1,3 +1,16 @@
+from af_backprop.utils import *
+import colabfold as cf
+
+import matplotlib
+from matplotlib import animation
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec 
+
+try:
+  import py3Dmol
+except:
+  print("py3Dmol not installed")
+
 ####################################################
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################

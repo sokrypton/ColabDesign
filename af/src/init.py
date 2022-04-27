@@ -1,3 +1,10 @@
+from af_backprop.utils import *
+
+from alphafold.data import pipeline, templates, prep_inputs
+from alphafold.common import protein, residue_constants
+from alphafold.model import all_atom
+from alphafold.model.tf import shape_placeholders
+
 #################################################
 # AF_INIT - input prep functions
 #################################################

@@ -81,10 +81,8 @@ class _af_loss:
             inputs[k] = inputs[k].at[:,:,opt["pos"]].set(v)
 
         if self.protocol == "fixbb":
-          inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])
-        
-        # disable sidechains
-        inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
+          inputs["template_aatype"] = inputs["template_aatype"].at[:].set(opt["template_aatype"])        
+          inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[...,5:].set(0.0)
 
         # dropout template input features
         key, key_ = jax.random.split(key)

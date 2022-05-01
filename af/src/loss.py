@@ -202,12 +202,22 @@ class _af_loss:
 
     # contact
     c,ic = opt["con"],opt["i_con"]
-    def get_con(x, cutoff, binary=True):
-      con_bins = dgram_bins < cutoff
-      con_prob = jax.nn.softmax(x - 1e7 * (1-con_bins))
-      con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
-      con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x) + 1e-8).sum(-1))
-      return jnp.where(binary, con_loss_bce, con_loss_cce)
+    def get_con(x, cutoff, binary=True, entropy=True):
+      bins = dgram_bins < cutoff
+      
+      px = jax.nn.softmax(x)
+      px_ = jax.nn.softmax(x - 1e7 * (1-bins))
+      
+      con_loss_bin = 1 - (bins * px).sum(-1)
+      con_loss_cat = (bins * px_ * (1-px)).sum(-1)
+      con_loss = jnp.where(binary, con_loss_bin, con_loss_cat)
+      
+      # binary/cateogorical cross-entropy
+      con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))      
+      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(x)).sum(-1)
+      con_loss_ent = jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
+      
+      return jnp.where(entropy, con_loss_ent, con_loss)
 
     def set_diag(x, k, val=0.0):
       L = x.shape[-1]
@@ -241,9 +251,11 @@ class _af_loss:
         
         if k == "con":
           losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
-          x = get_con(x,c["cutoff"],c["binary"])
-          x = min_k(set_diag(x,c["seqsep"],1e8),c["num"])
-          ix = get_con(ix,ic["cutoff"],ic["binary"])
+          x = get_con(x,c["cutoff"],c["binary"],c["entropy"])
+          x_diag_ent = set_diag(x,c["seqsep"],1e8)
+          x_diag = set_diag(x,c["seqsep"],1.0)
+          x = min_k(jnp.where(con["entropy"],x_diag_ent,x_diag), c["num"])
+          ix = get_con(ix,ic["cutoff"],ic["binary"],ic["entropy"])
           ix = min_k(ix,ic["num"])
 
         losses.update({f"i_{k}":ix.mean(), k:x.mean()})

@@ -198,7 +198,8 @@ class _af_loss:
     # define distogram
     dgram = outputs["distogram"]["logits"]
     dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-    aux.update({"dgram":dgram})
+    aux.update({"dgram":dgram,
+                "dgram_bins":dgram_bins})
 
     # contact
     c,ic = opt["con"],opt["i_con"]
@@ -255,6 +256,7 @@ class _af_loss:
           x_diag_ent = set_diag(x,c["seqsep"],1e8)
           x_diag = set_diag(x,c["seqsep"],1.0)
           x = min_k(jnp.where(con["entropy"],x_diag_ent,x_diag), c["num"])
+          
           ix = get_con(ix,ic["cutoff"],ic["binary"],ic["entropy"])
           ix = min_k(ix,ic["num"])
 

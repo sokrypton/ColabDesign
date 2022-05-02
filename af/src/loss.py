@@ -229,8 +229,8 @@ class _af_loss:
     def get_con_loss(dgram, c, offset=None):
       '''convert distogram into contact loss'''  
       def min_k(x, k=1, seqsep=0):
+        a,b = x.shape
         if offset is None:
-          a,b = x.shape
           mask = jnp.abs(jnp.arange(a)[:,None] - jnp.arange(b)[None,:]) >= seqsep
         else:
           mask = jnp.abs(offset) >= seqsep
@@ -242,9 +242,9 @@ class _af_loss:
 
       x = get_pw_con_loss(dgram,c["cutoff"],c["binary"],c["entropy"])
       if "seqsep" in c:
-        x = min_k(x, c["num"], seqsep=c["seqsep"])
+        return min_k(x, c["num"], seqsep=c["seqsep"])
       else:
-        x = min_k(x, c["num"])
+        return min_k(x, c["num"])
     
     def get_helix_loss(dgram,c,offset=None):
       '''helix bias loss'''
@@ -253,7 +253,7 @@ class _af_loss:
         return jnp.diagonal(x,3).mean()
       else:
         mask = offset == 3
-        return jnp.where(mask,x,0.0).sum(-1) / (mask.sum(-1) + 1e-8)
+        return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
 
     # get contact options
     c,ic = opt["con"],opt["i_con"]

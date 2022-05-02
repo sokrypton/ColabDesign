@@ -117,9 +117,18 @@ class _af_design:
                            'init_pair': np.zeros([1, L, L, 128])})
       
       grad = []
-      for _ in range(opt["recycles"]+1):
+      for r in range(opt["recycles"]+1):
         key, _key = jax.random.split(key)
-        (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, opt)
+        opt_ = {**opt}
+        weights_ = opt_["weights"].copy()
+        for k,x in weights_.items():
+          if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray) or isinstance(x, list):
+            # use different weights at each recycle
+            weights_[k] = float(x[r])
+          else:
+            weights_[k] = float(x)
+        opt_["weights"].update(weights_)
+        (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, opt_)
         grad.append(_grad)
         self._inputs.update(outs["init"])
       grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)

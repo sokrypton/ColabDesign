@@ -277,12 +277,12 @@ class _af_loss:
         else:
           return aa,abba
 
-      x_offset, ix_offset = split_feats(offset)
+      x_offset, ix_offset = split_feats(jnp.abs(offset))
       for k,v in zip(["pae","con"],[pae,dgram]):
         x, ix = split_feats(v)        
         if k == "con":
-          x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
           losses["helix"] = get_helix_loss(x, c, x_offset)
+          x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
       losses.update({"con":get_con_loss(dgram, c, offset).mean(),

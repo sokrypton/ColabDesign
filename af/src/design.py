@@ -135,8 +135,6 @@ class _af_design:
       #----------------------------------------
       # use gradients from last recycle
       #----------------------------------------
-      if self.args["use_init_pos"]:
-        self._inputs["init_pos"] = self._batch["all_atom_positions"][None]        
       if self.args["recycle_mode"] == "sample":
         # decide number of recycles to use
         key, _key = jax.random.split(key)

@@ -119,16 +119,14 @@ class _af_design:
       grad = []
       for r in range(opt["recycles"]+1):
         key, _key = jax.random.split(key)
-        opt_ = {**opt}
-        weights_ = opt_["weights"].copy()
-        for k,x in weights_.items():
+        _opt = copy.deepcopy(opt)
+        for k,x in _opt["weights"].items():
           if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray) or isinstance(x, list):
             # use different weights at each recycle
-            weights_[k] = float(x[r])
+            _opt["weights"][k] = float(x[r])
           else:
-            weights_[k] = float(x)
-        opt_["weights"].update(weights_)
-        (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, opt_)
+            _opt["weights"][k] = float(x)
+        (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, _opt)
         grad.append(_grad)
         self._inputs.update(outs["init"])
       grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)

@@ -198,16 +198,16 @@ class _af_loss:
     # define distogram
     dgram = outputs["distogram"]["logits"]
     dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-    aux.update({"dgram":dgram,
-                "dgram_bins":dgram_bins})
+    aux.update({"dgram":dgram, "dgram_bins":dgram_bins})
 
     # contact
     c,ic = opt["con"],opt["i_con"]
-    def get_con(x, cutoff, binary=True, entropy=True):
+    def get_pw_con_loss(dgram, cutoff, binary=True, entropy=True):
+      '''convert distogram into pairwise contact loss'''
       bins = dgram_bins < cutoff
       
-      px = jax.nn.softmax(x)
-      px_ = jax.nn.softmax(x - 1e7 * (1-bins))
+      px = jax.nn.softmax(dgram)
+      px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))
       
       # con_loss_cat = 1 - (bins * px).max(-1)
       con_loss_cat = (bins * px_ * (1-px)).sum(-1) 
@@ -215,13 +215,14 @@ class _af_loss:
       con_loss = jnp.where(binary, con_loss_bin, con_loss_cat)
       
       # binary/cateogorical cross-entropy
-      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(x)).sum(-1)
+      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
       con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))      
       con_loss_ent = jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
       
       return jnp.where(entropy, con_loss_ent, con_loss)
     
-    def get_con_score(dgram,c):
+    def get_con_loss(dgram, c):
+      '''convert distogram into contact loss'''
       def set_diag(x, k, val=0.0):
         L = x.shape[-1]
         mask = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) < k
@@ -233,16 +234,16 @@ class _af_loss:
         return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
       
       if "seqsep" in c:
-        x = get_con(dgram,c["cutoff"],c["binary"],c["entropy"])
-        x_diag_ent = set_diag(x,c["seqsep"],1e8)
+        x = get_pw_con_loss(dgram,c["cutoff"],c["binary"],c["entropy"])        
+        x_diag_ent = set_diag(x,c["seqsep"],1e8) # TODO for small proteins, setting 1e8 is not ideal
         x_diag = set_diag(x,c["seqsep"],1.0)
         x = jnp.where(c["entropy"],x_diag_ent,x_diag)
       else:
-        x = get_con(dgram,c["cutoff"],c["binary"],c["entropy"])
-      return min_k(x,c["num"])
+        x = get_pw_con_loss(dgram,c["cutoff"],c["binary"],c["entropy"])
+      return min_k(x, c["num"])
     
-    def get_helix_score(dgram,c):
-      x = get_con(dgram, 6.0, binary=True, entropy=c["entropy"])
+    def get_helix_loss(dgram,c):
+      x = get_pw_con_loss(dgram, 6.0, binary=True, entropy=c["entropy"])
       return jnp.diagonal(x,3)
 
     # if more than 1 chain, split pae/con into inter/intra
@@ -266,15 +267,14 @@ class _af_loss:
           x,ix = aa,abba
         
         if k == "con":
-          losses["helix"] = get_helix_score(x,c).mean()
-          x = get_con_score(x,c)
-          ix = get_con_score(ix,ic)
-
-        losses.update({f"i_{k}":ix.mean(), k:x.mean()})
+          x, ix = get_con_loss(x,c), get_con_loss(ix,ic)
+          losses["helix"] = get_helix_loss(x,c).mean()
+          
+        losses.update({k:x.mean(), f"i_{k}":ix.mean()})
     
     else:
-      losses.update({"con":get_con_score(dgram,c).mean(),
-                     "helix":get_helix_score(dgram,c).mean(),
+      losses.update({"con":get_con_loss(dgram,c).mean(),
+                     "helix":get_helix_loss(dgram,c).mean(),
                      "pae":pae.mean()})
     
     return {"losses":losses, "aux":aux}

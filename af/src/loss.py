@@ -207,14 +207,16 @@ class _af_loss:
       bins = dgram_bins < cutoff
       
       px = jax.nn.softmax(x)
+      px_ = jax.nn.softmax(x - 1e7 * (1-bins))
       
+      # con_loss_cat = 1 - (bins * px).max(-1)
+      con_loss_cat = (bins * px_ * (1-px)).sum(-1) 
       con_loss_bin = 1 - (bins * px).sum(-1)
-      con_loss_cat = 1 - (bins * px).max(-1)
       con_loss = jnp.where(binary, con_loss_bin, con_loss_cat)
       
       # binary/cateogorical cross-entropy
+      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(x)).sum(-1)
       con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))      
-      con_loss_cat_ent = -(jax.nn.softmax(x - 1e7 * (1-bins)) * jax.nn.log_softmax(x)).sum(-1)
       con_loss_ent = jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
       
       return jnp.where(entropy, con_loss_ent, con_loss)

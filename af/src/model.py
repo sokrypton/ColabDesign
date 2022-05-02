@@ -28,8 +28,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
                          "recycles":num_recycles, "models":num_models,
-                         "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":False},
-                         "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":False},
+                         "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
+                         "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
                          "bias":np.zeros(20), "template_aatype":21, "template_dropout":0.0}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}

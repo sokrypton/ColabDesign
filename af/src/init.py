@@ -1,4 +1,4 @@
-from af_backprop.utils import *
+from af.src.misc import *
 
 from alphafold.data import pipeline, templates, prep_inputs
 from alphafold.common import protein, residue_constants

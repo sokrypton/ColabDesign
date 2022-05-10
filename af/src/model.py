@@ -1,4 +1,4 @@
-from af_backprop.utils import *
+from af.src.misc import *
 from alphafold.model import data, config, model, modules
 
 from af.src.init import _af_init

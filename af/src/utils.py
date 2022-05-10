@@ -1,5 +1,5 @@
-from af_backprop.utils import *
-from af_backprop.utils import _np_kabash
+from af.src.misc import *
+from af.src.misc import _np_kabash
 
 # import matplotlib
 import matplotlib

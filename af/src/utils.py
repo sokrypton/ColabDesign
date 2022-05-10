@@ -1,5 +1,5 @@
 from af.src.misc import *
-from af.src.misc import _np_kabash
+from af.src.misc import _np_kabsch
 
 # import matplotlib
 import matplotlib
@@ -246,7 +246,7 @@ def make_animation(xyz, seq, plddt=None, pae=None,
     p_trim = P_trim - P_trim.mean(0,keepdims=True)
     p = P - P_trim.mean(0,keepdims=True)
     q = Q - Q.mean(0,keepdims=True)
-    return p @ _np_kabash(p_trim, q, use_jax=False)
+    return p @ _np_kabsch(p_trim, q, use_jax=False)
 
   # compute reference position
   if pos_ref is None: pos_ref = xyz[-1]
@@ -263,7 +263,7 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   # rotate for best view
   pos_mean = np.concatenate(pos,0)
   m = pos_mean.mean(0)
-  rot_mtx = _np_kabash(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+  rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
   pos = (pos - m) @ rot_mtx + m
   pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
 

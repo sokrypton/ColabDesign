@@ -1,4 +1,4 @@
-from af_backprop.utils import *
+from af.src.misc import *
 import random, copy, os
 try:
   from jax.example_libraries.optimizers import sgd, adam

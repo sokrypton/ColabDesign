@@ -12,7 +12,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 
 ### setup
 ```bash
-git clone https://github.com/sokrypton/af_backprop.git
+pip install git+https://github.com/sokrypton/af_backprop.git
 git clone --branch beta https://github.com/sokrypton/ColabDesign.git
 pip -q install biopython dm-haiku==0.0.5 ml-collections py3Dmol
 mkdir params
@@ -20,12 +20,9 @@ curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.
 wget -qnc https://raw.githubusercontent.com/sokrypton/ColabFold/main/beta/colabfold.py
 ```
 ```python
-import sys
-sys.path.append('af_backprop')
-
 import numpy as np
 from IPython.display import HTML
-from ColabDesign.af import *
+from af import *
 ```
 ### fixed backbone design
 For a given protein backbone, generate/design a new sequence that AlphaFold thinks folds into that conformation

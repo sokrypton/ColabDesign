@@ -1,5 +1,5 @@
-from af_backprop.utils import *
-from af_backprop.utils import _np_get_6D_loss, _np_rmsd
+from af.src.misc import *
+from af.src.misc import _np_get_6D_loss, _np_rmsd
 
 ####################################################
 # AF_LOSS - setup loss function

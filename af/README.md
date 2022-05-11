@@ -13,7 +13,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/af_backprop.git
-pip install git+https://github.com/sokrypton/ColabDesign.git@test
+pip install git+https://github.com/sokrypton/ColabDesign.git@beta
 
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params

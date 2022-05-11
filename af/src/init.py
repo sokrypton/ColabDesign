@@ -54,7 +54,7 @@ class _af_init:
       o.append({"batch":batch,
                 "template_features":template_features,
                 "residue_index": residue_index})
-    o = jax.tree_multimap(lambda *x:np.concatenate(x,0),*o)
+    o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
     o["template_features"] = {"template_domain_names":np.asarray(["None"]),
                               **jax.tree_map(lambda x:x[None],o["template_features"])}
     return o                          

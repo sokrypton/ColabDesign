@@ -1,5 +1,9 @@
-from af.src.misc import *
-from af.src.misc import _np_kabsch
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from af.src.misc import jalview_color_list, _np_kabsch, order_restype
+from alphafold.common import protein
 
 # import matplotlib
 import matplotlib

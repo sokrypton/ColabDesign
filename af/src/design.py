@@ -1,5 +1,8 @@
-from af.src.misc import *
 import random, copy, os
+import jax
+import jax.numpy as jnp
+import numpy as np
+
 try:
   from jax.example_libraries.optimizers import sgd, adam
 except:

@@ -4,10 +4,12 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from alphafold.data import pipeline, templates, prep_inputs
+from alphafold.data import pipeline, prep_inputs
 from alphafold.common import protein, residue_constants
 from alphafold.model import all_atom
 from alphafold.model.tf import shape_placeholders
+
+ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 #################################################
 # AF_INIT - input prep functions
@@ -47,7 +49,7 @@ class _af_init:
       batch = jax.tree_map(lambda x:x[has_ca], batch)
       batch.update(all_atom.atom37_to_frames(**batch))
 
-      seq = "".join([order_restype[a] for a in batch["aatype"]])
+      seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
       template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
       template_features = {"template_aatype":template_aatype,
                            "template_all_atom_masks":batch["all_atom_mask"],
@@ -192,7 +194,7 @@ class _af_init:
     self.restart(set_defaults=True, **kwargs)
 
 #######################
-# reshape inputs
+# utils
 #######################
 def make_fixed_size(feat, model_runner, length, batch_axis=True):
   '''pad input features'''
@@ -223,3 +225,12 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
+
+def pdb_to_string(pdb_file):
+  lines = []
+  for line in open(pdb_file,"r"):
+    if line[:6] == "HETATM" and line[17:20] == "MSE":
+      line = "ATOM  "+line[6:17]+"MET"+line[20:]
+    if line[:4] == "ATOM":
+      lines.append(line)
+  return "".join(lines)

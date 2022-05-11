@@ -96,7 +96,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     if self.args["model_parallel"]:
       self._sample_params = jax.jit(lambda y,n:jax.tree_map(lambda x:x[n],y))
       in_axes = (None,0,None,None,None)
-      self._model_params = jax.tree_multimap(lambda *x:jnp.stack(x),*self._model_params)
+      self._model_params = jax.tree_util.tree_map(lambda *x:jnp.stack(x),*self._model_params)
       self._grad_fn, self._fn = [jax.jit(jax.vmap(x,in_axes)) for x in self._get_fn()]
     else:        
       self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]

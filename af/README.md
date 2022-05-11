@@ -4,22 +4,24 @@
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
+# Updates
+- **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
+Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
+- **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default. The definition of contact has changed to minimize entropy within distance cutoff.
+- **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
+
 ### setup
 ```bash
-git clone https://github.com/sokrypton/af_backprop.git
-git clone --branch beta https://github.com/sokrypton/ColabDesign.git
-pip -q install biopython dm-haiku==0.0.5 ml-collections py3Dmol
+pip install git+https://github.com/sokrypton/af_backprop.git
+pip install git+https://github.com/sokrypton/ColabDesign.git@beta
+
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
-wget -qnc https://raw.githubusercontent.com/sokrypton/ColabFold/main/beta/colabfold.py
 ```
 ```python
-import sys
-sys.path.append('af_backprop')
-
 import numpy as np
 from IPython.display import HTML
-from ColabDesign.af import *
+from af import *
 ```
 ### fixed backbone design
 For a given protein backbone, generate/design a new sequence that AlphaFold thinks folds into that conformation
@@ -45,10 +47,6 @@ model = mk_design_model(protocol="binder")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_len=19)
 model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
 ```
-# Updates
-- **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
-Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
-- **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default.
 # FAQ
 #### Can I reuse the same model without needing to recompile?
 ```python

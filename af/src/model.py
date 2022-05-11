@@ -1,10 +1,10 @@
-from af_backprop.utils import *
+from af.src.misc import *
 from alphafold.model import data, config, model, modules
 
-from ColabDesign.af.src.init import _af_init
-from ColabDesign.af.src.loss import _af_loss
-from ColabDesign.af.src.utils import _af_utils
-from ColabDesign.af.src.design import _af_design
+from af.src.init import _af_init
+from af.src.loss import _af_loss
+from af.src.utils import _af_utils
+from af.src.design import _af_design
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
@@ -28,8 +28,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
                          "recycles":num_recycles, "models":num_models,
-                         "con":  {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
-                         "i_con":{"num":1, "cutoff":20.0, "binary":False},
+                         "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
+                         "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
                          "bias":np.zeros(20), "template_aatype":21, "template_dropout":0.0}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}
@@ -96,7 +96,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     if self.args["model_parallel"]:
       self._sample_params = jax.jit(lambda y,n:jax.tree_map(lambda x:x[n],y))
       in_axes = (None,0,None,None,None)
-      self._model_params = jax.tree_multimap(lambda *x:jnp.stack(x),*self._model_params)
+      self._model_params = jax.tree_util.tree_map(lambda *x:jnp.stack(x),*self._model_params)
       self._grad_fn, self._fn = [jax.jit(jax.vmap(x,in_axes)) for x in self._get_fn()]
     else:        
       self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]

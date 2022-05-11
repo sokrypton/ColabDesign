@@ -1,5 +1,5 @@
-from af_backprop.utils import *
-from af_backprop.utils import _np_get_6D_loss, _np_rmsd
+from af.src.misc import *
+from af.src.misc import _np_get_6D_loss, _np_rmsd
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -106,7 +106,13 @@ class _af_loss:
                        'init_pair': outputs['representations']['pair'][None]}
                     
       # pairwise loss
-      o = self._get_pairwise_loss(outputs, opt)
+      if "offset" in inputs:
+        offset = inputs["offset"][0]
+      else:
+        idx = inputs["residue_index"][0]
+        offset = idx[:,None] - idx[None,:]
+      
+      o = self._get_pairwise_loss(outputs, opt, offset=offset)
       losses.update(o["losses"]); aux.update(o["aux"])
 
       # confidence losses      
@@ -187,7 +193,7 @@ class _af_loss:
 
     return {"losses":losses, "aux":aux}
 
-  def _get_pairwise_loss(self, outputs, opt):
+  def _get_pairwise_loss(self, outputs, opt, offset=None):
     '''compute pairwise losses (contact and pae)'''
 
     losses, aux = {},{}
@@ -198,26 +204,59 @@ class _af_loss:
     # define distogram
     dgram = outputs["distogram"]["logits"]
     dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-    aux.update({"dgram":dgram})
+    aux.update({"dgram":dgram, "dgram_bins":dgram_bins})
 
     # contact
-    c,ic = opt["con"],opt["i_con"]
-    def get_con(x, cutoff, binary=True):
-      con_bins = dgram_bins < cutoff
-      con_prob = jax.nn.softmax(x - 1e7 * (1-con_bins))
-      con_loss_cce = -(con_prob * jax.nn.log_softmax(x)).sum(-1)
-      con_loss_bce = -jnp.log((con_bins * jax.nn.softmax(x) + 1e-8).sum(-1))
-      return jnp.where(binary, con_loss_bce, con_loss_cce)
-
-    def set_diag(x, k, val=0.0):
-      L = x.shape[-1]
-      mask = jnp.abs(jnp.arange(L)[:,None] - jnp.arange(L)[None,:]) < k
-      return jnp.where(mask, val, x)      
+    def get_pw_con_loss(dgram, cutoff, binary=True, entropy=True):
+      '''convert distogram into pairwise contact loss'''
+      bins = dgram_bins < cutoff
+      
+      px = jax.nn.softmax(dgram)
+      px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))
+      
+      # con_loss_cat = (bins * px_ * (1-px)).sum(-1) 
+      con_loss_cat = 1 - (bins * px).max(-1)
+      con_loss_bin = 1 - (bins * px).sum(-1)
+      con_loss = jnp.where(binary, con_loss_bin, con_loss_cat)
+      
+      # binary/cateogorical cross-entropy
+      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
+      con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))      
+      con_loss_ent = jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
+      
+      return jnp.where(entropy, con_loss_ent, con_loss)
     
-    def min_k(x, k=1):
-      x = jnp.sort(x)
-      mask = jnp.arange(x.shape[-1]) < k
-      return jnp.where(mask, x, 0.0).sum(-1)/mask.sum(-1)
+    def get_con_loss(dgram, c, offset=None):
+      '''convert distogram into contact loss'''  
+      def min_k(x, k=1, seqsep=0):
+        a,b = x.shape
+        if offset is None:
+          mask = jnp.abs(jnp.arange(a)[:,None] - jnp.arange(b)[None,:]) >= seqsep
+        else:
+          mask = jnp.abs(offset) >= seqsep
+          
+        x = jnp.sort(jnp.where(mask,x,jnp.nan))
+        k_mask = (jnp.arange(b) < k) * (jnp.isnan(x) == False)
+        
+        return jnp.where(k_mask,x,0.0).sum(-1) / (k_mask.sum(-1) + 1e-8)
+
+      x = get_pw_con_loss(dgram,c["cutoff"],c["binary"],c["entropy"])
+      if "seqsep" in c:
+        return min_k(x, c["num"], seqsep=c["seqsep"])
+      else:
+        return min_k(x, c["num"])
+    
+    def get_helix_loss(dgram,c,offset=None):
+      '''helix bias loss'''
+      x = get_pw_con_loss(dgram, 6.0, binary=True, entropy=c["entropy"])
+      if offset is None:
+        return jnp.diagonal(x,3).mean()
+      else:
+        mask = offset == 3
+        return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
+
+    # get contact options
+    c,ic = opt["con"],opt["i_con"]
     
     # if more than 1 chain, split pae/con into inter/intra
     if self.protocol == "binder" or self._copies > 1:
@@ -225,33 +264,29 @@ class _af_loss:
 
       L = self._target_len if self.protocol == "binder" else self._len
       H = self._hotspot if hasattr(self,"_hotspot") else None
-
-      for k,v in zip(["pae","con"],[pae,dgram]):
-        
-        # split pairwise features into intra (x) and inter (ix)
-        aa, bb = v[:L,:L], v[L:,L:]
+      
+      def split_feats(v):
+        '''split pairwise features into intra and inter features'''
+        if v is None: return None,None
+        aa,bb = v[:L,:L], v[L:,L:]
         ab = v[:L,L:] if H is None else v[H,L:]
         ba = v[L:,:L] if H is None else v[L:,H]
         abba = (ab + ba.swapaxes(0,1)) / 2
-
         if self.protocol == "binder":
-          x,ix = bb,abba.swapaxes(0,1)
+          return bb,abba.swapaxes(0,1)
         else:
-          x,ix = aa,abba
-        
-        if k == "con":
-          losses["helix"] = jnp.diagonal(get_con(x,6.0),3).mean()
-          x = get_con(x,c["cutoff"],c["binary"])
-          x = min_k(set_diag(x,c["seqsep"],1e8),c["num"])
-          ix = get_con(ix,ic["cutoff"],ic["binary"])
-          ix = min_k(ix,ic["num"])
+          return aa,abba
 
-        losses.update({f"i_{k}":ix.mean(), k:x.mean()})
-    
+      x_offset, ix_offset = split_feats(jnp.abs(offset))
+      for k,v in zip(["pae","con"],[pae,dgram]):
+        x, ix = split_feats(v)        
+        if k == "con":
+          losses["helix"] = get_helix_loss(x, c, x_offset)
+          x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
+        losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
-      x = get_con(dgram,c["cutoff"],c["binary"])
-      x = min_k(set_diag(x,c["seqsep"],1e8),c["num"])
-      losses.update({"con":x.mean(),"pae":pae.mean(),
-                     "helix":jnp.diagonal(get_con(dgram,8.0),3).mean()})
+      losses.update({"con":get_con_loss(dgram, c, offset).mean(),
+                     "helix":get_helix_loss(dgram, c, offset),
+                     "pae":pae.mean()})
     
     return {"losses":losses, "aux":aux}

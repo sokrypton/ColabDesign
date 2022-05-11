@@ -1,10 +1,13 @@
-from af_backprop.utils import *
-import colabfold as cf
+from af.src.misc import *
+from af.src.misc import _np_kabsch
 
+# import matplotlib
 import matplotlib
-from matplotlib import animation
 import matplotlib.pyplot as plt
+import matplotlib.patheffects
+from matplotlib import animation
 from matplotlib.gridspec import GridSpec 
+from matplotlib import collections as mcoll
 
 try:
   import py3Dmol
@@ -164,7 +167,75 @@ class _af_utils:
     else:
       print("TODO")
     plt.show()
+
+def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
+                   cmap="gist_rainbow", line_w=2.0,
+                   cmin=None, cmax=None, zmin=None, zmax=None):
+
+  def rescale(a, amin=None, amax=None):
+    a = np.copy(a)
+    if amin is None: amin = a.min()
+    if amax is None: amax = a.max()
+    a[a < amin] = amin
+    a[a > amax] = amax
+    return (a - amin)/(amax - amin)
+
+  # make segments
+  xyz = np.asarray(xyz)
+  seg = np.concatenate([xyz[:-1,None,:],xyz[1:,None,:]],axis=-2)
+  seg_xy = seg[...,:2]
+  seg_z = seg[...,2].mean(-1)
+  ord = seg_z.argsort()
+
+  # set colors
+  if c is None: c = np.arange(len(seg))[::-1]
+  else: c = (c[1:] + c[:-1])/2
+  c = rescale(c,cmin,cmax)  
+
+  if isinstance(cmap, str):
+    if cmap == "gist_rainbow": c *= 0.75
+    colors = matplotlib.cm.get_cmap(cmap)(c)
+  else:
+    colors = cmap(c)
+  
+  if chainbreak is not None:
+    dist = np.linalg.norm(xyz[:-1] - xyz[1:], axis=-1)
+    colors[...,3] = (dist < chainbreak).astype(np.float)
+
+  # add shade/tint based on z-dimension
+  z = rescale(seg_z,zmin,zmax)[:,None]
+  tint, shade = z/3, (z+2)/3
+  colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * tint
+  colors[:,:3] = colors[:,:3] * shade
+
+  set_lim = False
+  if ax is None:
+    fig, ax = plt.subplots()
+    fig.set_figwidth(5)
+    fig.set_figheight(5)
+    set_lim = True
+  else:
+    fig = ax.get_figure()
+    if ax.get_xlim() == (0,1):
+      set_lim = True
+      
+  if set_lim:
+    xy_min = xyz[:,:2].min() - line_w
+    xy_max = xyz[:,:2].max() + line_w
+    ax.set_xlim(xy_min,xy_max)
+    ax.set_ylim(xy_min,xy_max)
+
+  ax.set_aspect('equal')
     
+  # determine linewidths
+  width = fig.bbox_inches.width * ax.get_position().width
+  linewidths = line_w * 72 * width / np.diff(ax.get_xlim())
+
+  lines = mcoll.LineCollection(seg_xy[ord], colors=colors[ord], linewidths=linewidths,
+                               path_effects=[matplotlib.patheffects.Stroke(capstyle="round")])
+  
+  return ax.add_collection(lines)
+
 def make_animation(xyz, seq, plddt=None, pae=None,
                    pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
@@ -175,7 +246,7 @@ def make_animation(xyz, seq, plddt=None, pae=None,
     p_trim = P_trim - P_trim.mean(0,keepdims=True)
     p = P - P_trim.mean(0,keepdims=True)
     q = Q - Q.mean(0,keepdims=True)
-    return p @ cf.kabsch(p_trim,q)
+    return p @ _np_kabsch(p_trim, q, use_jax=False)
 
   # compute reference position
   if pos_ref is None: pos_ref = xyz[-1]
@@ -192,7 +263,7 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   # rotate for best view
   pos_mean = np.concatenate(pos,0)
   m = pos_mean.mean(0)
-  rot_mtx = cf.kabsch(pos_mean - m, pos_mean - m, return_v=True)
+  rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
   pos = (pos - m) @ rot_mtx + m
   pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
 
@@ -240,9 +311,9 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   for k in range(len(pos)):
     ims.append([])
     if plddt is None:
-      ims[-1].append(cf.plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
     else:
-      ims[-1].append(cf.plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
     if seq[k].shape[0] == 1:
       ims[-1].append(ax2.imshow(seq[k][0].T, animated=True, cmap="bwr_r",vmin=-1, vmax=1))
     else:

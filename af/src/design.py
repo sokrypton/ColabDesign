@@ -1,4 +1,4 @@
-from af_backprop.utils import *
+from af.src.misc import *
 import random, copy, os
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -117,19 +117,24 @@ class _af_design:
                            'init_pair': np.zeros([1, L, L, 128])})
       
       grad = []
-      for _ in range(opt["recycles"]+1):
+      for r in range(opt["recycles"]+1):
         key, _key = jax.random.split(key)
-        (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, opt)
+        _opt = copy.deepcopy(opt)
+        for k,x in _opt["weights"].items():
+          if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray) or isinstance(x, list):
+            # use different weights at each recycle
+            _opt["weights"][k] = float(x[r])
+          else:
+            _opt["weights"][k] = float(x)
+        (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, _opt)
         grad.append(_grad)
         self._inputs.update(outs["init"])
-      grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
+      grad = jax.tree_util.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
       return (loss, outs), grad
     else:
       #----------------------------------------
       # use gradients from last recycle
       #----------------------------------------
-      if self.args["use_init_pos"]:
-        self._inputs["init_pos"] = self._batch["all_atom_positions"][None]        
       if self.args["recycle_mode"] == "sample":
         # decide number of recycles to use
         key, _key = jax.random.split(key)
@@ -178,9 +183,9 @@ class _af_design:
         (l,o),g = self._recycle(p, key)
         _loss.append(l); _outs.append(o); _grad.append(g)
         _losses.append(o["losses"])
-      self._grad = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(0), *_grad)      
+      self._grad = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)      
       self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
-      self._losses = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(), *_losses)
+      self._losses = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
 
   #-------------------------------------
   # STEP FUNCTION

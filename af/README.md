@@ -11,7 +11,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
 
 ### setup
-- **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid clashes.
+- **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
 ```bash
 pip install git+https://github.com/sokrypton/af_backprop.git
 pip install git+https://github.com/sokrypton/ColabDesign.git@beta

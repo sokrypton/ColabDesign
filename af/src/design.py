@@ -183,9 +183,9 @@ class _af_design:
         (l,o),g = self._recycle(p, key)
         _loss.append(l); _outs.append(o); _grad.append(g)
         _losses.append(o["losses"])
-      self._grad = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(0), *_grad)      
+      self._grad = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)      
       self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
-      self._losses = jax.tree_multimap(lambda *v: jnp.asarray(v).mean(), *_losses)
+      self._losses = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
 
   #-------------------------------------
   # STEP FUNCTION

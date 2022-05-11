@@ -3,6 +3,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from alphafold.common import residue_constants
+
 try:
   from jax.example_libraries.optimizers import sgd, adam
 except:

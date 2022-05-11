@@ -1,4 +1,8 @@
-from af.src.misc import *
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+import jax
+import jax.numpy as jnp
+import numpy as np
 
 from alphafold.data import pipeline, templates, prep_inputs
 from alphafold.common import protein, residue_constants
@@ -186,3 +190,36 @@ class _af_init:
     self._default_weights.update(weights)
 
     self.restart(set_defaults=True, **kwargs)
+
+#######################
+# reshape inputs
+#######################
+def make_fixed_size(feat, model_runner, length, batch_axis=True):
+  '''pad input features'''
+  cfg = model_runner.config
+  if batch_axis:
+    shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
+  else:
+    shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
+
+  pad_size_map = {
+      shape_placeholders.NUM_RES: length,
+      shape_placeholders.NUM_MSA_SEQ: cfg.data.eval.max_msa_clusters,
+      shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
+      shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
+  }
+  for k, v in feat.items():
+    # Don't transfer this to the accelerator.
+    if k == 'extra_cluster_assignment':
+      continue
+    shape = list(v.shape)
+    schema = shape_schema[k]
+    assert len(shape) == len(schema), (
+        f'Rank mismatch between shape and shape schema for {k}: '
+        f'{shape} vs {schema}')
+    pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
+    padding = [(0, p - tf.shape(v)[i]) for i, p in enumerate(pad_size)]
+    if padding:
+      feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
+      feat[k].set_shape(pad_size)
+  return {k:np.asarray(v) for k,v in feat.items()}

@@ -1,5 +1,8 @@
-from af.src.misc import *
-from alphafold.model import data, config, model, modules
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from alphafold.model import data, config, model
 
 from af.src.init import _af_init
 from af.src.loss import _af_loss

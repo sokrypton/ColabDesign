@@ -1,9 +1,15 @@
-from af.src.misc import *
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+import jax
+import jax.numpy as jnp
+import numpy as np
 
-from alphafold.data import pipeline, templates, prep_inputs
+from alphafold.data import pipeline, prep_inputs
 from alphafold.common import protein, residue_constants
 from alphafold.model import all_atom
 from alphafold.model.tf import shape_placeholders
+
+ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 #################################################
 # AF_INIT - input prep functions
@@ -43,7 +49,7 @@ class _af_init:
       batch = jax.tree_map(lambda x:x[has_ca], batch)
       batch.update(all_atom.atom37_to_frames(**batch))
 
-      seq = "".join([order_restype[a] for a in batch["aatype"]])
+      seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
       template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
       template_features = {"template_aatype":template_aatype,
                            "template_all_atom_masks":batch["all_atom_mask"],
@@ -186,3 +192,45 @@ class _af_init:
     self._default_weights.update(weights)
 
     self.restart(set_defaults=True, **kwargs)
+
+#######################
+# utils
+#######################
+def make_fixed_size(feat, model_runner, length, batch_axis=True):
+  '''pad input features'''
+  cfg = model_runner.config
+  if batch_axis:
+    shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
+  else:
+    shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
+
+  pad_size_map = {
+      shape_placeholders.NUM_RES: length,
+      shape_placeholders.NUM_MSA_SEQ: cfg.data.eval.max_msa_clusters,
+      shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
+      shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
+  }
+  for k, v in feat.items():
+    # Don't transfer this to the accelerator.
+    if k == 'extra_cluster_assignment':
+      continue
+    shape = list(v.shape)
+    schema = shape_schema[k]
+    assert len(shape) == len(schema), (
+        f'Rank mismatch between shape and shape schema for {k}: '
+        f'{shape} vs {schema}')
+    pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
+    padding = [(0, p - tf.shape(v)[i]) for i, p in enumerate(pad_size)]
+    if padding:
+      feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
+      feat[k].set_shape(pad_size)
+  return {k:np.asarray(v) for k,v in feat.items()}
+
+def pdb_to_string(pdb_file):
+  lines = []
+  for line in open(pdb_file,"r"):
+    if line[:6] == "HETATM" and line[17:20] == "MSE":
+      line = "ATOM  "+line[6:17]+"MET"+line[20:]
+    if line[:4] == "ATOM":
+      lines.append(line)
+  return "".join(lines)

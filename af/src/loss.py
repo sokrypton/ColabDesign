@@ -1,5 +1,12 @@
-from af.src.misc import *
+import jax
+import jax.numpy as jnp
+import numpy as np
+
 from af.src.misc import _np_get_6D_loss, _np_rmsd
+from af.src.misc import update_seq, update_aatype 
+from af.src.misc import get_plddt, get_pae, get_fape_loss, get_dgram_loss, get_rmsd_loss_w, get_sc_rmsd
+
+from alphafold.model import model, folding, all_atom
 
 ####################################################
 # AF_LOSS - setup loss function

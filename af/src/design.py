@@ -129,7 +129,7 @@ class _af_design:
         (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, _opt)
         grad.append(_grad)
         self._inputs.update(outs["init"])
-      grad = jax.tree_multimap(lambda *x: jnp.asarray(x).mean(0), *grad)
+      grad = jax.tree_util.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
       return (loss, outs), grad
     else:
       #----------------------------------------

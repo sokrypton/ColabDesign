@@ -83,7 +83,7 @@ class _af_design:
     self._params = {"seq":x}
     self._state = self._init_fun(self._params)
 
-  def restart(self, seed=None, weights=None, opt=None, set_defaults=False, **kwargs):
+  def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False, **kwargs):
     
     # set weights and options
     if set_defaults:

@@ -37,8 +37,7 @@ For a given length, generate/hallucinate a protein sequence that AlphaFold think
 protein (high plddt, low pae, many contacts).
 ```python
 model = mk_design_model(protocol="hallucination")
-model.prep_inputs(length=100, seq_init="gumbel")
-model.design_2stage()
+# TODO
 ```
 ### binder hallucination
 For a given protein target and protein binder length, generate/hallucinate a protein binder sequence AlphaFold 
@@ -49,6 +48,15 @@ model = mk_design_model(protocol="binder")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_len=19)
 model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
 ```
+### partial hallucination
+If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
+you can use partial hallucination.
+```python
+model = mk_design_model(protocol="partial")
+model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
+# TODO
+```
+
 # FAQ
 #### Can I reuse the same model without needing to recompile?
 ```python

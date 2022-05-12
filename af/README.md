@@ -37,7 +37,10 @@ For a given length, generate/hallucinate a protein sequence that AlphaFold think
 protein (high plddt, low pae, many contacts).
 ```python
 model = mk_design_model(protocol="hallucination")
-# TODO
+model.restart(seq_init="gumbel")
+model.design(50, soft=True)
+model.restart(seq_init=model._outs["seq_pseudo"], keep_history=True)
+model.design_3stage(50,50,10)
 ```
 ### binder hallucination
 For a given protein target and protein binder length, generate/hallucinate a protein binder sequence AlphaFold 

@@ -106,8 +106,9 @@ class _af_design:
     self._init_seq(**kwargs)
 
     # initialize trajectory
-    self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
-    self._best_loss, self._best_outs = np.inf, None
+    if not keep_history:
+      self.losses,self._traj = [],{"xyz":[],"seq":[],"plddt":[],"pae":[]}
+      self._best_loss, self._best_outs = np.inf, None
     
   def _recycle(self, model_params, key, params=None, opt=None):
     if params is None: params = self._params

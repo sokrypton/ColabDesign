@@ -89,13 +89,13 @@ class _af_design:
     if set_defaults:
       if weights is not None: self._default_weights.update(weights)
       if opt is not None: self._default_opt.update(opt)
+    
+    if not keep_history:
+      self.opt = copy.deepcopy(self._default_opt)
+      self.opt["weights"] = self._default_weights.copy()
 
-    self.opt = copy.deepcopy(self._default_opt)
-    self.opt["weights"] = self._default_weights.copy()
-
-    if not set_defaults:
-      if weights is not None: self.opt["weights"].update(weights)
-      if opt is not None: self.opt.update(opt)
+    if weights is not None: self.opt["weights"].update(weights)
+    if opt is not None: self.opt.update(opt)
 
     # setup optimizer
     self._setup_optimizer(**kwargs)

@@ -36,9 +36,10 @@ class _af_init:
 
   def _prep_pdb(self, pdb_filename, chain=None):
     '''extract features from pdb'''
-    if chain is None: chains = [None]
-    else: chains = chain.split(",")
+
+    chains = [None] if chain is None else chain.split(",")
     o,last = [],0
+    residue_idx, chain_idx = [],[]
     for chain in chains:
       protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
       batch = {'aatype': protein_obj.aatype,
@@ -55,35 +56,56 @@ class _af_init:
                            "template_all_atom_masks":batch["all_atom_mask"],
                            "template_all_atom_positions":batch["all_atom_positions"]}
       
-      residue_index = protein_obj.residue_index[has_ca] + last
+      residue_index = protein_obj.residue_index[has_ca] + last      
       last = residue_index[-1] + 50
       o.append({"batch":batch,
                 "template_features":template_features,
                 "residue_index": residue_index})
+      
+      # original residue and chain index
+      residue_idx.append(protein_obj.residue_index[has_ca])
+      chain_idx.append([chain] * len(residue_idx[-1]))
+
     o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
     o["template_features"] = {"template_domain_names":np.asarray(["None"]),
                               **jax.tree_map(lambda x:x[None],o["template_features"])}
-    return o                          
 
-  def _prep_pos(self, pos, res_idx=None):
-    if res_idx is None:
-      res_idx = self._inputs["residue_index"][0]
-    if len(pos) > 0:
-      pos_set = []
-      for idx in pos.split(","):
-        i,j = idx.split("-") if "-" in idx else (idx,None)
-        if j is None: pos_set.append(int(i))
-        else: pos_set += list(range(int(i),int(j)+1))
-      pos_array = []
-      for i in pos_set:
-        if i in res_idx:
-          pos_array.append(np.where(res_idx == i)[0][0])
-      return jnp.asarray(pos_array)
-    else:
-      return None
+    # save original residue and chain index
+    o["idx"] = {"residue":np.concatenate(residue_idx),
+                "chain":np.concatenate(chain_idx)}
+    return o
+  
+  def _prep_pos(self, pos, residue=None, chain=None):
+    if residue is None: residue = self._inputs["residue_index"][0]
+    if chain is None: chain = np.full(len(residue),None)
+    residue_set,chain_set = [],[]
+    for idx in pos.split(","):
+      i,j = idx.split("-") if "-" in idx else (idx, None)
+
+      # if chain defined
+      if i[0].isalpha():
+        c,i = i[0], int(i[1:])
+      else:
+        c,i = chain[0], int(i)
+
+      if j is None:
+        residue_set.append(i)
+        chain_set.append(c)
+      else:
+        j = int(j[1:] if j[0].isalpha() else j)
+        residue_set += list(range(i,j+1))
+        chain_set += [c] * (j-i+1)
+
+    # get positions
+    pos_array = []
+    for i,c in zip(residue_set, chain_set):
+      idx = np.where((residue == i) & (chain == c))[0]
+      if idx.shape[0] > 0: pos_array.append(idx[0])
+
+    return np.asarray(pos_array)
   
   # prep functions specific to protocol
-  def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot="", **kwargs):
+  def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot=None, **kwargs):
     '''prep inputs for binder design'''
 
     # get pdb info
@@ -93,7 +115,10 @@ class _af_init:
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
     # gather hotspot info
-    self._hotspot = self._prep_pos(hotspot)
+    if hotspot is None:
+      self._hotspot = None
+    else:
+      self._hotspot = self._prep_pos(hotspot, **pdb["idx"])
 
     # pad inputs
     total_len = target_len + binder_len
@@ -163,11 +188,11 @@ class _af_init:
     # get [pos]itions of interests
     pdb = self._prep_pdb(pdb_filename, chain=chain)
     if pos is None:
-      self._default_opt["pos"] = jnp.arange(pdb["residue_index"].shape[0])
+      pos = np.arange(pdb["residue_index"].shape[0])
     else:
-      self._default_opt["pos"] = self._prep_pos(pos, pdb["residue_index"])
-
-    pos = np.asarray(self._default_opt["pos"])
+      pos = self._prep_pos(pos, **pdb["idx"])
+    
+    self._default_opt["pos"] = pos
     self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
     self._wt_aatype = self._batch["aatype"]
 

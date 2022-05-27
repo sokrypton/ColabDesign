@@ -166,7 +166,7 @@ class _af_init:
 
     self.restart(set_defaults=True, **kwargs)
     
-  def _prep_hallucination(self, length=100, copies=1, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
     '''prep inputs for hallucination'''
     self._len = length
     self._inputs = self._prep_features(length * copies)
@@ -174,7 +174,8 @@ class _af_init:
     # set weights
     self._default_weights.update({"con":1.0})
     if copies > 1:
-      self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies)[None]
+      offset = 1 if repeat else 50
+      self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
       self._default_weights.update({"i_pae":0.01, "i_con":0.1})
 
     self.restart(set_defaults=True, **kwargs)

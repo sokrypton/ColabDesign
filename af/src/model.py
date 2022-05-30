@@ -17,7 +17,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               use_templates=False, use_template_tor=True):
+               use_templates=False, use_template_tor=True,
+               data_dir="."):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -83,7 +84,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     self._config = cfg
 
     # setup model
-    self._model_params = [data.get_model_haiku_params(model_name=model_name, data_dir=".")]
+    self._model_params = [data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)]
     self._runner = model.RunModel(self._config, self._model_params[0], is_training=True)
 
     # load the other model_params
@@ -92,7 +93,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     else:
       model_names = ["model_1_ptm","model_2_ptm","model_4_ptm","model_5_ptm"]
     for model_name in model_names:
-      params = data.get_model_haiku_params(model_name, '.')
+      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
       self._model_params.append({k: params[k] for k in self._runner.params.keys()})
 
     # define gradient function

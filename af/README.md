@@ -63,10 +63,9 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
 
 # FAQ
 #### How do I fixed the FileNotFoundError error?
-By default `mk_design_model(...,data_dir=".")` assumes alphafold "params" are saved in the run directory (".").
-To override this, specifiy the location of params at:
+By default `mk_design_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
 ```python
-model = mk_design_model(..., data_dir="location_of_params")
+model = mk_design_model(..., data_dir="/location/of")
 ```
 
 #### Can I reuse the same model without needing to recompile?

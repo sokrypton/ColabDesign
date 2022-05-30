@@ -62,6 +62,13 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
 ```
 
 # FAQ
+#### How do I fixed the FileNotFoundError error?
+By default `mk_design_model(...,data_dir=".")` assumes alphafold "params" are saved in the run directory (".").
+To override this, specifiy the location of params at:
+```python
+model = mk_design_model(..., data_dir="location_of_params")
+```
+
 #### Can I reuse the same model without needing to recompile?
 ```python
 model.restart()
@@ -161,6 +168,9 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
   - *pae* - minimize PAE within binder
   - *i_con* - maximize number of contacts at the interface of the proteins
   - *con* - maximize number of contacts within binder
+
+- partial hallucination specific losses
+  - *sc_fape* - sidechain-specific fape
 
 # Advanced FAQ
 #### I don't like your design_??? function, can I write my own with more detailed control?

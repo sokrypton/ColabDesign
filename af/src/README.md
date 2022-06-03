@@ -1,0 +1,6 @@
+- init.py   - configure the inputs
+- model.py  - configure the model
+- loss.py   - configure the loss
+- design.py - gradient update loop
+- utils.py  - various tools for saving/plotting
+- misc.py   - collection of functions (mostly for computing loss)

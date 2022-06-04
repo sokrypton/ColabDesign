@@ -9,6 +9,7 @@ from alphafold.common import protein, residue_constants
 from alphafold.model import all_atom
 from alphafold.model.tf import shape_placeholders
 
+from af.src.misc import _np_get_cb
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 #################################################
@@ -36,6 +37,17 @@ class _af_init:
 
   def _prep_pdb(self, pdb_filename, chain=None):
     '''extract features from pdb'''
+    
+    def add_cb(batch):
+      '''add missing CB atoms based on N,CA,C'''
+      p,m = batch["all_atom_positions"],batch["all_atom_mask"]
+      atom_idx = residue_constants.atom_order
+      atoms = {k:p[...,atom_idx[k],:] for k in ["N","CA","C"]}
+      cb = atom_idx["CB"]
+      cb_atoms = _np_get_cb(**atoms, use_jax=False)
+      cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
+      batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
+      batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
 
     chains = [None] if chain is None else chain.split(",")
     o,last = [],0
@@ -45,6 +57,8 @@ class _af_init:
       batch = {'aatype': protein_obj.aatype,
                'all_atom_positions': protein_obj.atom_positions,
                'all_atom_mask': protein_obj.atom_mask}
+            
+      add_cb(batch) # add in missing cb (in the case of glycine)
 
       has_ca = batch["all_atom_mask"][:,0] == 1
       batch = jax.tree_map(lambda x:x[has_ca], batch)

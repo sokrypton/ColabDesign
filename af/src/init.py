@@ -127,6 +127,9 @@ class _af_init:
     target_len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(target_len, pdb["template_features"])
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
+    
+    self._copies = 1
+    self._repeat = False
 
     # gather hotspot info
     if hotspot is None:
@@ -207,6 +210,7 @@ class _af_init:
     '''prep input for partial hallucination'''
     self.args.update({"sidechain":sidechain, "fix_seq":fix_seq})
     self._copies = 1
+    self._repeat = False    
     
     # get [pos]itions of interests
     pdb = self._prep_pdb(pdb_filename, chain=chain)

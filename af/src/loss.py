@@ -66,9 +66,9 @@ class _af_loss:
       update_seq(seq_pseudo, inputs)
       
       # update amino acid sidechain identity
-      N,L = inputs["aatype"].shape[:2]
-      aatype = jnp.broadcast_to(jax.nn.one_hot(seq_pseudo[0].argmax(-1),21),(N,L,21))
-      update_aatype(aatype, inputs)
+      B,L = inputs["aatype"].shape[:2]
+      aatype = jax.nn.one_hot(seq_pseudo[0].argmax(-1),21)
+      update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
 
       # update template features
       if self.args["use_templates"]:
@@ -132,7 +132,7 @@ class _af_loss:
         losses["plddt"] = plddt_loss.mean()
 
       if self.protocol == "fixbb":
-        o = self._get_fixbb_loss(outputs, opt)
+        o = self._get_fixbb_loss(outputs, opt, aatype=aatype)
         losses.update(o["losses"]); aux.update(o["aux"])
 
       if self.protocol == "partial":
@@ -151,9 +151,9 @@ class _af_loss:
     
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
 
-  def _get_fixbb_loss(self, outputs, opt):
+  def _get_fixbb_loss(self, outputs, opt, aatype=None):
     losses = {"fape":      get_fape_loss(self._batch, outputs, model_config=self._config),
-              "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, copies=self._copies),
+              "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=self._copies),
               "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=self._copies)}
     return {"losses":losses, "aux":{}}
 

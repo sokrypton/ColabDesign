@@ -188,12 +188,17 @@ class _af_init:
     self._len = length
     self._inputs = self._prep_features(length * copies)
     self._copies = copies
+    self._repeat = repeat
+    
     # set weights
     self._default_weights.update({"con":1.0})
     if copies > 1:
-      offset = 1 if repeat else 50
+      if repeat:
+        offset = 1
+      else:
+        offset = 50
+        self._default_weights.update({"i_pae":0.01, "i_con":0.1})
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
-      self._default_weights.update({"i_pae":0.01, "i_con":0.1})
 
     self.restart(set_defaults=True, **kwargs)
 

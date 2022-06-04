@@ -131,7 +131,7 @@ class _af_loss:
       else:
         losses["plddt"] = plddt_loss.mean()
 
-      if self.protocol == "fixbb":
+      if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
         o = self._get_fixbb_loss(outputs, opt, aatype=aatype)
         losses.update(o["losses"]); aux.update(o["aux"])
 
@@ -267,7 +267,7 @@ class _af_loss:
     c,ic = opt["con"],opt["i_con"]
     
     # if more than 1 chain, split pae/con into inter/intra
-    if self.protocol in ["binder"] or (self._copies > 1 and not self._repeat):
+    if (self.protocol == binder and not self._redesign) or (self._copies > 1 and not self._repeat):
       aux["pae"] = get_pae(outputs)
 
       L = self._target_len if self.protocol == "binder" else self._len
@@ -293,6 +293,7 @@ class _af_loss:
           x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
+      if self.protocol == binder: aux["pae"] = get_pae(outputs)
       losses.update({"con":get_con_loss(dgram, c, offset).mean(),
                      "helix":get_helix_loss(dgram, c, offset),
                      "pae":pae.mean()})

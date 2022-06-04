@@ -82,7 +82,7 @@ class _af_utils:
     '''save pdb coordinates'''
     outs = self._outs if self._best_outs is None else self._best_outs
     outs = jax.tree_map(lambda x:np.asarray(x), outs)
-    aatype = outs["seq"].argmax(-1)[0]
+    aatype = outs["seq"]["hard"].argmax(-1)[0]
     if self.protocol == "binder":
       aatype_target = self._batch["aatype"][:self._target_len]
       aatype = np.concatenate([aatype_target,aatype])

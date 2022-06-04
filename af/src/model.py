@@ -18,7 +18,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
                use_templates=False, use_template_tor=True,
-               data_dir="."):
+               use_pssm=False, data_dir="."):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True

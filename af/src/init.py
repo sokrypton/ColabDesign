@@ -282,9 +282,10 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
   else:
     shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
 
+  num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
       shape_placeholders.NUM_RES: length,
-      shape_placeholders.NUM_MSA_SEQ: 1,
+      shape_placeholders.NUM_MSA_SEQ: num_msa_seq,
       shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
       shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
   }

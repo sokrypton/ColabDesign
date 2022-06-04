@@ -165,17 +165,21 @@ class _af_loss:
 
   def _get_partial_loss(self, outputs, opt):
     '''compute loss for partial hallucination protocol'''
+    def sub(x, p, axis=0):
+      if jnp.issubdtype(p.dtype, jnp.integer): return jnp.take(x,p,axis)
+      else: return jnp.tensordot(p,x,(-1,axis)).swapaxes(axis,0)
+
     losses, aux = {},{}
     pos = opt["pos"]
     _config = self._config.model.heads.structure_module
 
     # dgram
-    dgram = outputs["distogram"]["logits"][:,pos][pos,:]
+    dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
     losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, logits=dgram)
 
     # 6D loss
     true = self._batch["all_atom_positions"]
-    pred = outputs["structure_module"]["final_atom_positions"][pos]
+    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
     losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["sidechain"])
 
     # rmsd
@@ -184,20 +188,19 @@ class _af_loss:
     # fape
     fape_loss = {"loss":0.0}
     struct = outputs["structure_module"]
-    struct["traj"] = struct["traj"][...,pos,:]
-    folding.backbone_loss(fape_loss, self._batch, struct, _config)
+    traj = {"traj":sub(struct["traj"],pos,-2)}
+    folding.backbone_loss(fape_loss, self._batch, traj, _config)
     losses["fape"] = fape_loss["loss"]
 
     # sidechain specific losses
     if self.args["sidechain"]:
 
-      pred_pos = struct["final_atom14_positions"][pos]
-
       # sc_fape
-      struct.update(folding.compute_renamed_ground_truth(self._batch, pred_pos))
-      for k in ["frames","atom_pos"]:
-        struct["sidechains"][k] = jax.tree_map(lambda x:x[:,pos], struct["sidechains"][k])
-      losses["sc_fape"] = folding.sidechain_loss(self._batch, struct, _config)["loss"]
+      pred_pos = sub(struct["final_atom14_positions"],pos)
+      sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
+                   "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
+      
+      losses["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
 
       # sc_rmsd
       true_aa = self._batch["aatype"]

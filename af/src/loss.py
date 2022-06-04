@@ -56,6 +56,13 @@ class _af_loss:
         seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
         seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
         seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
+        
+        #############################
+        # MAGIC
+        #############################
+        if self.args["use_templates"]:
+          seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
+        #############################
       
       if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
         seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
@@ -68,9 +75,6 @@ class _af_loss:
       aatype = jax.nn.one_hot(seq_pseudo[0].argmax(-1),21)
       update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
       
-      # MAGIC
-      inputs["msa_feat"] = inputs["msa_feat"].at[:,-1].set(0.0)
-
       # update template features
       if self.args["use_templates"]:
 

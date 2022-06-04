@@ -152,9 +152,10 @@ class _af_loss:
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
 
   def _get_fixbb_loss(self, outputs, opt, aatype=None):
+    copies = 1 if self._repeat else self._copies
     losses = {"fape":      get_fape_loss(self._batch, outputs, model_config=self._config),
-              "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=self._copies),
-              "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=self._copies)}
+              "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
+              "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)}
     return {"losses":losses, "aux":{}}
 
   def _get_partial_loss(self, outputs, opt):

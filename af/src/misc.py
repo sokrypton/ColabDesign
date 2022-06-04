@@ -100,9 +100,10 @@ def _distogram_log_loss(logits, bin_edges, batch, num_bins, copies=1):
 
     return avg_error / copies
 
-def get_dgram_loss(batch, outputs, model_config, logits=None, copies=1):
+def get_dgram_loss(batch, outputs, model_config, logits=None, aatype=None, copies=1):
   # get cb features (ca in case of glycine)
-  pb, pb_mask = model.modules.pseudo_beta_fn(batch["aatype"],
+  if aatype is None: aatype = batch["aatype"]
+  pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
                                              batch["all_atom_positions"],
                                              batch["all_atom_mask"])
   if logits is None: logits = outputs["distogram"]["logits"]

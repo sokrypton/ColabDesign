@@ -119,15 +119,28 @@ class _af_init:
     return np.asarray(pos_array)
   
   # prep functions specific to protocol
-  def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot=None, **kwargs):
+  def _prep_binder(self, pdb_filename, chain="A",
+                   binder_len=50, binder_chain=None,
+                   use_binder_template=False,
+                   hotspot=None, **kwargs):
+
     '''prep inputs for binder design'''
+    
+    self._redesign = binder_chain is not None
 
     # get pdb info
-    pdb = self._prep_pdb(pdb_filename, chain=chain)
-    target_len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(target_len, pdb["template_features"])
+    chains = f"{chain},{binder_chain}" if self._redesign else chain
+    pdb = self._prep_pdb(pdb_filename, chain=chains)    
+    if self._redesign:
+      target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
+      binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      self._inputs = self._prep_features(target_len + binder_len, pdb["template_features"])
+    else:
+      target_len = pdb["residue_index"].shape[0]
+      self._inputs = self._prep_features(target_len, pdb["template_features"])
+      
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
-    
+
     self._copies = 1
     self._repeat = False
 
@@ -137,20 +150,29 @@ class _af_init:
     else:
       self._hotspot = self._prep_pos(hotspot, **pdb["idx"])
 
-    # pad inputs
-    total_len = target_len + binder_len
-    self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
-    self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+    if self._redesign:
+      self._inputs["template_aatype"][...,target_len:] = 21
+      self._inputs["template_all_atom_masks"][...,target_len:,5:] = 0
+      if not use_binder_template:
+        self._inputs["template_all_atom_masks"][...,target_len:,:] = 0
+        self._inputs["template_pseudo_beta_mask"][...,target_len:] = 0
 
-    # offset residue index for binder
-    self._inputs["residue_index"] = self._inputs["residue_index"].copy()
-    self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
-    for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+    else: # binder hallucination
+            
+      # pad inputs
+      total_len = target_len + binder_len
+      self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
+      self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+
+      # offset residue index for binder
+      self._inputs["residue_index"] = self._inputs["residue_index"].copy()
+      self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
+      for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+      self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
     self.restart(set_defaults=True, **kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, repeat=False, **kwargs):

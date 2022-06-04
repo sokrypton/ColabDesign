@@ -154,8 +154,9 @@ class _af_init:
       self._inputs["template_all_atom_masks"][...,target_len:,5:] = 0
       if not use_binder_template:
         self._inputs["template_all_atom_masks"][...,target_len:,:] = 0
-        self._inputs["template_pseudo_beta_mask"][...,target_len:] = 0
+        self._inputs["template_pseudo_beta_mask"][...,target_len:] = 0      
       
+      self._batch = pdb["batch"]
       self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0, "con":0.0})
       
     else: # binder hallucination

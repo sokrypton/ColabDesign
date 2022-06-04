@@ -158,6 +158,7 @@ class _af_init:
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len, pdb["template_features"])
     self._copies = copies
+    self._repeat = repeat
     
     # set weights
     self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0, "con":0.0})

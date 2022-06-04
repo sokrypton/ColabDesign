@@ -20,52 +20,59 @@ class _af_loss:
       losses = {}
 
       # set sequence
-      seq = params["seq"]
+      seq = {"input":params["seq"]}
+      seq_shape = params["seq"].shape
 
       # shuffle msa (randomly pick which sequence is query)
       if self.args["num_seq"] > 1:
-        i = jax.random.randint(key,[],0,seq.shape[0])
-        seq = seq.at[0].set(seq[i]).at[i].set(seq[0])
+        n = jax.random.randint(key,[],0,seq_shape[0])
+        seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
       # straight-through/reparameterization
-      seq_logits = 2.0 * seq + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq.shape), 0.0)
-      seq_soft = jax.nn.softmax(seq_logits / opt["temp"])
-      seq_hard = jax.nn.one_hot(seq_soft.argmax(-1), 20)
-      seq_hard = jax.lax.stop_gradient(seq_hard - seq_soft) + seq_soft
+      seq["logits"] = 2.0 * seq["input"] + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_shape), 0.0)
+      seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
+      seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
+      seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
 
       # create pseudo sequence
-      seq_pseudo = opt["soft"] * seq_soft + (1-opt["soft"]) * seq
-      seq_pseudo = opt["hard"] * seq_hard + (1-opt["hard"]) * seq_pseudo
+      seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
+      seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
 
       # for partial hallucination, force sequence if sidechain constraints defined
       if self.protocol == "partial" and (self.args["fix_seq"] or self.args["sidechain"]):
+        p = opt["pos"]
         seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-        seq_pseudo = seq_pseudo.at[:,opt["pos"],:].set(seq_ref)
-        seq_hard = seq_hard.at[:,opt["pos"],:].set(seq_ref)
+        if jnp.issubdtype(p.dtype, jnp.integer):
+          seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
+        else:
+          seq_ref = p.T @ seq_ref
+          w = 1 - seq_ref.sum(-1, keepdims=True)
+          seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
 
       # save for aux output
-      aux = {"seq":seq_hard,"seq_pseudo":seq_pseudo}
+      aux = {"seq":seq}
 
       # entropy loss for msa
       if self.args["num_seq"] > 1:
-        seq_prf = seq_hard.mean(0)
+        seq_prf = seq["hard"].mean(0)
         losses["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
-      
+        
       if self.protocol == "binder":
         # concatenate target and binder sequence
         seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
         seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
-        seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
+        seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
               
       if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-        seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
+        seq = jax.tree_map(lambda x:jnp.concatenate([x]*self._copies,1), seq)
             
       # update sequence
-      update_seq(seq_pseudo, inputs)
+      seq_pssm = seq["soft"] if self.args["use_pssm"] else None
+      update_seq(seq["pseudo"], inputs, seq_pssm=seq_pssm)
       
       # update amino acid sidechain identity
       B,L = inputs["aatype"].shape[:2]
-      aatype = jax.nn.one_hot(seq_pseudo[0].argmax(-1),21)
+      aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
       update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
       
       # update template features

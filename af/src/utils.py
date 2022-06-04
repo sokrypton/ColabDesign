@@ -34,7 +34,7 @@ class _af_utils:
     self._losses.update({"model":self._model_num,"loss":self._loss, 
                         **{k:self.opt[k] for k in ["soft","hard","temp"]}})
     
-    if self.protocol == "fixbb":
+    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
       _aatype = self._outs["seq"].argmax(-1)
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
@@ -144,7 +144,7 @@ class _af_utils:
     ax2 = fig.add_subplot(gs[3:,:])
     ax1_ = ax1.twinx()
     
-    if self.protocol == "fixbb":
+    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       rmsd = self.get_loss("rmsd")
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")

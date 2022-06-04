@@ -50,7 +50,7 @@ interface and within the binder, and we maximize pLDDT of the binder.
 ```python
 model = mk_design_model(protocol="binder")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_len=19)
-model.design_3stage(soft_iters=100, temp_iters=100, hard_iters=10)
+model.design_3stage(100, 100, 10)
 ```
 ### partial hallucination
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,

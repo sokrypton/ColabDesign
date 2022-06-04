@@ -64,7 +64,7 @@ class _af_utils:
 
     # save trajectory
     ca_xyz = self._outs["final_atom_positions"][:,1,:]
-    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq_pseudo"]}
+    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
     if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
     for k,v in traj.items(): self._traj[k].append(np.array(v))
 

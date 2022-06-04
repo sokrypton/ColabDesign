@@ -167,17 +167,17 @@ class _af_init:
     # update residue index from pdb
     if copies > 1:
       if repeat:
-        self._len = self._len // copies      
-      elif homooligomer:
         self._len = self._len // copies
-        self._inputs["residue_index"] = pdb["residue_index"][None]
       else:
-        self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
-        self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
-        self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
-        for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        
-      self._default_weights.update({"i_pae":0.01, "i_con":0.0})
+        if homooligomer:
+          self._len = self._len // copies
+          self._inputs["residue_index"] = pdb["residue_index"][None]
+        else:
+          self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
+          self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
+          self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
+          for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+        self._default_weights.update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 

@@ -56,7 +56,7 @@ class _af_loss:
         seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
         seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
         seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
-        if self.args["use_templates"]:
+        if self.args["use_templates"] and not self._redesign:
           seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
       
       if self.protocol in ["fixbb","hallucination"] and self._copies > 1:

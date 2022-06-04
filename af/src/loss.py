@@ -69,7 +69,7 @@ class _af_loss:
       update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
       
       # MAGIC
-      inputs["msa_feat"] = jnp.pad(inputs["msa_feat"],[[0,0],[0,1],[0,0],[0,0]])
+      inputs["msa_feat"] = inputs["msa_feat"].at[:,-1].set(0.0)
 
       # update template features
       if self.args["use_templates"]:

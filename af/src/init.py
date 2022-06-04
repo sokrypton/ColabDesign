@@ -120,8 +120,7 @@ class _af_init:
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
-                   binder_len=50, binder_chain=None,
-                   use_binder_template=False,
+                   binder_len=50, binder_chain=None, use_binder_template=False,
                    hotspot=None, **kwargs):
 
     '''prep inputs for binder design'''
@@ -156,7 +155,9 @@ class _af_init:
       if not use_binder_template:
         self._inputs["template_all_atom_masks"][...,target_len:,:] = 0
         self._inputs["template_pseudo_beta_mask"][...,target_len:] = 0
-
+      
+      self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0, "con":0.0})
+      
     else: # binder hallucination
             
       # pad inputs

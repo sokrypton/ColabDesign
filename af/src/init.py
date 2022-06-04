@@ -30,9 +30,9 @@ class _af_init:
     }
     if template_features is not None: feature_dict.update(template_features)    
     inputs = self._runner.process_features(feature_dict, random_seed=0)
-    if num_seq > 1:
-      inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
-      inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
+    #if num_seq > 1:
+    #  inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
+    #  inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
     return inputs
 
   def _prep_pdb(self, pdb_filename, chain=None):

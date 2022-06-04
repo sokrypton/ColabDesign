@@ -58,7 +58,7 @@ class _af_init:
                'all_atom_positions': protein_obj.atom_positions,
                'all_atom_mask': protein_obj.atom_mask}
             
-      add_cb(batch) # add in missing cb (in the case of glycine)
+      #add_cb(batch) # add in missing cb (in the case of glycine)
 
       has_ca = batch["all_atom_mask"][:,0] == 1
       batch = jax.tree_map(lambda x:x[has_ca], batch)

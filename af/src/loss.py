@@ -293,7 +293,7 @@ class _af_loss:
           x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
-      if self.protocol == binder: aux["pae"] = get_pae(outputs)
+      if self.protocol == "binder": aux["pae"] = get_pae(outputs)
       losses.update({"con":get_con_loss(dgram, c, offset).mean(),
                      "helix":get_helix_loss(dgram, c, offset),
                      "pae":pae.mean()})

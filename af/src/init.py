@@ -150,7 +150,7 @@ class _af_init:
     self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
     self.restart(set_defaults=True, **kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, **kwargs):
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, repeat=False, **kwargs):
     '''prep inputs for fixed backbone design'''
     pdb = self._prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
@@ -165,7 +165,9 @@ class _af_init:
 
     # update residue index from pdb
     if copies > 1:
-      if homooligomer:
+      if repeat:
+        self._len = self._len // copies      
+      elif homooligomer:
         self._len = self._len // copies
         self._inputs["residue_index"] = pdb["residue_index"][None]
       else:

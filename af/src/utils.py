@@ -36,7 +36,7 @@ class _af_utils:
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
-      _aatype = self._outs["seq"].argmax(-1)
+      _aatype = self._outs["seq"]["hard"].argmax(-1)
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
       self._losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
 

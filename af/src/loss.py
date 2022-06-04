@@ -67,6 +67,9 @@ class _af_loss:
       B,L = inputs["aatype"].shape[:2]
       aatype = jax.nn.one_hot(seq_pseudo[0].argmax(-1),21)
       update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
+      
+      # MAGIC
+      inputs["msa_feat"] = jnp.pad(inputs["msa_feat"],[[0,0],[0,1],[0,0],[0,0]])
 
       # update template features
       if self.args["use_templates"]:

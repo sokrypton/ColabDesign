@@ -296,6 +296,7 @@ class _af_loss:
       pb, pb_mask = model.modules.pseudo_beta_fn(jnp.zeros(L),
                                                  self._batch["all_atom_positions"],
                                                  self._batch["all_atom_mask"])
+      
       feats = {T+"aatype": jnp.broadcast_to(opt[T+"aatype"],(L,)),
                T+"all_atom_positions": self._batch["all_atom_positions"],
                T+"all_atom_masks": self._batch["all_atom_mask"],

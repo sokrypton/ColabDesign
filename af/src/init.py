@@ -132,9 +132,8 @@ class _af_init:
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
-                   use_binder_template=False, split_templates=True,
+                   use_binder_template=False, split_templates=False,
                    hotspot=None, **kwargs):
-
     '''
     ---------------------------------------------------
     prep inputs for binder design

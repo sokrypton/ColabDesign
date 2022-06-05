@@ -50,7 +50,7 @@ class _af_loss:
           seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
 
       # save for aux output
-      aux = {"seq":seq}
+      aux = {"seq":seq, "seq_pseudo":seq["pseudo"]}
 
       # entropy loss for msa
       if self.args["num_seq"] > 1:

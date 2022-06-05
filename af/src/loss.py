@@ -141,7 +141,7 @@ class _af_loss:
         losses.update(o["losses"]); aux.update(o["aux"])
 
       if self.protocol == "partial":
-        o = self._get_partial_loss(outputs, opt)
+        o = self._get_partial_loss(outputs, opt, aatype=aatype)
         losses.update(o["losses"]); aux.update(o["aux"])
 
       # weighted loss
@@ -163,7 +163,7 @@ class _af_loss:
               "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)}
     return {"losses":losses, "aux":{}}
 
-  def _get_partial_loss(self, outputs, opt):
+  def _get_partial_loss(self, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''
     def sub(x, p, axis=0):
       if jnp.issubdtype(p.dtype, jnp.integer): return jnp.take(x,p,axis)
@@ -175,7 +175,9 @@ class _af_loss:
 
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
-    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, logits=dgram)
+    if aatype is not None: aatype = sub(aatype,pos,0)
+    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
+                                         logits=dgram, aatype=aatype)
 
     # 6D loss
     true = self._batch["all_atom_positions"]

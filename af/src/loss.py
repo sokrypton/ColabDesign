@@ -296,7 +296,7 @@ class _af_loss:
       pb, pb_mask = model.modules.pseudo_beta_fn(jnp.zeros(L),
                                                  self._batch["all_atom_positions"],
                                                  self._batch["all_atom_mask"])
-      feats = {T+"aatype": jax.nn.one_hot(jnp.full(L,21),22),
+      feats = {T+"aatype": jnp.full(L,21),
                T+"all_atom_positions": self._batch["all_atom_positions"],
                T+"all_atom_masks": self._batch["all_atom_mask"],
                T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
@@ -305,11 +305,12 @@ class _af_loss:
         for k,v in feats.items():
           inputs[k] = inputs[k].at[:].set(v)
       else:
-        p = opt["pos"]      
+        p = opt["pos"]
         for k,v in feats.items():
           if jnp.issubdtype(p.dtype, jnp.integer):
             inputs[k] = inputs[k].at[:,:,p].set(v)
           else:
+            if k == "template_aatype": v = jax.nn.one_hot(v,22)
             inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
               
     # dropout template input features

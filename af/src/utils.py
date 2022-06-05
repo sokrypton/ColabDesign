@@ -71,7 +71,7 @@ class _af_utils:
   def get_seqs(self):
     outs = self._outs if self._best_outs is None else self._best_outs
     outs = jax.tree_map(lambda x:np.asarray(x), outs)
-    x = np.array(outs["seq"]).argmax(-1)
+    x = outs["seq"]["hard"].argmax(-1)
     return ["".join([order_restype[a] for a in s]) for s in x]
   
   def get_loss(self, x="loss"):

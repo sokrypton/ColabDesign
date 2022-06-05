@@ -133,6 +133,9 @@ class _af_init:
     '''prep inputs for binder design'''
     
     self._redesign = binder_chain is not None
+    self._copies = 1
+    self._repeat = False
+    self.args["use_binder_template"] = use_binder_template
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if self._redesign else chain
@@ -147,8 +150,6 @@ class _af_init:
       
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
-    self._copies = 1
-    self._repeat = False
 
     # gather hotspot info
     if hotspot is None:

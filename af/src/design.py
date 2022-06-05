@@ -36,6 +36,7 @@ class _af_design:
       x = kwargs["seq_init"]
       if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray): seq = x
       elif isinstance(x, str):
+        # TODO this could result in some issues...
         if len(x) == self._len: seq = x
         else: mode = x
 
@@ -59,7 +60,7 @@ class _af_design:
       wt = jax.nn.one_hot(self._wt_aatype, 20)
       if self.protocol == "fixbb":
         wt = wt[...,:self._len]
-      if self.protocol == "partial":
+      elif self.protocol == "partial":
         x = x.at[...,self.opt["pos"],:].set(wt)
         if add_seq: b = b.at[self.opt["pos"],:].set(wt * 1e8)
       else:
@@ -69,7 +70,7 @@ class _af_design:
     if seq is not None:
       if isinstance(seq, np.ndarray) or isinstance(seq, jnp.ndarray):
         x_ = seq
-      if isinstance(seq, str):
+      elif isinstance(seq, str):
         x_ = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
         x_ = jax.nn.one_hot(x_,20)
       x = x + x_

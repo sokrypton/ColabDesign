@@ -17,8 +17,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               use_templates=False, use_template_tor=True,
-               use_pssm=False, data_dir="."):
+               use_templates=False, use_pssm=False, data_dir="."):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -55,14 +54,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
 
     # number of sequences
     if use_templates:
-      if protocol == "binder":
-        cfg.data.eval.max_templates = 2
-        cfg.data.eval.max_msa_clusters = num_seq + 2
-      else:
-        cfg.data.eval.max_templates = 1
-        cfg.data.eval.max_msa_clusters = num_seq + 1
-      cfg.model.embeddings_and_evoformer.template.embed_torsion_angles = use_template_tor
-
+      cfg.data.eval.max_templates = 1
+      cfg.data.eval.max_msa_clusters = num_seq + 1
     else:
       cfg.data.eval.max_msa_clusters = num_seq
 

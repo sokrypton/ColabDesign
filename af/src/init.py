@@ -143,10 +143,16 @@ class _af_init:
     if self._redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      
+      # reconfigure model for two templates
+      self._runner.config.data.eval.max_templates = 2
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] + 2
+      
+      # get input features
       self._inputs = self._prep_features(target_len + binder_len, num_templates=2)
     else:
       target_len = pdb["residue_index"].shape[0]
-      self._inputs = self._prep_features(target_len, num_templates=2)
+      self._inputs = self._prep_features(target_len)
       
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 

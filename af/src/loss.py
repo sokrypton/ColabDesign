@@ -290,50 +290,61 @@ class _af_loss:
   
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
-    T = "template_"    
-    if self.protocol in ["partial","fixbb","binder"]:
-      
+    if self.protocol in ["partial","fixbb","binder"]:      
       L = self._batch["aatype"].shape[0]
       if self.protocol in ["partial","fixbb"]:
         aatype = jnp.zeros(L)
-        template_aatype = jnp.broadcast_to(opt[T+"aatype"],(L,))
+        template_aatype = jnp.broadcast_to(opt["template_aatype"],(L,))
+
       elif self._redesign:
         aatype = jnp.asarray(self._batch["aatype"])
         aatype = aatype.at[self._target_len:].set(0)
-        template_aatype = aatype.at[self._target_len:].set(opt[T+"aatype"])
+        template_aatype = aatype.at[self._target_len:].set(opt["template_aatype"])
+
       else:
         aatype = template_aatype = self._batch["aatype"]
-        
+      
+      # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
       pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
                                                  self._batch["all_atom_positions"],
                                                  self._batch["all_atom_mask"])
       
-      feats = {T+"aatype": template_aatype,
-               T+"all_atom_positions": self._batch["all_atom_positions"],
-               T+"all_atom_masks": self._batch["all_atom_mask"],
-               T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
+      # define template features
+      template_feats = {"template_aatype": template_aatype,
+                        "template_all_atom_positions": self._batch["all_atom_positions"],
+                        "template_all_atom_masks": self._batch["all_atom_mask"],
+                        "template_pseudo_beta": pb,
+                        "template_pseudo_beta_mask": pb_mask}
       
-      # protocol specific template masking      
-      if self.protocol in ["fixbb","binder"]:
-        for k,v in feats.items():
-          inputs[k] = inputs[k].at[:].set(v)            
-      else:
+      # protocol specific template injection
+      if self.protocol == "fixbb":
+        for k,v in template_feats.items():
+          inputs[k] = inputs[k].at[:,0].set(v)            
+          if k == "template_all_atom_masks":
+            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
+      
+      if self.protocol == "binder":
+        TL = self._target_len
+        for k,v in template_feats.items():
+          inputs[k] = inputs[k].at[:,0,:TL].set(v[:TL])            
+          inputs[k] = inputs[k].at[:,1,TL:].set(v[TL:])
+          if k == "template_all_atom_masks":
+            inputs[k] = inputs[k].at[:,1,TL:,5:].set(0)       
+      
+      if self.protocol in ["partial"]:
         p = opt["pos"]
-        for k,v in feats.items():
+        for k,v in template_feats.items():
           if jnp.issubdtype(p.dtype, jnp.integer):
-            inputs[k] = inputs[k].at[:,:,p].set(v)
+            inputs[k] = inputs[k].at[:,0,p].set(v)
           else:
             if k == "template_aatype": v = jax.nn.one_hot(v,22)
             inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
-      
-      if self.protocol in ["fixbb","partial"]:
-        inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,5:].set(0)
-      else:
-        inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,self._target_len:,5:].set(0)
+          if k == "template_all_atom_masks":
+            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
 
     # dropout template input features
-    L = inputs[T+"aatype"].shape[2]
-    s = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt[T+"dropout"],(L,))
-    inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[:,:,s:].multiply(pos_mask[s:,None])
-    inputs[T+"pseudo_beta_mask"] = inputs[T+"pseudo_beta_mask"].at[:,:,s:].multiply(pos_mask[s:])
+    L = inputs["template_aatype"].shape[2]
+    T = 1 if self.protocol == "binder" else 0
+    pos_mask = jax.random.bernoulli(key, 1-opt["template_dropout"],(L,))
+    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,T].multiply(pos_mask[:,None])
+    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,T].multiply(pos_mask)

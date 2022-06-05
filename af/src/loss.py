@@ -169,7 +169,7 @@ class _af_loss:
     L = self._len
     s = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt[t+"dropout"],(L,))
-    inputs[t+"all_atom_masks"] = inputs[f+"all_atom_masks"].at[...,s:,:].multiply(pos_mask[s:,None])
+    inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,s:,:].multiply(pos_mask[s:,None])
     inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"].at[...,s:].multiply(pos_mask[s:])
     
   def _get_partial_loss(self, outputs, opt, aatype=None):

@@ -129,6 +129,9 @@ class _af_loss:
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
                   "plddt":get_plddt(outputs), "losses":losses})
+      
+      if self.args["debug"]:
+        aux.update({"outputs":outputs, "inputs":inputs})
 
       return loss, (aux)
     

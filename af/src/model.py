@@ -17,7 +17,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
-               use_templates=False, use_pssm=False, data_dir="."):
+               use_templates=False, use_pssm=False, data_dir=".", debug=False):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -26,7 +26,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "model_mode":model_mode, "model_parallel": model_parallel,
-                 "recycle_mode":recycle_mode, "use_pssm":use_pssm}
+                 "recycle_mode":recycle_mode, "use_pssm":use_pssm, "debug":debug}
     
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,

@@ -301,9 +301,7 @@ class _af_loss:
                T+"all_atom_masks": self._batch["all_atom_mask"],
                T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
       
-      if self.protocol == "fixbb":
-        inputs.update(feat)
-      
+      if self.protocol == "fixbb": inputs.update(feats)
       else:
         p = opt["pos"]      
         for k,v in feats.items():

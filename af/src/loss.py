@@ -292,8 +292,8 @@ class _af_loss:
     ''''dynamically update template features'''
     T = "template_"    
     if self.protocol in ["partial","fixbb","binder"]:
-      L = self._batch["aatype"].shape[0]
       
+      L = self._batch["aatype"].shape[0]
       if self.protocol in ["partial","fixbb"]:
         aatype = jnp.zeros(L)
         template_aatype = jnp.broadcast_to(opt[T+"aatype"],(L,))
@@ -335,8 +335,8 @@ class _af_loss:
         inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,self._target_len:,5:].set(0)
 
     # dropout template input features
-    L = self._len
+    L = inputs[T+"aatype"].shape[2]
     s = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt[T+"dropout"],(L,))
-    inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,s:,:].multiply(pos_mask[s:,None])
-    inputs[T+"pseudo_beta_mask"] = inputs[T+"pseudo_beta_mask"].at[...,s:].multiply(pos_mask[s:])
+    inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[:,:,s:].multiply(pos_mask[s:,None])
+    inputs[T+"pseudo_beta_mask"] = inputs[T+"pseudo_beta_mask"].at[:,:,s:].multiply(pos_mask[s:])

@@ -142,19 +142,19 @@ class _af_loss:
     return {"losses":losses, "aux":{}}
 
   def _update_template(self, inputs, opt, model, key):
-    t = "template_"
-    
+    ''''dynamically update template features'''
     # add template features
+    t = "template_"    
     if self.protocol == "partial":
       pb, pb_mask = model.modules.pseudo_beta_fn(self._batch["aatype"],
                                                  self._batch["all_atom_positions"],
                                                  self._batch["all_atom_mask"])
       
-      template_feats = {f"{t}aatype": opt[f"{t}aatype"],
-                        f"{t}all_atom_positions": self._batch["all_atom_positions"],
-                        f"{t}all_atom_masks": self._batch["all_atom_mask"],
-                        f"{t}pseudo_beta": pb,
-                        f"{t}pseudo_beta_mask": pb_mask}
+      template_feats = {t+"aatype": opt[t+"aatype"],
+                        t+"all_atom_positions": self._batch["all_atom_positions"],
+                        t+"all_atom_masks": self._batch["all_atom_mask"],
+                        t+"pseudo_beta": pb,
+                        t+"pseudo_beta_mask": pb_mask}
       p = opt["pos"]
       for k,v in template_feats.items():
         if jnp.issubdtype(p.dtype, jnp.integer):
@@ -163,20 +163,20 @@ class _af_loss:
           inputs[k] = jnp.broadcast_to(p.T @ v, inputs[k].shape)
 
     if self.protocol == "fixbb":
-      inputs[f"{t}aatype"] = inputs[f"{t}aatype"].at[:].set(opt[f"{t}aatype"])        
-      inputs[f"{t}all_atom_masks"] = inputs[f"{t}all_atom_masks"].at[...,5:].set(0.0)
+      inputs[t+"aatype"] = inputs[t+"aatype"].at[:].set(opt[t+"aatype"])        
+      inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,5:].set(0.0)
 
     # dropout template input features
-    L = inputs.shape[1]
-    pos_mask = jax.random.bernoulli(key, 1-opt[f"{t}dropout"], (L,))
+    L = inputs["aatype"].shape[1]
+    pos_mask = jax.random.bernoulli(key, 1-opt[t+"dropout"], (L,))
     if self.protocol == "partial":
       TL = self._target_len
       pos_mask = pos_mask[TL:]
-      inputs[f"{t}all_atom_masks"] = inputs[f"{t}all_atom_masks"].at[...,TL:,:].multiply(pos_mask[:,None])
-      inputs[f"{t}pseudo_beta_mask"] = inputs[f"{t}pseudo_beta_mask"].at[...,self._target_len:].multiply(pos_mask)
+      inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,TL:,:].multiply(pos_mask[:,None])
+      inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"].at[...,self._target_len:].multiply(pos_mask)
     else:
-      inputs[f"{t}all_atom_masks"] = inputs[f"{t}all_atom_masks"] * pos_mask[:,None]
-      inputs[f"{t}pseudo_beta_mask"] = inputs[f"{t}pseudo_beta_mask"] * pos_mask    
+      inputs[t+"all_atom_masks"] = inputs[f+"all_atom_masks"] * pos_mask[:,None]
+      inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"] * pos_mask    
     
   def _get_partial_loss(self, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''

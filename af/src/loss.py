@@ -290,33 +290,31 @@ class _af_loss:
   
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
-    # add template features
-    t = "template_"    
-    if self.protocol == "partial":
-      pb, pb_mask = model.modules.pseudo_beta_fn(self._batch["aatype"],
+    T = "template_"    
+    if self.protocol == "partial": 
+      L = self._batch["aatype"].shape[0]
+      pb, pb_mask = model.modules.pseudo_beta_fn(jnp.zeros(L),
                                                  self._batch["all_atom_positions"],
-                                                 self._batch["all_atom_mask"])      
-      feats = {t+"aatype": self._batch["aatype"],
-               t+"all_atom_positions": self._batch["all_atom_positions"],
-               t+"all_atom_masks": self._batch["all_atom_mask"],
-               t+"pseudo_beta": pb,
-               t+"pseudo_beta_mask": pb_mask}
+                                                 self._batch["all_atom_mask"])
+      feats = {T+"aatype": jax.nn.one_hot(jnp.full(L,21),22),
+               T+"all_atom_positions": self._batch["all_atom_positions"],
+               T+"all_atom_masks": self._batch["all_atom_mask"],
+               T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
             
       p = opt["pos"]      
       for k,v in feats.items():
         if jnp.issubdtype(p.dtype, jnp.integer):
           inputs[k] = inputs[k].at[:,:,p].set(v)
         else:
-          if k == t+"aatype": v = jax.nn.one_hot(v,22)
           inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
           
     if self.protocol == "fixbb":
-      inputs[t+"aatype"] = inputs[t+"aatype"].at[:].set(opt[t+"aatype"])        
-      inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,5:].set(0.0)
+      inputs[T+"aatype"] = inputs[T+"aatype"].at[:].set(opt[T+"aatype"])        
+      inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,5:].set(0.0)
     
     # dropout template input features
     L = self._len
     s = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt[t+"dropout"],(L,))
-    inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,s:,:].multiply(pos_mask[s:,None])
-    inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"].at[...,s:].multiply(pos_mask[s:])
+    pos_mask = jax.random.bernoulli(key, 1-opt[T+"dropout"],(L,))
+    inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,s:,:].multiply(pos_mask[s:,None])
+    inputs[T+"pseudo_beta_mask"] = inputs[T+"pseudo_beta_mask"].at[...,s:].multiply(pos_mask[s:])

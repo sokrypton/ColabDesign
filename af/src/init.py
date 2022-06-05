@@ -28,7 +28,14 @@ class _af_init:
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
         **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
     }
-    if template_features is not None: feature_dict.update(template_features)    
+    if template_features is None:
+      feature_dict.update({'template_aatype': np.zeros([1,length,22]),
+                           'template_all_atom_masks': np.zeros([1,length,37]),
+                           'template_all_atom_positions': np.zeros([1,length,37,3]),
+                           'template_domain_names': np.asarray(["None"])})
+    else:
+      feature_dict.update(template_features)
+      
     inputs = self._runner.process_features(feature_dict, random_seed=0)
     if num_seq > 1:
       inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
@@ -133,10 +140,10 @@ class _af_init:
     if self._redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
-      self._inputs = self._prep_features(target_len + binder_len, pdb["template_features"])
+      self._inputs = self._prep_features(target_len + binder_len)
     else:
       target_len = pdb["residue_index"].shape[0]
-      self._inputs = self._prep_features(target_len, pdb["template_features"])
+      self._inputs = self._prep_features(target_len)
       
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
@@ -149,20 +156,12 @@ class _af_init:
     else:
       self._hotspot = self._prep_pos(hotspot, **pdb["idx"])
 
-    if self._redesign:
-      self._inputs["template_aatype"][...,target_len:] = 21
-      self._inputs["template_all_atom_masks"][...,target_len:,5:] = 0
-      if not use_binder_template:
-        self._inputs["template_all_atom_masks"][...,target_len:,:] = 0
-        self._inputs["template_pseudo_beta_mask"][...,target_len:] = 0      
-      
+    if self._redesign:      
       self._batch = pdb["batch"]
       self._wt_aatype = self._batch["aatype"][target_len:]
       self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
-                                    "con":0.0, "i_pae":0.01, "i_con":0.0})
-      
-    else: # binder hallucination
-            
+                                    "con":0.0, "i_pae":0.01, "i_con":0.0})      
+    else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
       self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
@@ -185,11 +184,7 @@ class _af_init:
     self._batch = pdb["batch"]
     self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
-    temp_features = {'template_aatype': np.zeros([1,self._len,22]),
-                     'template_all_atom_masks': np.zeros([1,self._len,37]),
-                     'template_all_atom_positions': np.zeros([1,self._len,37,3]),
-                     'template_domain_names': np.asarray(["None"])}
-    self._inputs = self._prep_features(self._len, temp_features)
+    self._inputs = self._prep_features(self._len)
     self._copies = copies
     self._repeat = repeat
     
@@ -257,14 +252,7 @@ class _af_init:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
     self._len = pdb["residue_index"].shape[0] if length is None else length
-    if self.args["use_templates"]:
-      temp_features = {'template_aatype': np.zeros([1,self._len,22]),
-                       'template_all_atom_masks': np.zeros([1,self._len,37]),
-                       'template_all_atom_positions': np.zeros([1,self._len,37,3]),
-                       'template_domain_names': np.asarray(["None"])}
-      self._inputs = self._prep_features(self._len, temp_features)
-    else:
-      self._inputs = self._prep_features(self._len)
+    self._inputs = self._prep_features(self._len)
     
     weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0,"6D":0.0}
     if sidechain: weights.update({"sc_fape":0.0, "sc_rmsd":0.0})

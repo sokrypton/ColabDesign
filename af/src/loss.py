@@ -316,10 +316,7 @@ class _af_loss:
       # protocol specific template masking      
       if self.protocol in ["fixbb","binder"]:
         for k,v in feats.items():
-          if self.protocol == "binder" and self.args["use_binder_template"]:
-            inputs[k] = inputs[k].at[:].set(v).at[:,:,self._target_len:].set(0)
-          else:
-            inputs[k] = inputs[k].at[:].set(v)            
+          inputs[k] = inputs[k].at[:].set(v)            
       else:
         p = opt["pos"]
         for k,v in feats.items():

@@ -52,6 +52,11 @@ model = mk_design_model(protocol="binder")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_len=19)
 model.design_3stage(100, 100, 10)
 ```
+Instead of hallucination, you can redesign an existing binder:
+```python
+model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
+```
+
 ### partial hallucination
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
 you can use partial hallucination.

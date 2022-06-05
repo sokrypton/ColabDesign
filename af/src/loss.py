@@ -291,7 +291,7 @@ class _af_loss:
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
     T = "template_"    
-    if self.protocol == "partial": 
+    if self.protocol in ["partial","fixbb"]:
       L = self._batch["aatype"].shape[0]
       pb, pb_mask = model.modules.pseudo_beta_fn(jnp.zeros(L),
                                                  self._batch["all_atom_positions"],
@@ -300,18 +300,18 @@ class _af_loss:
                T+"all_atom_positions": self._batch["all_atom_positions"],
                T+"all_atom_masks": self._batch["all_atom_mask"],
                T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
-            
-      p = opt["pos"]      
-      for k,v in feats.items():
-        if jnp.issubdtype(p.dtype, jnp.integer):
-          inputs[k] = inputs[k].at[:,:,p].set(v)
-        else:
-          inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
-          
-    if self.protocol == "fixbb":
-      inputs[T+"aatype"] = inputs[T+"aatype"].at[:].set(opt[T+"aatype"])        
-      inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,5:].set(0.0)
-    
+      
+      if self.protocol == "fixbb":
+        inputs.update(feat)
+      
+      else:
+        p = opt["pos"]      
+        for k,v in feats.items():
+          if jnp.issubdtype(p.dtype, jnp.integer):
+            inputs[k] = inputs[k].at[:,:,p].set(v)
+          else:
+            inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
+              
     # dropout template input features
     L = self._len
     s = self._target_len if self.protocol == "binder" else 0

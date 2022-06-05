@@ -291,20 +291,35 @@ class _af_loss:
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
     T = "template_"    
-    if self.protocol in ["partial","fixbb"]:
+    if self.protocol in ["partial","fixbb","binder"]:
       L = self._batch["aatype"].shape[0]
-      pb, pb_mask = model.modules.pseudo_beta_fn(jnp.zeros(L),
+      
+      if self.protocol in ["partial","fixbb"]:
+        aatype = jnp.zeros(L)
+        template_aatype = jnp.broadcast_to(opt[T+"aatype"],(L,))
+      elif self._redesign:
+        aatype = jnp.asarray(self._batch["aatype"])
+        aatype = aatype.at[self._target_len:].set(0)
+        template_aatype = aatype.at[self._target_len:].set(opt[T+"aatype"])
+      else:
+        aatype = template_aatype = self._batch["aatype"]
+        
+      pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
                                                  self._batch["all_atom_positions"],
                                                  self._batch["all_atom_mask"])
       
-      feats = {T+"aatype": jnp.broadcast_to(opt[T+"aatype"],(L,)),
+      feats = {T+"aatype": template_aatype,
                T+"all_atom_positions": self._batch["all_atom_positions"],
                T+"all_atom_masks": self._batch["all_atom_mask"],
                T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
       
-      if self.protocol == "fixbb":
+      # protocol specific template masking      
+      if self.protocol in ["fixbb","binder"]:
         for k,v in feats.items():
-          inputs[k] = inputs[k].at[:].set(v)
+          if self.protocol == "binder" and self.args["use_binder_template"]:
+            inputs[k] = inputs[k].at[:].set(v).at[:,:,self._target_len:].set(0)
+          else:
+            inputs[k] = inputs[k].at[:].set(v)            
       else:
         p = opt["pos"]
         for k,v in feats.items():
@@ -313,9 +328,12 @@ class _af_loss:
           else:
             if k == "template_aatype": v = jax.nn.one_hot(v,22)
             inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
-            
-      inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,5:].set(0)
-              
+      
+      if self.protocol in ["fixbb","partial"]:
+        inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,5:].set(0)
+      else:
+        inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,self._target_len:,5:].set(0)
+
     # dropout template input features
     L = self._len
     s = self._target_len if self.protocol == "binder" else 0

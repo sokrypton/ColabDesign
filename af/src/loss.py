@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from af.src.misc import _np_get_6D_loss, _np_rmsd
+from af.src.misc import _np_get_6D_loss, _np_rmsd, _np_kabsch
 from af.src.misc import update_seq, update_aatype 
 from af.src.misc import get_plddt, get_pae, get_fape_loss, get_dgram_loss, get_rmsd_loss_w, get_sc_rmsd
 
@@ -114,9 +114,13 @@ class _af_loss:
       else:
         losses["plddt"] = plddt_loss.mean()
 
-      if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
+      if self.protocol == "fixbb":
         o = self._get_fixbb_loss(outputs, opt, aatype=aatype)
         losses.update(o["losses"]); aux.update(o["aux"])
+        
+      if self.protocol == "binder" and self._redesign:
+        o = self._get_binder_redesign_loss(outputs, opt, aatype=aatype)
+        losses.update(o["losses"]); aux.update(o["aux"])        
 
       if self.protocol == "partial":
         o = self._get_partial_loss(outputs, opt, aatype=aatype)
@@ -129,6 +133,9 @@ class _af_loss:
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
                   "plddt":get_plddt(outputs), "losses":losses})
+      
+      if self.args["debug"]:
+        aux.update({"outputs":outputs, "inputs":inputs})
 
       return loss, (aux)
     
@@ -139,6 +146,25 @@ class _af_loss:
     losses = {"fape":      get_fape_loss(self._batch, outputs, model_config=self._config),
               "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
               "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)}
+    return {"losses":losses, "aux":{}}
+  
+  def _get_binder_redesign_loss(self, outputs, opt, aatype=None):
+    
+    # compute rmsd of binder relative to target
+    true = self._batch["all_atom_positions"][:,1,:]
+    pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+    L = self._target_len
+    p = true - true[:L].mean(0)
+    q = pred - pred[:L].mean(0)
+    p = p @ _np_kabsch(p[:L], q[:L])
+    rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
+    
+    # compute cce of binder + interface
+    errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
+    dgram_cce = errors["errors"][L:,:].mean()
+    
+    losses = {"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
+              "dgram_cce": dgram_cce, "rmsd": rmsd_binder}
     return {"losses":losses, "aux":{}}
     
   def _get_partial_loss(self, outputs, opt, aatype=None):
@@ -290,50 +316,61 @@ class _af_loss:
   
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
-    T = "template_"    
-    if self.protocol in ["partial","fixbb","binder"]:
-      
+    if self.protocol in ["partial","fixbb","binder"]:      
       L = self._batch["aatype"].shape[0]
       if self.protocol in ["partial","fixbb"]:
         aatype = jnp.zeros(L)
-        template_aatype = jnp.broadcast_to(opt[T+"aatype"],(L,))
+        template_aatype = jnp.broadcast_to(opt["template_aatype"],(L,))
+
       elif self._redesign:
         aatype = jnp.asarray(self._batch["aatype"])
         aatype = aatype.at[self._target_len:].set(0)
-        template_aatype = aatype.at[self._target_len:].set(opt[T+"aatype"])
+        template_aatype = aatype.at[self._target_len:].set(opt["template_aatype"])
+
       else:
         aatype = template_aatype = self._batch["aatype"]
-        
+      
+      # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
       pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
                                                  self._batch["all_atom_positions"],
                                                  self._batch["all_atom_mask"])
       
-      feats = {T+"aatype": template_aatype,
-               T+"all_atom_positions": self._batch["all_atom_positions"],
-               T+"all_atom_masks": self._batch["all_atom_mask"],
-               T+"pseudo_beta": pb, T+"pseudo_beta_mask": pb_mask}
+      # define template features
+      template_feats = {"template_aatype": template_aatype,
+                        "template_all_atom_positions": self._batch["all_atom_positions"],
+                        "template_all_atom_masks": self._batch["all_atom_mask"],
+                        "template_pseudo_beta": pb,
+                        "template_pseudo_beta_mask": pb_mask}
       
-      # protocol specific template masking      
-      if self.protocol in ["fixbb","binder"]:
-        for k,v in feats.items():
-          inputs[k] = inputs[k].at[:].set(v)            
-      else:
+      # protocol specific template injection
+      if self.protocol == "fixbb":
+        for k,v in template_feats.items():
+          inputs[k] = inputs[k].at[:,0].set(v)            
+          if k == "template_all_atom_masks":
+            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
+      
+      if self.protocol == "binder":
+        n = self._target_len
+        for k,v in template_feats.items():
+          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])            
+          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
+          if k == "template_all_atom_masks":
+            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
+      
+      if self.protocol in ["partial"]:
         p = opt["pos"]
-        for k,v in feats.items():
+        for k,v in template_feats.items():
           if jnp.issubdtype(p.dtype, jnp.integer):
-            inputs[k] = inputs[k].at[:,:,p].set(v)
+            inputs[k] = inputs[k].at[:,0,p].set(v)
           else:
             if k == "template_aatype": v = jax.nn.one_hot(v,22)
             inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
-      
-      if self.protocol in ["fixbb","partial"]:
-        inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,5:].set(0)
-      else:
-        inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[...,self._target_len:,5:].set(0)
+          if k == "template_all_atom_masks":
+            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
 
     # dropout template input features
-    L = inputs[T+"aatype"].shape[2]
-    s = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt[T+"dropout"],(L,))
-    inputs[T+"all_atom_masks"] = inputs[T+"all_atom_masks"].at[:,:,s:].multiply(pos_mask[s:,None])
-    inputs[T+"pseudo_beta_mask"] = inputs[T+"pseudo_beta_mask"].at[:,:,s:].multiply(pos_mask[s:])
+    L = inputs["template_aatype"].shape[2]
+    n = self._target_len if self.protocol == "binder" else 0
+    pos_mask = jax.random.bernoulli(key, 1-opt["template_dropout"],(L,))
+    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
+    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])

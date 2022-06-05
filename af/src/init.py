@@ -20,7 +20,7 @@ class _af_init:
     idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
     return np.tile(idx,copies) + idx_offset
 
-  def _prep_features(self, length, template_features=None):
+  def _prep_features(self, length, num_templates=1, template_features=None):
     '''process features'''
     num_seq = self.args["num_seq"]
     sequence = "A" * length
@@ -28,13 +28,17 @@ class _af_init:
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
         **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
     }
-    if template_features is None:
-      feature_dict.update({'template_aatype': np.zeros([1,length,22]),
-                           'template_all_atom_masks': np.zeros([1,length,37]),
-                           'template_all_atom_positions': np.zeros([1,length,37,3]),
-                           'template_domain_names': np.asarray(["None"])})
-    else:
-      feature_dict.update(template_features)
+    if self.args["use_templates"]:
+      # reconfigure model
+      self._runner.config.data.eval.max_templates = num_templates
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] + num_templates
+      if template_features is None:
+        feature_dict.update({'template_aatype': np.zeros([num_templates,length,22]),
+                             'template_all_atom_masks': np.zeros([num_templates,length,37]),
+                             'template_all_atom_positions': np.zeros([num_templates,length,37,3]),
+                             'template_domain_names': np.zeros(num_templates)})
+      else:
+        feature_dict.update(template_features)
       
     inputs = self._runner.process_features(feature_dict, random_seed=0)
     if num_seq > 1:
@@ -127,23 +131,35 @@ class _af_init:
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
-                   binder_len=50, binder_chain=None, use_binder_template=False,
+                   binder_len=50, binder_chain=None,
+                   use_binder_template=False, split_templates=False,
                    hotspot=None, **kwargs):
-
-    '''prep inputs for binder design'''
+    '''
+    ---------------------------------------------------
+    prep inputs for binder design
+    ---------------------------------------------------
+    -binder_len = length of binder to hallucinate (option ignored if binder_chain is defined)
+    -binder_chain = chain of binder to redesign
+    -use_binder_template = use binder coordinates as template input
+    -split_templates = use target and binder coordinates as seperate template inputs
+    -hotspot = define position on target
+    '''
     
     self._redesign = binder_chain is not None
     self._copies = 1
     self._repeat = False
-    self._default_opt["template_dropout"] = 0.15 if use_binder_template else 1.0
+    self._default_opt["template_dropout"] = 0.0 if use_binder_template else 1.0
+    num_templates = 1
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if self._redesign else chain
-    pdb = self._prep_pdb(pdb_filename, chain=chains)    
+    pdb = self._prep_pdb(pdb_filename, chain=chains)
     if self._redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
-      self._inputs = self._prep_features(target_len + binder_len)
+      if split_templates: num_templates = 2      
+      # get input features
+      self._inputs = self._prep_features(target_len + binder_len, num_templates=num_templates)
     else:
       target_len = pdb["residue_index"].shape[0]
       self._inputs = self._prep_features(target_len)

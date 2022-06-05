@@ -72,7 +72,7 @@ def get_rmsd_loss(batch, outputs):
   pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
   return _np_rmsd(true,pred)
 
-def _distogram_log_loss(logits, bin_edges, batch, num_bins, copies=1):
+def _distogram_log_loss(logits, bin_edges, batch, num_bins, copies=1, return_errors=False):
   """Log loss of a distogram."""
   pos,mask = batch['pseudo_beta'],batch['pseudo_beta_mask']
   sq_breaks = jnp.square(bin_edges)
@@ -81,26 +81,34 @@ def _distogram_log_loss(logits, bin_edges, batch, num_bins, copies=1):
   true = jax.nn.one_hot(true_bins, num_bins)
 
   if copies == 1:
-    errors = -(true * jax.nn.log_softmax(logits)).sum(-1)
+    errors = -(true * jax.nn.log_softmax(logits)).sum(-1)    
     sq_mask = mask[:,None] * mask[None,:]
     avg_error = (errors * sq_mask).sum()/(1e-6 + sq_mask.sum())
-    return avg_error
+    if return_errors:
+      return {"errors": errors, "loss": avg_error}
+    else:
+      return avg_error
   else:
     # TODO add support for masks
     L = pos.shape[0] // copies
     I = copies - 1
     true_, pred_ = true[:L,:L], logits[:L,:L]
-    errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
-    avg_error = errors.mean()
+    intra_errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
+    avg_error = intra_errors.mean()
 
     true_, pred_ = true[:L,L:], logits[:L,L:]
     true_, pred_ = true_.reshape(L,I,1,L,-1), pred_.reshape(L,1,I,L,-1)
-    errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
-    avg_error += errors.mean((0,-1)).min(-1).sum()
+    inter_errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
+    avg_error += inter_errors.mean((0,-1)).min(-1).sum()
+    
+    if return_errors:
+      return {"intra_errors": intra_errors,
+              "inter_errors": inter_errors,
+              "loss": avg_error/copies}
+    else:
+      return avg_error/copies
 
-    return avg_error / copies
-
-def get_dgram_loss(batch, outputs, model_config, logits=None, aatype=None, copies=1):
+def get_dgram_loss(batch, outputs, model_config, logits=None, aatype=None, copies=1, return_errors=False):
   # get cb features (ca in case of glycine)
   if aatype is None: aatype = batch["aatype"]
   pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
@@ -111,7 +119,7 @@ def get_dgram_loss(batch, outputs, model_config, logits=None, aatype=None, copie
                                    outputs["distogram"]["bin_edges"],
                                    batch={"pseudo_beta":pb,"pseudo_beta_mask":pb_mask},
                                    num_bins=model_config.model.heads.distogram.num_bins,
-                                   copies=copies)
+                                   copies=copies, return_errors=return_errors)
   return dgram_loss
 
 def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):

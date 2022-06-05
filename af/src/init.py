@@ -20,7 +20,7 @@ class _af_init:
     idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
     return np.tile(idx,copies) + idx_offset
 
-  def _prep_features(self, length, template_features=None):
+  def _prep_features(self, length, num_templates=1, template_features=None):
     '''process features'''
     num_seq = self.args["num_seq"]
     sequence = "A" * length
@@ -29,10 +29,10 @@ class _af_init:
         **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
     }
     if template_features is None:
-      feature_dict.update({'template_aatype': np.zeros([1,length,22]),
-                           'template_all_atom_masks': np.zeros([1,length,37]),
-                           'template_all_atom_positions': np.zeros([1,length,37,3]),
-                           'template_domain_names': np.asarray(["None"])})
+      feature_dict.update({'template_aatype': np.zeros([num_templates,length,22]),
+                           'template_all_atom_masks': np.zeros([num_templates,length,37]),
+                           'template_all_atom_positions': np.zeros([num_templates,length,37,3]),
+                           'template_domain_names': np.zeros(num_templates)})
     else:
       feature_dict.update(template_features)
       
@@ -143,10 +143,10 @@ class _af_init:
     if self._redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
-      self._inputs = self._prep_features(target_len + binder_len)
+      self._inputs = self._prep_features(target_len + binder_len, num_templates=2)
     else:
       target_len = pdb["residue_index"].shape[0]
-      self._inputs = self._prep_features(target_len)
+      self._inputs = self._prep_features(target_len, num_templates=2)
       
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 

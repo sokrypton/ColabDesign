@@ -55,8 +55,12 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
 
     # number of sequences
     if use_templates:
-      cfg.data.eval.max_templates = 1
-      cfg.data.eval.max_msa_clusters = num_seq + 1
+      if protocol == "binder":
+        cfg.data.eval.max_templates = 2
+        cfg.data.eval.max_msa_clusters = num_seq + 2
+      else:
+        cfg.data.eval.max_templates = 1
+        cfg.data.eval.max_msa_clusters = num_seq + 1
       cfg.model.embeddings_and_evoformer.template.embed_torsion_angles = use_template_tor
 
     else:

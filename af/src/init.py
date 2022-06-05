@@ -148,7 +148,7 @@ class _af_init:
     self._redesign = binder_chain is not None
     self._copies = 1
     self._repeat = False
-    self._default_opt["template_dropout"] = 0.15 if use_binder_template else 1.0
+    self._default_opt["template_dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
     # get pdb info

@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from af.src.misc import _np_get_6D_loss, _np_rmsd
+from af.src.misc import _np_get_6D_loss, _np_rmsd, _np_kabsch
 from af.src.misc import update_seq, update_aatype 
 from af.src.misc import get_plddt, get_pae, get_fape_loss, get_dgram_loss, get_rmsd_loss_w, get_sc_rmsd
 

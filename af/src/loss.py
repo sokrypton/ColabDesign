@@ -114,9 +114,13 @@ class _af_loss:
       else:
         losses["plddt"] = plddt_loss.mean()
 
-      if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
+      if self.protocol == "fixbb":
         o = self._get_fixbb_loss(outputs, opt, aatype=aatype)
         losses.update(o["losses"]); aux.update(o["aux"])
+        
+      if self.protocol == "binder" and self._redesign:
+        o = self._get_binder_redesign_loss(outputs, opt, aatype=aatype)
+        losses.update(o["losses"]); aux.update(o["aux"])        
 
       if self.protocol == "partial":
         o = self._get_partial_loss(outputs, opt, aatype=aatype)
@@ -142,6 +146,25 @@ class _af_loss:
     losses = {"fape":      get_fape_loss(self._batch, outputs, model_config=self._config),
               "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
               "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)}
+    return {"losses":losses, "aux":{}}
+  
+  def _get_binder_redesign_loss(self, outputs, opt, aatype=None):
+    
+    # compute rmsd of binder relative to target
+    true = self._batch["all_atom_positions"][:,1,:]
+    pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+    L = self._target_len
+    p = true - true[:L].mean(0)
+    q = pred - pred[:L].mean(0)
+    p = p @ _np_kabsch(p[:L], q[:L])
+    rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
+    
+    # compute cce of binder + interface
+    errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
+    dgram_cce = errors["errors"][L:,:].mean()
+    
+    losses = {"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
+              "dgram_cce": dgram_cce, "rmsd": rmsd_binder}
     return {"losses":losses, "aux":{}}
     
   def _get_partial_loss(self, outputs, opt, aatype=None):

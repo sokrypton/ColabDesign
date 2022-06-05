@@ -155,7 +155,7 @@ class _af_loss:
                t+"pseudo_beta": pb, t+"pseudo_beta_mask": pb_mask}
             
       p = opt["pos"]      
-      for k,v in template_feats.items():
+      for k,v in feats.items():
         if jnp.issubdtype(p.dtype, jnp.integer):
           inputs[k] = inputs[k].at[:,:,p].set(v)
         else:

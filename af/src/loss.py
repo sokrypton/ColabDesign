@@ -324,12 +324,12 @@ class _af_loss:
             inputs[k] = inputs[k].at[:,0,:,5:].set(0)
       
       if self.protocol == "binder":
-        TL = self._target_len
+        n = self._target_len
         for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0,:TL].set(v[:TL])            
-          inputs[k] = inputs[k].at[:,1,TL:].set(v[TL:])
+          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])            
+          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
           if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,1,TL:,5:].set(0)       
+            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
       
       if self.protocol in ["partial"]:
         p = opt["pos"]
@@ -344,7 +344,7 @@ class _af_loss:
 
     # dropout template input features
     L = inputs["template_aatype"].shape[2]
-    T = 1 if self.protocol == "binder" else 0
+    n = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt["template_dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,T].multiply(pos_mask[:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,T].multiply(pos_mask)
+    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
+    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])

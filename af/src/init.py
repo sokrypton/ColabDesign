@@ -28,7 +28,14 @@ class _af_init:
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
         **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
     }
-    if template_features is not None: feature_dict.update(template_features)    
+    if template_features is None:
+      feature_dict.update({'template_aatype': np.zeros([1,length,22]),
+                           'template_all_atom_masks': np.zeros([1,length,37]),
+                           'template_all_atom_positions': np.zeros([1,length,37,3]),
+                           'template_domain_names': np.asarray(["None"])})
+    else:
+      feature_dict.update(template_features)
+      
     inputs = self._runner.process_features(feature_dict, random_seed=0)
     if num_seq > 1:
       inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
@@ -119,17 +126,30 @@ class _af_init:
     return np.asarray(pos_array)
   
   # prep functions specific to protocol
-  def _prep_binder(self, pdb_filename, chain=None, binder_len=50, hotspot=None, **kwargs):
-    '''prep inputs for binder design'''
+  def _prep_binder(self, pdb_filename, chain="A",
+                   binder_len=50, binder_chain=None, use_binder_template=False,
+                   hotspot=None, **kwargs):
 
-    # get pdb info
-    pdb = self._prep_pdb(pdb_filename, chain=chain)
-    target_len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(target_len, pdb["template_features"])
-    self._inputs["residue_index"][...,:] = pdb["residue_index"]
+    '''prep inputs for binder design'''
     
+    self._redesign = binder_chain is not None
     self._copies = 1
     self._repeat = False
+    if not use_binder_template:
+      self._default_opt["template_dropout"] = 1.0
+
+    # get pdb info
+    chains = f"{chain},{binder_chain}" if self._redesign else chain
+    pdb = self._prep_pdb(pdb_filename, chain=chains)    
+    if self._redesign:
+      target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
+      binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      self._inputs = self._prep_features(target_len + binder_len)
+    else:
+      target_len = pdb["residue_index"].shape[0]
+      self._inputs = self._prep_features(target_len)
+      
+    self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
     # gather hotspot info
     if hotspot is None:
@@ -137,20 +157,26 @@ class _af_init:
     else:
       self._hotspot = self._prep_pos(hotspot, **pdb["idx"])
 
-    # pad inputs
-    total_len = target_len + binder_len
-    self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
-    self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+    if self._redesign:      
+      self._batch = pdb["batch"]
+      self._wt_aatype = self._batch["aatype"][target_len:]
+      self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
+                                    "con":0.0, "i_pae":0.01, "i_con":0.0})      
+    else: # binder hallucination            
+      # pad inputs
+      total_len = target_len + binder_len
+      self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
+      self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
 
-    # offset residue index for binder
-    self._inputs["residue_index"] = self._inputs["residue_index"].copy()
-    self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
-    for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+      # offset residue index for binder
+      self._inputs["residue_index"] = self._inputs["residue_index"].copy()
+      self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
+      for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+      self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
     self.restart(set_defaults=True, **kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, repeat=False, **kwargs):
@@ -159,7 +185,7 @@ class _af_init:
     self._batch = pdb["batch"]
     self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len, pdb["template_features"])
+    self._inputs = self._prep_features(self._len)
     self._copies = copies
     self._repeat = repeat
     
@@ -227,17 +253,7 @@ class _af_init:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
     self._len = pdb["residue_index"].shape[0] if length is None else length
-    if self.args["use_templates"]:
-      temp_features = {'template_aatype': np.zeros([1,self._len,22]),
-                       'template_all_atom_masks': np.zeros([1,self._len,37]),
-                       'template_all_atom_positions': np.zeros([1,self._len,37,3]),
-                       'template_domain_names': np.asarray(["None"])}
-      self._inputs = self._prep_features(self._len, temp_features)
-      if fix_seq:
-        self._default_opt["template_aatype"] = self._batch["aatype"]
-
-    else:
-      self._inputs = self._prep_features(self._len)
+    self._inputs = self._prep_features(self._len)
     
     weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0,"6D":0.0}
     if sidechain: weights.update({"sc_fape":0.0, "sc_rmsd":0.0})
@@ -256,9 +272,10 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
   else:
     shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
 
+  num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
       shape_placeholders.NUM_RES: length,
-      shape_placeholders.NUM_MSA_SEQ: cfg.data.eval.max_msa_clusters,
+      shape_placeholders.NUM_MSA_SEQ: num_msa_seq,
       shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
       shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
   }
@@ -278,11 +295,26 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
 
+MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
+          'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
+          'HSK':'HIS','SAC':'SER','PCA':'GLU','DAL':'ALA',
+          'CME':'CYS','CSD':'CYS','OCS':'CYS','DPR':'PRO',
+          'B3K':'LYS','ALY':'LYS','YCM':'CYS','MLZ':'LYS',
+          '4BF':'TYR','KCX':'LYS','B3E':'GLU','B3D':'ASP',
+          'HZP':'PRO','CSX':'CYS','BAL':'ALA','HIC':'HIS',
+          'DBZ':'ALA','DCY':'CYS','DVA':'VAL','NLE':'LEU',
+          'SMC':'CYS','AGM':'ARG','B3A':'ALA','DAS':'ASP',
+          'DLY':'LYS','DSN':'SER','DTH':'THR','GL3':'GLY',
+          'HY3':'PRO','LLP':'LYS','MGN':'GLN','MHS':'HIS',
+          'TRQ':'TRP','B3Y':'TYR','PHI':'PHE','PTR':'TYR',
+          'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
+          'CSD':'CYS','SEC':'CYS'}
+
 def pdb_to_string(pdb_file):
   lines = []
   for line in open(pdb_file,"r"):
-    if line[:6] == "HETATM" and line[17:20] == "MSE":
-      line = "ATOM  "+line[6:17]+"MET"+line[20:]
+    if line[:6] == "HETATM" and line[17:20] in MODRES:
+      line = "ATOM  "+line[6:17]+MODRES[line[17:20]]+line[20:]
     if line[:4] == "ATOM":
       lines.append(line)
   return "".join(lines)

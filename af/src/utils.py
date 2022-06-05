@@ -34,9 +34,9 @@ class _af_utils:
     self._losses.update({"model":self._model_num,"loss":self._loss, 
                         **{k:self.opt[k] for k in ["soft","hard","temp"]}})
     
-    if self.protocol == "fixbb":
+    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
-      _aatype = self._outs["seq"].argmax(-1)
+      _aatype = self._outs["seq"]["hard"].argmax(-1)
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
       self._losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
 
@@ -64,14 +64,14 @@ class _af_utils:
 
     # save trajectory
     ca_xyz = self._outs["final_atom_positions"][:,1,:]
-    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq_pseudo"]}
+    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
     if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
     for k,v in traj.items(): self._traj[k].append(np.array(v))
 
   def get_seqs(self):
     outs = self._outs if self._best_outs is None else self._best_outs
     outs = jax.tree_map(lambda x:np.asarray(x), outs)
-    x = np.array(outs["seq"]).argmax(-1)
+    x = outs["seq"]["hard"].argmax(-1)
     return ["".join([order_restype[a] for a in s]) for s in x]
   
   def get_loss(self, x="loss"):
@@ -82,7 +82,7 @@ class _af_utils:
     '''save pdb coordinates'''
     outs = self._outs if self._best_outs is None else self._best_outs
     outs = jax.tree_map(lambda x:np.asarray(x), outs)
-    aatype = outs["seq"].argmax(-1)[0]
+    aatype = outs["seq"]["hard"].argmax(-1)[0]
     if self.protocol == "binder":
       aatype_target = self._batch["aatype"][:self._target_len]
       aatype = np.concatenate([aatype_target,aatype])
@@ -144,7 +144,7 @@ class _af_utils:
     ax2 = fig.add_subplot(gs[3:,:])
     ax1_ = ax1.twinx()
     
-    if self.protocol == "fixbb":
+    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       rmsd = self.get_loss("rmsd")
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")

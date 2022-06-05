@@ -18,7 +18,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                num_models=1, model_mode="sample", model_parallel=False,
                num_recycles=0, recycle_mode="average",
                use_templates=False, use_template_tor=True,
-               data_dir="."):
+               use_pssm=False, data_dir="."):
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -27,14 +27,14 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "model_mode":model_mode, "model_parallel": model_parallel,
-                 "recycle_mode":recycle_mode}
+                 "recycle_mode":recycle_mode, "use_pssm":use_pssm}
     
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
                          "recycles":num_recycles, "models":num_models,
                          "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
                          "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
-                         "bias":np.zeros(20), "template_aatype":21, "template_dropout":0.0}
+                         "bias":np.zeros(20), "template_aatype":21, "template_dropout":0.15}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}
 

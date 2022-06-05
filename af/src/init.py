@@ -185,7 +185,11 @@ class _af_init:
     self._batch = pdb["batch"]
     self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len, pdb["template_features"])
+    temp_features = {'template_aatype': np.zeros([1,self._len,22]),
+                     'template_all_atom_masks': np.zeros([1,self._len,37]),
+                     'template_all_atom_positions': np.zeros([1,self._len,37,3]),
+                     'template_domain_names': np.asarray(["None"])}
+    self._inputs = self._prep_features(self._len, temp_features)
     self._copies = copies
     self._repeat = repeat
     
@@ -259,9 +263,6 @@ class _af_init:
                        'template_all_atom_positions': np.zeros([1,self._len,37,3]),
                        'template_domain_names': np.asarray(["None"])}
       self._inputs = self._prep_features(self._len, temp_features)
-      if fix_seq:
-        self._default_opt["template_aatype"] = self._batch["aatype"]
-
     else:
       self._inputs = self._prep_features(self._len)
     

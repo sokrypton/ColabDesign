@@ -78,7 +78,7 @@ class _af_loss:
       # update template features
       if self.args["use_templates"]:
         key, key_ = jax.random.split(key)
-        self._update_template(inputs, opt, model, key_)
+        self._update_template(inputs, opt, key_)
 
       # set number of recycles to use
       if self.args["recycle_mode"] not in ["backprop","add_prev"]:
@@ -141,21 +141,20 @@ class _af_loss:
               "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)}
     return {"losses":losses, "aux":{}}
 
-  def _update_template(self, inputs, opt, model, key):
+  def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
     # add template features
     t = "template_"    
     if self.protocol == "partial":
       pb, pb_mask = model.modules.pseudo_beta_fn(self._batch["aatype"],
                                                  self._batch["all_atom_positions"],
-                                                 self._batch["all_atom_mask"])
-      
-      template_feats = {t+"aatype": opt[t+"aatype"],
-                        t+"all_atom_positions": self._batch["all_atom_positions"],
-                        t+"all_atom_masks": self._batch["all_atom_mask"],
-                        t+"pseudo_beta": pb,
-                        t+"pseudo_beta_mask": pb_mask}
-      p = opt["pos"]
+                                                 self._batch["all_atom_mask"])      
+      feats = {t+"aatype": opt[t+"aatype"],
+               t+"all_atom_positions": self._batch["all_atom_positions"],
+               t+"all_atom_masks": self._batch["all_atom_mask"],
+               t+"pseudo_beta": pb, t+"pseudo_beta_mask": pb_mask}
+            
+      p = opt["pos"]      
       for k,v in template_feats.items():
         if jnp.issubdtype(p.dtype, jnp.integer):
           inputs[k] = inputs[k].at[:,:,p].set(v)
@@ -165,18 +164,13 @@ class _af_loss:
     if self.protocol == "fixbb":
       inputs[t+"aatype"] = inputs[t+"aatype"].at[:].set(opt[t+"aatype"])        
       inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,5:].set(0.0)
-
+    
     # dropout template input features
-    L = inputs["aatype"].shape[1]
-    pos_mask = jax.random.bernoulli(key, 1-opt[t+"dropout"], (L,))
-    if self.protocol == "partial":
-      TL = self._target_len
-      pos_mask = pos_mask[TL:]
-      inputs[t+"all_atom_masks"] = inputs[t+"all_atom_masks"].at[...,TL:,:].multiply(pos_mask[:,None])
-      inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"].at[...,self._target_len:].multiply(pos_mask)
-    else:
-      inputs[t+"all_atom_masks"] = inputs[f+"all_atom_masks"] * pos_mask[:,None]
-      inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"] * pos_mask    
+    L = self._len
+    s = self._target_len if self.protocol == "binder" else 0
+    pos_mask = jax.random.bernoulli(key, 1-opt[t+"dropout"],(L,))
+    inputs[t+"all_atom_masks"] = inputs[f+"all_atom_masks"].at[...,s:,:].multiply(pos_mask[s:,None])
+    inputs[t+"pseudo_beta_mask"] = inputs[t+"pseudo_beta_mask"].at[...,s:].multiply(pos_mask[s:])
     
   def _get_partial_loss(self, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''

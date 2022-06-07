@@ -224,7 +224,7 @@ class _af_design:
               soft=False, e_soft=None,
               hard=False, dropout=True, gumbel=False, **kwargs):
 
-    self.opt.update({"hard":1.0 if hard else 0.0,"dropout":dropout,"gumbel":gumbel})
+    self.opt.update({"hard":float(hard),"dropout":dropout,"gumbel":gumbel})
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
@@ -259,3 +259,11 @@ class _af_design:
     self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
     self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, gumbel=False, e_temp=1e-2,**kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False,   gumbel=False, hard=True, save_best=True, **kwargs)  
+    
+  def template_predesign(self, iters=100, soft=True, hard=False, dropout=True, temp=1.0, **kwargs):
+    '''use template for predesign stage, then increase template dropout until gone'''
+    self.opt.update({"hard":float(hard), "soft":float(soft),
+                     "dropout":dropout, "temp":temp})
+    for i in range(iters):
+      self.opt["template_dropout"] = i/(iters-1)
+      self._step(**kwargs)

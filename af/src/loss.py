@@ -318,17 +318,18 @@ class _af_loss:
     ''''dynamically update template features'''
     if self.protocol in ["partial","fixbb","binder"]:      
       L = self._batch["aatype"].shape[0]
+      
       if self.protocol in ["partial","fixbb"]:
         aatype = jnp.zeros(L)
         template_aatype = jnp.broadcast_to(opt["template_aatype"],(L,))
-
-      elif self._redesign:
-        aatype = jnp.asarray(self._batch["aatype"])
-        aatype = aatype.at[self._target_len:].set(0)
-        template_aatype = aatype.at[self._target_len:].set(opt["template_aatype"])
-
-      else:
-        aatype = template_aatype = self._batch["aatype"]
+      
+      if self.protocol == "binder":
+        if self._redesign:
+          aatype = jnp.asarray(self._batch["aatype"])
+          aatype = aatype.at[self._target_len:].set(0)
+          template_aatype = aatype.at[self._target_len:].set(opt["template_aatype"])
+        else:
+          aatype = template_aatype = self._batch["aatype"]
       
       # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
       pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
@@ -357,7 +358,7 @@ class _af_loss:
           if k == "template_all_atom_masks":
             inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
       
-      if self.protocol in ["partial"]:
+      if self.protocol == "partial":
         p = opt["pos"]
         for k,v in template_feats.items():
           if jnp.issubdtype(p.dtype, jnp.integer):

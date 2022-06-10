@@ -88,8 +88,11 @@ class _af_loss:
       if self.protocol == "partial":
         self._get_partial_loss(**values, aatype=aatype)
 
-      # weighted loss
-      loss = sum([v*opt["weights"][k] for k,v in losses.items()])
+      # weighted loss (only include defined losses)
+      loss = []
+      for k,w in opt["weights"].items():
+        if k in losses: loss.append(losses[k] * w)          
+      loss = sum(loss)
 
       # save aux outputs
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
@@ -178,8 +181,7 @@ class _af_loss:
     # 6D loss
     true = self._batch["all_atom_positions"]
     pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    if "6D" in opt["weights"]:
-      losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
+    losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
 
     # rmsd
     losses["rmsd"] = _np_rmsd(true[:,1], pred[:,1])

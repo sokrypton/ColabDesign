@@ -193,12 +193,12 @@ class _af_init:
 
     self.restart(set_defaults=True, **kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, repeat=False, **kwargs):
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1,
+                  homooligomer=False, repeat=False, block_diag=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
     # block_diag the msa features
-    if not repeat and copies > 1:
-      block_diag = True
+    if block_diag and not repeat and copies > 1:
       self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
     else:
       block_diag = False
@@ -235,12 +235,12 @@ class _af_init:
 
     self.restart(set_defaults=True, **kwargs)
     
-  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1,
+                          repeat=False, block_diag=False, **kwargs):
     '''prep inputs for hallucination'''
     
     # block_diag the msa features
-    if not repeat and copies > 1:
-      block_diag = True
+    if block_diag and not repeat and copies > 1:
       self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
     else:
       block_diag = False

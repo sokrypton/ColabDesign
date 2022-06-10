@@ -227,12 +227,19 @@ class _af_init:
 
     self.restart(set_defaults=True, **kwargs)
     
-  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1, repeat=False, split_copies=True, **kwargs):
     '''prep inputs for hallucination'''
+    
+    if split_copies and not repeat and copies > 1:
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+    else:
+      split_copies = False
+      
+
     self._len = length
-    self._inputs = self._prep_features(length * copies)
     self._copies = copies
-    self._repeat = repeat
+    self._inputs = self._prep_features(length * copies)
+    self.args.update({"split_copies":split_copies, "repeat":repeat"})
     
     # set weights
     self._default_weights.update({"con":1.0})

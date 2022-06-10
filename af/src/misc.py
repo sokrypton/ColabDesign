@@ -379,11 +379,14 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   
   if seq_1hot is None: seq_1hot = seq 
   if seq_pssm is None: seq_pssm = seq
-  msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:20].set(seq_1hot).at[...,25:45].set(seq_pssm)
+  
+  seq_1hot = jnp.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]])
+  seq_pssm = jnp.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]])
+  msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
   if seq.ndim == 3:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0])
+    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0][...:20])
   else:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq)
+    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[...,:20])
     
   inputs.update({"target_feat":target_feat,"msa_feat":msa_feat})
 

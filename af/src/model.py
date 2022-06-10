@@ -26,7 +26,8 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "model_mode":model_mode, "model_parallel": model_parallel,
-                 "recycle_mode":recycle_mode, "use_pssm":use_pssm, "debug":debug}
+                 "recycle_mode":recycle_mode, "use_pssm":use_pssm, "debug":debug,
+                 "repeat": False}
     
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,

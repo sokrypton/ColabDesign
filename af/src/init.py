@@ -147,7 +147,6 @@ class _af_init:
     
     self._redesign = binder_chain is not None
     self._copies = 1
-    self._repeat = False
     self._default_opt["template_dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
@@ -202,7 +201,7 @@ class _af_init:
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self._repeat = repeat
+    self.args["repeat"] = repeat
     
     # set weights
     self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0, "con":0.0})
@@ -258,7 +257,6 @@ class _af_init:
     '''prep input for partial hallucination'''
     self.args.update({"sidechain":sidechain, "fix_seq":fix_seq})
     self._copies = 1
-    self._repeat = False    
     
     # get [pos]itions of interests
     pdb = self._prep_pdb(pdb_filename, chain=chain)

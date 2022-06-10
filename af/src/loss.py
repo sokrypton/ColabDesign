@@ -48,7 +48,7 @@ class _af_loss:
           seq_ref = p.T @ seq_ref
           w = 1 - seq_ref.sum(-1, keepdims=True)
           seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
-
+          
       # save for aux output
       aux = {"seq":seq, "seq_pseudo":seq["pseudo"]}
 
@@ -64,7 +64,7 @@ class _af_loss:
         seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
               
       if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-        seq = jax.tree_map(lambda x:jnp.concatenate([x]*self._copies,1), seq)
+        seq = jax.tree_map(lambda x:expand_copies(x, self._copies, self.args["block_diag"]), seq)
             
       # update sequence
       seq_pssm = seq["soft"] if self.args["use_pssm"] else None
@@ -142,7 +142,7 @@ class _af_loss:
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
 
   def _get_fixbb_loss(self, outputs, opt, aatype=None):
-    copies = 1 if self._repeat else self._copies
+    copies = 1 if self.args["repeat"] else self._copies
     losses = {"fape":      get_fape_loss(self._batch, outputs, model_config=self._config),
               "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
               "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)}
@@ -281,7 +281,7 @@ class _af_loss:
     c,ic = opt["con"],opt["i_con"]
     
     # if more than 1 chain, split pae/con into inter/intra
-    if self.protocol == "binder" or (self._copies > 1 and not self._repeat):
+    if self.protocol == "binder" or (self._copies > 1 and not self.args["repeat"]):
       aux["pae"] = get_pae(outputs)
 
       L = self._target_len if self.protocol == "binder" else self._len
@@ -375,3 +375,25 @@ class _af_loss:
     pos_mask = jax.random.bernoulli(key, 1-opt["template_dropout"],(L,))
     inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
     inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
+
+def expand_copies(x, copies, block_diag=True):
+  '''given msa (N,L,20) expand to 
+  if block_diag:
+    (N*(1+copies),L*copies,22)
+  else:
+    (N,L*copies,22)
+  '''
+  if x.shape[-1] < 22:
+    x = jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
+  x = jnp.tile(x,[1,copies,1])
+  if copies > 1 and block_diag:
+    L = x.shape[1]
+    sub_L = L // copies
+    y = x.reshape((-1,1,copies,sub_L,22))
+    block_diag_mask = jnp.expand_dims(np.eye(copies),(0,3,4))
+    seq = block_diag_mask * y
+    gap_seq = (1-block_diag_mask) * jax.nn.one_hot(jnp.repeat(21,sub_L),22)  
+    y = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
+    return jnp.concatenate([x,y],0)
+  else:
+    return x

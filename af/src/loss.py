@@ -124,7 +124,7 @@ class _af_loss:
     seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
     
     # for partial hallucination, force sequence if sidechain constraints defined
-    if self.protocol == "partial" and (self.args["fix_seq"] or self.args["sidechain"]):
+    if self.protocol == "partial" and (self.args["fix_seq"] or self.args["use_sidechains"]):
       p = opt["pos"]
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
       if jnp.issubdtype(p.dtype, jnp.integer):
@@ -178,8 +178,8 @@ class _af_loss:
     # 6D loss
     true = self._batch["all_atom_positions"]
     pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    if self.args["use_6D"]:
-      losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["sidechain"])
+    if "6D" in opt["weights"]:
+      losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
 
     # rmsd
     losses["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
@@ -192,7 +192,7 @@ class _af_loss:
     losses["fape"] = fape_loss["loss"]
 
     # sidechain specific losses
-    if self.args["sidechain"]:
+    if self.args["use_sidechains"]:
 
       # sc_fape
       pred_pos = sub(struct["final_atom14_positions"],pos)

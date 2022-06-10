@@ -195,13 +195,21 @@ class _af_init:
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, repeat=False, **kwargs):
     '''prep inputs for fixed backbone design'''
+
+    # block_diag the msa features
+    if not repeat and copies > 1:
+      block_diag = True
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+    else:
+      block_diag = False
+
     pdb = self._prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
     self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self.args["repeat"] = repeat
+    self.args.update({"repeat":repeat,"block_diag":block_diag})
     
     # set weights
     self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0, "con":0.0})
@@ -211,6 +219,7 @@ class _af_init:
     if copies > 1:
       if repeat:
         self._len = self._len // copies
+        block_diag = False
       else:
         if homooligomer:
           self._len = self._len // copies
@@ -226,19 +235,20 @@ class _af_init:
 
     self.restart(set_defaults=True, **kwargs)
     
-  def _prep_hallucination(self, length=100, copies=1, repeat=False, split_copies=True, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
     '''prep inputs for hallucination'''
     
-    if split_copies and not repeat and copies > 1:
+    # block_diag the msa features
+    if not repeat and copies > 1:
+      block_diag = True
       self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
     else:
-      split_copies = False
+      block_diag = False
       
-
     self._len = length
     self._copies = copies
     self._inputs = self._prep_features(length * copies)
-    self.args.update({"split_copies":split_copies, "repeat":repeat"})
+    self.args.update({"block_diag":block_diag, "repeat":repeat"})
     
     # set weights
     self._default_weights.update({"con":1.0})

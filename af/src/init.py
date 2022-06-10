@@ -193,7 +193,7 @@ class _af_init:
 
     self.restart(set_defaults=True, **kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1,
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, 
                   homooligomer=False, repeat=False, block_diag=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
@@ -212,8 +212,7 @@ class _af_init:
     self.args.update({"repeat":repeat,"block_diag":block_diag})
     
     # set weights
-    self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0, "con":0.0})
-    self._default_opt.update({"6D_weights":{}})
+    self._default_weights.update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
 
     # update residue index from pdb
     if copies > 1:
@@ -263,9 +262,10 @@ class _af_init:
     self.restart(set_defaults=True, **kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, sidechain=False, **kwargs):
+                    fix_seq=True, use_sidechains=False, use_6D=False, **kwargs):
     '''prep input for partial hallucination'''
-    self.args.update({"sidechain":sidechain, "fix_seq":fix_seq})
+    if "sidechain" in kwargs: use_sidechains = kwargs["sidechain"]
+    self.args.update({"use_sidechain":use_sidechains, "fix_seq":fix_seq})
     self._copies = 1
     
     # get [pos]itions of interests
@@ -285,10 +285,13 @@ class _af_init:
     self._len = pdb["residue_index"].shape[0] if length is None else length
     self._inputs = self._prep_features(self._len)
     
-    weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0,"6D":0.0}
-    if sidechain: weights.update({"sc_fape":0.0, "sc_rmsd":0.0})
+    weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
+    if use_6D:
+      weights["6D"] = 1.0
+    if use_sidechains:
+      weights.update({"sc_rmsd":0.0,"sc_fape":0.0})
+      
     self._default_weights.update(weights)
-
     self.restart(set_defaults=True, **kwargs)
 
 #######################

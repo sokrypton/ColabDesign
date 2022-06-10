@@ -248,7 +248,7 @@ class _af_init:
     self._len = length
     self._copies = copies
     self._inputs = self._prep_features(length * copies)
-    self.args.update({"block_diag":block_diag, "repeat":repeat"})
+    self.args.update({"block_diag":block_diag, "repeat":repeat})
     
     # set weights
     self._default_weights.update({"con":1.0})

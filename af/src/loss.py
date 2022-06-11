@@ -293,7 +293,7 @@ class _af_loss:
     c,ic = opt["con"],opt["i_con"]
     
     # if more than 1 chain, split pae/con into inter/intra
-    if self.protocol == "binder" or (self._copies > 1 and not self.args["repeat"]):
+    if self.protocol == "binder": # or (self._copies > 1 and not self.args["repeat"]):
       if self.use_struct:
         aux["pae"] = get_pae(outputs)
 

@@ -94,7 +94,7 @@ class _af_loss:
         if k in opt["weights"]:
           loss.append(losses[k] * opt["weights"][k])
         else:
-          losses[k].pop()
+          losses.pop(k)
       loss = sum(loss)
 
       # save aux outputs

@@ -224,18 +224,18 @@ class _af_design:
     # decide which model params to use
     m = self.opt["models"]
     ns = jnp.arange(2) if self.args["use_templates"] else jnp.arange(5)
-    if self.args["model_mode"] == "fixed" or m == len(ns):
-      self._model_num = ns[:m]
-    elif self.args["model_mode"] == "sample":
+    if self.args["model_sample"] and m != len(ns):
       key,_key = jax.random.split(key)
       self._model_num = jax.random.choice(_key,ns,(m,),replace=False)
+    else:
+      self._model_num = ns[:m]
     
     #------------------------
     # run in parallel
     #------------------------
     if self.args["model_parallel"]:
       p = self._model_params
-      if self.args["model_mode"] == "sample":
+      if self.args["model_sample"]:
         p = self._sample_params(p, self._model_num)
       (l,o),g = self._recycle(p, key)
       self._grad = jax.tree_map(lambda x: x.mean(0), g)

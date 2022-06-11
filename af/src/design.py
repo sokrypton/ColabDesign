@@ -222,8 +222,12 @@ class _af_design:
   def design(self, iters,
               temp=1.0, e_temp=None,
               soft=False, e_soft=None,
-              hard=False, dropout=True, gumbel=False, **kwargs):
+              hard=False, dropout=True, gumbel=False, 
+              opt=None, weights=None, **kwargs):
 
+    if opt is not None: self.opt.update(opt)
+    if weights is not None: self.opt["weights"].update(weights)
+      
     self.opt.update({"hard":float(hard),"dropout":dropout,"gumbel":gumbel})
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp

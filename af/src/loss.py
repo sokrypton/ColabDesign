@@ -98,7 +98,7 @@ class _af_loss:
       loss = sum(loss)
 
       # save aux outputs
-      if self.args["output_structure"]:
+      if self.args["return_struct"]:
         aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                     "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
                     "plddt":get_plddt(outputs), "losses":losses})

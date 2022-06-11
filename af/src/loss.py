@@ -414,8 +414,9 @@ def expand_copies(x, copies, block_diag=True):
   else:
     return x
 
-def get_contact_map(outputs):
+def get_contact_map(outputs, dist=8.0):
+  '''get contact map from distogram'''
   dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
   dist_logits = outputs["distogram"]["logits"]
   dist_mtx = dist_bins[dist_logits.argmax(-1)]
-  return jax.nn.softmax(dist_logits)[:,:,dist_bins < 8].sum(-1)
+  return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)

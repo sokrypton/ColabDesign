@@ -22,6 +22,52 @@ except:
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################
 class _af_utils:
+  def _save_results(self, save_best=False, verbose=True):
+    '''save the results and update trajectory'''
+
+    # save best result
+    if save_best and self._loss < self._best_loss:
+      self._best_loss = self._loss
+      self._best_outs = self._outs
+    
+    # compile losses
+    self._losses.update({"model":self._model_num,"loss":self._loss, 
+                        **{k:self.opt[k] for k in ["soft","hard","temp"]}})
+    
+    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
+      # compute sequence recovery
+      _aatype = self._outs["seq"]["hard"].argmax(-1)
+      L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
+      self._losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
+
+    # save losses
+    self.losses.append(self._losses)
+
+    # print losses  
+    if verbose:
+      def to_str(ks, f=2):
+        out = []
+        for k in ks:
+          if k in self._losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
+            out.append(f"{k}")
+            if f is None: out.append(f"{self._losses[k]}")
+            else: out.append(f"{self._losses[k]:.{f}f}")
+        return out
+      out = [to_str(["model","recycles"],None),
+             to_str(["soft","temp","seqid","loss"]),
+             to_str(["msa_ent","plddt","pae","helix","con",
+                     "i_pae","i_con",
+                     "sc_fape","sc_rmsd",
+                     "dgram_cce","fape","6D","rmsd"])]
+      print_str = " ".join(sum(out,[]))
+      print(f"{self._k}\t{print_str}")
+
+    # save trajectory
+    ca_xyz = self._outs["final_atom_positions"][:,1,:]
+    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
+    if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
+    for k,v in traj.items(): self._traj[k].append(np.array(v))
+
   def get_seqs(self):
     outs = self._outs if self._best_outs is None else self._best_outs
     outs = jax.tree_map(lambda x:np.asarray(x), outs)
@@ -59,25 +105,25 @@ class _af_utils:
   #-------------------------------------
   def animate(self, s=0, e=None, dpi=100):
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
-    if self.protocol == "fixbb":
-      if self.use_struct:
+    if self.use_struct:
+      if self.protocol == "fixbb":
         pos_ref = self._batch["all_atom_positions"][:,1,:]
-      else:
-        pos_ref = None
-      length = self._len if self._copies > 1 else None
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
-    
-    if self.protocol == "binder":
-      outs = self._outs if self._best_outs is None else self._best_outs
-      pos_ref = outs["final_atom_positions"][:,1,:]
-      return make_animation(**sub_traj, pos_ref=pos_ref,
-                            length=self._target_len, dpi=dpi)
+        length = self._len if self._copies > 1 else None
+        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
 
-    if self.protocol in ["hallucination","partial"]:
-      outs = self._outs if self._best_outs is None else self._best_outs
-      pos_ref = outs["final_atom_positions"][:,1,:]
-      length = self._len if self._copies > 1 else None
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+      if self.protocol == "binder":
+        outs = self._outs if self._best_outs is None else self._best_outs
+        pos_ref = outs["final_atom_positions"][:,1,:]
+        return make_animation(**sub_traj, pos_ref=pos_ref,
+                              length=self._target_len, dpi=dpi)
+
+      if self.protocol in ["hallucination", "partial"]:
+        outs = self._outs if self._best_outs is None else self._best_outs
+        pos_ref = outs["final_atom_positions"][:,1,:]
+        length = self._len if self._copies > 1 else None
+        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+    else:
+      make_animation(**sub_traj, dpi=dpi)
 
   def plot_pdb(self):
     '''use py3Dmol to plot pdb coordinates'''
@@ -197,7 +243,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
   
   return ax.add_collection(lines)
 
-def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
+def make_animation(xyz, seq, plddt=None, pae=None,
                    pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
                    length=None):
@@ -209,25 +255,24 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
     q = Q - Q.mean(0,keepdims=True)
     return p @ _np_kabsch(p_trim, q, use_jax=False)
 
-  if xyz is not None:
-    # compute reference position
-    if pos_ref is None: pos_ref = xyz[-1]
-    if length is None: length = len(pos_ref)
+  # compute reference position
+  if pos_ref is None: pos_ref = xyz[-1]
+  if length is None: length = len(pos_ref)
+  
+  # align to reference
+  pos_ref_trim = pos_ref[:length]
+  # align to reference position
+  new_positions = []
+  for i in range(len(xyz)):
+    new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:length]))
+  pos = np.asarray(new_positions)
 
-    # align to reference
-    pos_ref_trim = pos_ref[:length]
-    # align to reference position
-    new_positions = []
-    for i in range(len(xyz)):
-      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:length]))
-    pos = np.asarray(new_positions)
-
-    # rotate for best view
-    pos_mean = np.concatenate(pos,0)
-    m = pos_mean.mean(0)
-    rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
-    pos = (pos - m) @ rot_mtx + m
-    pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
+  # rotate for best view
+  pos_mean = np.concatenate(pos,0)
+  m = pos_mean.mean(0)
+  rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+  pos = (pos - m) @ rot_mtx + m
+  pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
 
   # initialize figure
   if pae is not None and len(pae) == 0: pae = None
@@ -244,53 +289,44 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   if seq[0].shape[0] > 1: ax2.set_ylabel("sequences")
   else: ax2.set_ylabel("amino acids")
 
-  if xyz is None:
-    ax1.set_title("predicted contact map")
-  else:
-    ax1.set_title("N→C") if plddt is None else ax1.set_title("pLDDT")
+  ax1.set_title("N→C") if plddt is None else ax1.set_title("pLDDT")
   if pae is not None:
     ax3.set_title("pAE")
     ax3.set_xticks([])
     ax3.set_yticks([])
 
   # set bounderies
-  if xyz is not None:
-    x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
-    x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
+  x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
+  x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
 
-    x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
-    y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2
-    if x_pad > 0:
-      x_min -= x_pad
-      x_max += x_pad
-    else:
-      y_min -= y_pad
-      y_max += y_pad
+  x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
+  y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2
+  if x_pad > 0:
+    x_min -= x_pad
+    x_max += x_pad
+  else:
+    y_min -= y_pad
+    y_max += y_pad
 
-    ax1.set_xlim(x_min, x_max)
-    ax1.set_ylim(y_min, y_max)
+  ax1.set_xlim(x_min, x_max)
+  ax1.set_ylim(y_min, y_max)
   ax1.set_xticks([])
   ax1.set_yticks([])
 
   # get animation frames
   ims = []
-  for k in range(len(seq)):
+  for k in range(len(pos)):
     ims.append([])
-    if xyz is not None:
-      if plddt is None:
-        ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
-      else:
-        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+    if plddt is None:
+      ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
     else:
-      ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1))
-
+      ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
     if seq[k].shape[0] == 1:
       ims[-1].append(ax2.imshow(seq[k][0].T, animated=True, cmap="bwr_r",vmin=-1, vmax=1))
     else:
       cmap = matplotlib.colors.ListedColormap(jalview_color_list[color_msa])
       vmax = len(jalview_color_list[color_msa]) - 1
       ims[-1].append(ax2.imshow(seq[k].argmax(-1), animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
-    
     if pae is not None:
       ims[-1].append(ax3.imshow(pae[k], animated=True, cmap="bwr",vmin=0, vmax=30))
 

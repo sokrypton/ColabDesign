@@ -63,12 +63,13 @@ class _af_utils:
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    if self.use_struct:
-      ca_xyz = self._outs["final_atom_positions"][:,1,:]
-    else:
-      ca_xyz = self._outs["contact_map"]
       
-    traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
+    traj = {"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
+    if self.use_struct:
+      traj["xyz"] = self._outs["final_atom_positions"][:,1,:]
+    else:
+      traj["con"] = self._outs["contact_map"]
+      
     if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
     for k,v in traj.items(): self._traj[k].append(np.array(v))
 
@@ -247,7 +248,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
   
   return ax.add_collection(lines)
 
-def make_animation(xyz, seq, plddt=None, pae=None,
+def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
                    length=None):
@@ -259,24 +260,25 @@ def make_animation(xyz, seq, plddt=None, pae=None,
     q = Q - Q.mean(0,keepdims=True)
     return p @ _np_kabsch(p_trim, q, use_jax=False)
 
-  # compute reference position
-  if pos_ref is None: pos_ref = xyz[-1]
-  if length is None: length = len(pos_ref)
-  
-  # align to reference
-  pos_ref_trim = pos_ref[:length]
-  # align to reference position
-  new_positions = []
-  for i in range(len(xyz)):
-    new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:length]))
-  pos = np.asarray(new_positions)
+  if xyz is not None:
+    # compute reference position
+    if pos_ref is None: pos_ref = xyz[-1]
+    if length is None: length = len(pos_ref)
 
-  # rotate for best view
-  pos_mean = np.concatenate(pos,0)
-  m = pos_mean.mean(0)
-  rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
-  pos = (pos - m) @ rot_mtx + m
-  pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
+    # align to reference
+    pos_ref_trim = pos_ref[:length]
+    # align to reference position
+    new_positions = []
+    for i in range(len(xyz)):
+      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:length]))
+    pos = np.asarray(new_positions)
+
+    # rotate for best view
+    pos_mean = np.concatenate(pos,0)
+    m = pos_mean.mean(0)
+    rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+    pos = (pos - m) @ rot_mtx + m
+    pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
 
   # initialize figure
   if pae is not None and len(pae) == 0: pae = None
@@ -293,44 +295,53 @@ def make_animation(xyz, seq, plddt=None, pae=None,
   if seq[0].shape[0] > 1: ax2.set_ylabel("sequences")
   else: ax2.set_ylabel("amino acids")
 
-  ax1.set_title("N→C") if plddt is None else ax1.set_title("pLDDT")
+  if xyz is None:
+    ax1.set_title("predicted contact map")
+  else:
+    ax1.set_title("N→C") if plddt is None else ax1.set_title("pLDDT")
   if pae is not None:
     ax3.set_title("pAE")
     ax3.set_xticks([])
     ax3.set_yticks([])
 
   # set bounderies
-  x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
-  x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
+  if xyz is not None:
+    x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
+    x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
 
-  x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
-  y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2
-  if x_pad > 0:
-    x_min -= x_pad
-    x_max += x_pad
-  else:
-    y_min -= y_pad
-    y_max += y_pad
+    x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
+    y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2
+    if x_pad > 0:
+      x_min -= x_pad
+      x_max += x_pad
+    else:
+      y_min -= y_pad
+      y_max += y_pad
 
-  ax1.set_xlim(x_min, x_max)
-  ax1.set_ylim(y_min, y_max)
+    ax1.set_xlim(x_min, x_max)
+    ax1.set_ylim(y_min, y_max)
   ax1.set_xticks([])
   ax1.set_yticks([])
 
   # get animation frames
   ims = []
-  for k in range(len(pos)):
+  for k in range(len(seq)):
     ims.append([])
-    if plddt is None:
-      ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+    if xyz is not None:
+      if plddt is None:
+        ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      else:
+        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
     else:
-      ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1))
+
     if seq[k].shape[0] == 1:
       ims[-1].append(ax2.imshow(seq[k][0].T, animated=True, cmap="bwr_r",vmin=-1, vmax=1))
     else:
       cmap = matplotlib.colors.ListedColormap(jalview_color_list[color_msa])
       vmax = len(jalview_color_list[color_msa]) - 1
       ims[-1].append(ax2.imshow(seq[k].argmax(-1), animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
+    
     if pae is not None:
       ims[-1].append(ax3.imshow(pae[k], animated=True, cmap="bwr",vmin=0, vmax=30))
 

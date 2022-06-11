@@ -64,7 +64,7 @@ class _af_loss:
       outputs = self._runner.apply(model_params, key, inputs)
 
       if self.args["recycle_mode"] == "average":
-        if self.args["return_struct"]:
+        if self.args["use_struct"]:
           recycle_pos = {"init_pos":outputs['structure_module']['final_atom_positions'][None]}
         else:
           recycle_pos = {"init_dgram":outputs["distogram"]["logits"][None]}
@@ -103,7 +103,7 @@ class _af_loss:
       loss = sum(loss)
 
       # save aux outputs
-      if self.args["return_struct"]:
+      if self.args["use_struct"]:
         aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                     "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
                     "plddt":get_plddt(outputs), "losses":losses})

@@ -106,10 +106,14 @@ class _af_loss:
       if self.args["use_struct"]:
         aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                     "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                    "plddt":get_plddt(outputs), "losses":losses})
+                    "plddt":get_plddt(outputs),
+                    "losses":losses})
       else:
-        aux.update({"final_atom_positions":None,"final_atom_mask":None,
-                    "plddt":None,"losses":losses})
+        aux.update({"contact_map":get_contact_map(outputs),
+                    "final_atom_positions":None,
+                    "final_atom_mask":None,                    
+                    "plddt":None,
+                    "losses":losses})
       
       if self.args["debug"]:
         aux.update({"outputs":outputs, "inputs":inputs})
@@ -409,3 +413,9 @@ def expand_copies(x, copies, block_diag=True):
     return jnp.concatenate([x,y],0)
   else:
     return x
+
+def get_contact_map(outputs):
+  dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
+  dist_logits = outputs["distogram"]["logits"]
+  dist_mtx = dist_bins[dist_logits.argmax(-1)]
+  return jax.nn.softmax(dist_logits)[:,:,dist_bins < 8].sum(-1)

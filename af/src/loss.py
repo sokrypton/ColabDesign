@@ -230,8 +230,9 @@ class _af_loss:
         offset = idx[:,None] - idx[None,:]
 
     # pae loss
-    pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
-    pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
+    if self.use_struct:
+      pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
+      pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
     
     # define distogram
     dgram = outputs["distogram"]["logits"]

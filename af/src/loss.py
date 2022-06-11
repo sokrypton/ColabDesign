@@ -65,10 +65,10 @@ class _af_loss:
 
       if self.args["recycle_mode"] == "average":
         if self.args["return_struct"]:
-          init_pos = outputs['structure_module']['final_atom_positions'][None]
+          recycle_pos = {"init_pos":outputs['structure_module']['final_atom_positions'][None]}
         else:
-          init_pos = None          
-        aux["init"] = {'init_pos':init_pos,
+          recycle_pos = {"init_dgram":outputs["distogram"]["logits"][None]}
+        aux["init"] = {**recycle_pos,
                        'init_msa_first_row': outputs['representations']['msa_first_row'][None],
                        'init_pair': outputs['representations']['pair'][None]}
 

@@ -94,7 +94,8 @@ class _af_design:
       if not self.use_struct:
         # remove structure module specific weights
         struct_list = ["rmsd","fape","plddt","pae"]
-        for k in self._default_weights.keys():
+        keys = list(self._default_weights.keys())
+        for k in keys:
           if k.split("_")[-1] in struct_list:
             self._default_weights.pop(k)
     

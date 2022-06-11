@@ -90,14 +90,21 @@ class _af_loss:
 
       # weighted loss (only include defined losses)
       loss = []
-      for k,w in opt["weights"].items():
-        if k in losses: loss.append(losses[k] * w)          
+      for k in losses:
+        if k in opt["weights"]:
+          loss.append(losses[k] * opt["weights"][k])
+        else:
+          losses[k].pop()
       loss = sum(loss)
 
       # save aux outputs
-      aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
-                  "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                  "plddt":get_plddt(outputs), "losses":losses})
+      if self.args["output_structure"]:
+        aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
+                    "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
+                    "plddt":get_plddt(outputs), "losses":losses})
+      else:
+        aux.update({"final_atom_positions":None,"final_atom_mask":None,
+                    "plddt":None,"losses":losses})
       
       if self.args["debug"]:
         aux.update({"outputs":outputs, "inputs":inputs})

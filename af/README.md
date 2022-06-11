@@ -95,14 +95,14 @@ model = mk_design_model(num_recycles=1, recycle_mode="sample")
   - *last* - only use gradients from last recycle. (NOT recommended, unless you want to start with 0 and increase later).
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
-and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_mode="fixed"`.
+and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_sample=False`.
 ```python
-model = mk_design_model(num_models=1, model_mode="sample", model_parallel=False)
+model = mk_design_model(num_models=1, model_sample=True, model_parallel=False)
 ```
 - `num_models` - number of model params to use at each iteration.
-- `model_mode`:
-  - *sample* - randomly select models params to use. (Recommended)
-  - *fixed* - use the same model params each iteration.
+- `model_sample`:
+  - *True* - randomly select models params to use. (Recommended)
+  - *False* - use the same model params each iteration.
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
 #### How is contact defined? How do I change it?

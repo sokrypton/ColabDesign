@@ -67,7 +67,7 @@ class _af_loss:
         if self.args["use_struct"]:
           init_pos = outputs['structure_module']['final_atom_positions'][None]
         else:
-          init_pos = jnp.full((1,),None)
+          init_pos = jnp.array([None])
         aux["init"] = {'init_pos':init_pos,
                        'init_msa_first_row': outputs['representations']['msa_first_row'][None],
                        'init_pair': outputs['representations']['pair'][None]}

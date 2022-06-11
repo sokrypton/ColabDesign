@@ -80,7 +80,12 @@ class _af_utils:
         return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
       
     else:
-      return make_animation(**sub_traj, dpi=dpi)
+      length = None
+      if self.protocol == "binder":
+        length = [self._target_len, self._binder_len]
+      if self.protocol in ["hallucination","fixbb"] and self._copies > 1:
+        length = [self._len] * self._copies
+      return make_animation(**sub_traj, length=length, dpi=dpi)
 
   def plot_pdb(self):
     '''use py3Dmol to plot pdb coordinates'''
@@ -203,6 +208,20 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
   
   return ax.add_collection(lines)
 
+def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
+  if Ln is None: Ln = sum(Ls)
+  L_prev = 0
+  for L_i in Ls[:-1]:
+    L = L_prev + L_i
+    L_prev += L_i
+    ax.plot([0,Ln],[L,L],color="black")
+    ax.plot([L,L],[0,Ln],color="black")
+  
+  if add_yticks:
+    ticks = np.cumsum([0]+Ls)
+    ticks = (ticks[1:] + ticks[:-1])/2
+    ax.yticks(ticks,alphabet_list[:len(ticks)])
+  
 def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
@@ -218,14 +237,21 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   if xyz is not None:
     # compute reference position
     if pos_ref is None: pos_ref = xyz[-1]
-    if length is None: length = len(pos_ref)
+    
 
     # align to reference
-    pos_ref_trim = pos_ref[:length]
+    if length is None:
+      L = len(pos_ref)
+    elif isinstance(length, list):
+      L = length[0]
+    else:
+      L = length
+      
+    pos_ref_trim = pos_ref[:L]
     # align to reference position
     new_positions = []
     for i in range(len(xyz)):
-      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:length]))
+      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:L]))
     pos = np.asarray(new_positions)
 
     # rotate for best view
@@ -304,13 +330,11 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
 
   # add lines
   if length is not None:
-    L = con[0].shape[0]
+    Ls = length if isinstance(length, list) else [length,None]
     if con is not None:
-      ax1.plot([0,L],[length,length],color="black")[0]
-      ax1.plot([length,length],[0,L],color="black")[0]
+      plot_ticks(ax1, Ls, con[0].shape[0])
     if pae is not None:
-      ax3.plot([0,L],[length,length],color="black")[0]
-      ax3.plot([length,length],[0,L],color="black")[0]
+      plot_ticks(ax1, Ls, pae[0].shape[0])
 
   # make animation!
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)

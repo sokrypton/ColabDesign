@@ -90,7 +90,8 @@ class _af_loss:
 
       # weighted loss (only include defined losses)
       loss = []
-      for k in losses:
+      keys = list(losses.keys())
+      for k in keys:
         if k in opt["weights"]:
           loss.append(losses[k] * opt["weights"][k])
         else:

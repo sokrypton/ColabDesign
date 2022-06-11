@@ -62,15 +62,15 @@ class _af_loss:
       
       # get outputs
       outputs = self._runner.apply(model_params, key, inputs)
+      if self.use_struct: outputs.pop("structure_module")
 
       if self.args["recycle_mode"] == "average":
-        if self.args["use_struct"]:
-          init_pos = outputs['structure_module']['final_atom_positions'][None]
-        else:
-          init_pos = jnp.array([None])
-        aux["init"] = {'init_pos':init_pos,
-                       'init_msa_first_row': outputs['representations']['msa_first_row'][None],
+        aux["init"] = {'init_msa_first_row': outputs['representations']['msa_first_row'][None],
                        'init_pair': outputs['representations']['pair'][None]}
+        if self.use_struct:
+          aux["init_pos"] = outputs['structure_module']['final_atom_positions'][None]
+        else:
+          aux["init_dgram"] = outputs["distogram"]["logits"][None]
 
       values = {"losses":losses,"aux":aux,"outputs":outputs,"opt":opt}
       
@@ -78,7 +78,7 @@ class _af_loss:
       self._get_pairwise_loss(**values, inputs=inputs)
 
       # confidence losses
-      if self.args["use_struct"]:
+      if self.use_struct:
         plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
         plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
         if self.protocol == "binder":
@@ -104,7 +104,7 @@ class _af_loss:
       loss = sum(loss)
 
       # save aux outputs
-      if self.args["use_struct"]:
+      if self.use_struct:
         aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                     "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
                     "plddt":get_plddt(outputs),
@@ -156,7 +156,7 @@ class _af_loss:
   def _get_fixbb_loss(self, losses, aux, outputs, opt, aatype=None):
     '''get backbone specific losses'''
     copies = 1 if self.args["repeat"] else self._copies
-    if self.args["use_struct"]:    
+    if self.use_struct:    
       losses.update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
                      "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies)})
     losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies)
@@ -165,7 +165,7 @@ class _af_loss:
   def _get_binder_redesign_loss(self, losses, aux, outputs, opt, aatype=None):
     '''get binder redesign specific losses'''
     # compute rmsd of binder relative to target
-    if self.args["use_struct"]:
+    if self.use_struct:
       true = self._batch["all_atom_positions"][:,1,:]
       pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
       L = self._target_len
@@ -195,7 +195,7 @@ class _af_loss:
     losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
                                          logits=dgram, aatype=aatype)
 
-    if self.args["use_struct"]:
+    if self.use_struct:
       # 6D loss
       true = self._batch["all_atom_positions"]
       pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
@@ -302,7 +302,7 @@ class _af_loss:
     
     # if more than 1 chain, split pae/con into inter/intra
     if self.protocol == "binder" or (self._copies > 1 and not self.args["repeat"]):
-      if self.args["use_struct"]:
+      if self.use_struct:
         aux["pae"] = get_pae(outputs)
 
       L = self._target_len if self.protocol == "binder" else self._len
@@ -320,7 +320,7 @@ class _af_loss:
         else:
           return aa,abba
 
-      if self.args["use_struct"]:
+      if self.use_struct:
         ks,vs = ["pae","con"], [pae,dgram]
       else:
         ks,vs = ["con"], [dgram]
@@ -332,7 +332,7 @@ class _af_loss:
           x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
-      if self.args["use_struct"]:
+      if self.use_struct:
         if self.protocol == "binder": aux["pae"] = get_pae(outputs)
         losses.update({"con":get_con_loss(dgram, c, offset).mean(),
                        "helix":get_helix_loss(dgram, c, offset),

@@ -25,6 +25,9 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
 
     self.protocol = protocol
     
+    if not use_struct:
+      assert num_recycles == 0
+    
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "model_mode":model_mode, "model_parallel": model_parallel,
                  "recycle_mode":recycle_mode, "use_pssm":use_pssm, "debug":debug,

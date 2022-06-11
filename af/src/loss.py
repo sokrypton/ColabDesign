@@ -292,11 +292,13 @@ class _af_loss:
     # get contact options
     c,ic = opt["con"],opt["i_con"]
     
-    # if more than 1 chain, split pae/con into inter/intra
-    if self.protocol == "binder": # or (self._copies > 1 and not self.args["repeat"]):
-      if self.use_struct:
-        aux["pae"] = get_pae(outputs)
-
+    # if more than 1 chain, save pae
+    if self.use_struct and (self._copies > 1 and not self.args["repeat"]):
+      aux["pae"] = get_pae(outputs)
+      
+    if self.protocol == "binder":
+      # split pae/con into inter/intra
+      
       L = self._target_len if self.protocol == "binder" else self._len
       H = self._hotspot if hasattr(self,"_hotspot") else None
       

@@ -63,10 +63,11 @@ class _af_utils:
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    if self._outs["final_atom_positions"] is None:
-      ca_xyz = None
-    else:
+    if self.arts["use_struct"]:
       ca_xyz = self._outs["final_atom_positions"][:,1,:]
+    else
+      ca_xyz = self._outs["contact_map"]
+      
     traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
     if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
     for k,v in traj.items(): self._traj[k].append(np.array(v))
@@ -109,7 +110,10 @@ class _af_utils:
   def animate(self, s=0, e=None, dpi=100):
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
     if self.protocol == "fixbb":
-      pos_ref = self._batch["all_atom_positions"][:,1,:]
+      if self.args["use_struct"]:
+        pos_ref = self._batch["all_atom_positions"][:,1,:]
+      else:
+        pos_ref = None
       length = self._len if self._copies > 1 else None
       return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
     

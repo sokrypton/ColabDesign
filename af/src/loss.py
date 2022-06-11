@@ -244,7 +244,8 @@ class _af_loss:
     # define distogram
     dgram = outputs["distogram"]["logits"]
     dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-    aux.update({"dgram":dgram, "dgram_bins":dgram_bins})
+    if self.args["debug"]:
+      aux.update({"dgram":dgram, "dgram_bins":dgram_bins})
 
     # contact
     def get_pw_con_loss(dgram, cutoff, binary=True, entropy=True):
@@ -300,7 +301,8 @@ class _af_loss:
     
     # if more than 1 chain, split pae/con into inter/intra
     if self.protocol == "binder" or (self._copies > 1 and not self.args["repeat"]):
-      aux["pae"] = get_pae(outputs)
+      if self.args["use_struct"]:
+        aux["pae"] = get_pae(outputs)
 
       L = self._target_len if self.protocol == "binder" else self._len
       H = self._hotspot if hasattr(self,"_hotspot") else None

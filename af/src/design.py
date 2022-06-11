@@ -90,6 +90,11 @@ class _af_design:
     if set_defaults:
       if weights is not None: self._default_weights.update(weights)
       if opt is not None: self._default_opt.update(opt)
+      if not self.use_struct:
+        # remove unused weights
+        struct_list = ["rmsd","fape","plddt","pae"]
+        for k in weights.keys():
+          if k.split("_")[-1] in struct_list: weights.pop(k)
     
     if not keep_history:
       self.opt = copy.deepcopy(self._default_opt)

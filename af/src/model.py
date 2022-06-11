@@ -15,10 +15,12 @@ from af.src.design import _af_design
 
 class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
-               num_models=1, model_mode="sample", model_parallel=False,
+               num_models=1, model_sample=True, model_parallel=False,
                num_recycles=0, recycle_mode="average",
                use_templates=False, use_pssm=False, data_dir=".",
                debug=False, use_struct=True):
+    
+    assert recycle_mode in ["average","add_prev","backprop","last"]
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -27,7 +29,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     self.use_struct = use_struct
         
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
-                 "model_mode":model_mode, "model_parallel": model_parallel,
+                 "model_sample":model_sample, "model_parallel": model_parallel,
                  "recycle_mode":recycle_mode, "use_pssm":use_pssm, "debug":debug,
                  "repeat": False}
     

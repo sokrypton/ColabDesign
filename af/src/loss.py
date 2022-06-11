@@ -110,9 +110,7 @@ class _af_loss:
                     "losses":losses})
       else:
         aux.update({"contact_map":get_contact_map(outputs),
-                    "final_atom_positions":None,
-                    "final_atom_mask":None,                    
-                    "plddt":None,
+                    "final_atom_positions":None,"final_atom_mask":None, "plddt":None,
                     "losses":losses})
       
       if self.args["debug"]:
@@ -157,27 +155,29 @@ class _af_loss:
   def _get_fixbb_loss(self, losses, aux, outputs, opt, aatype=None):
     '''get backbone specific losses'''
     copies = 1 if self.args["repeat"] else self._copies
-    losses.update({"fape":      get_fape_loss(self._batch, outputs, model_config=self._config),
-                   "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
-                   "rmsd":      get_rmsd_loss_w(self._batch, outputs, copies=copies)})
+    if self.args["use_struct"]:    
+      losses.update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
+                     "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies)})
+    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies)
+
   
   def _get_binder_redesign_loss(self, losses, aux, outputs, opt, aatype=None):
     '''get binder redesign specific losses'''
     # compute rmsd of binder relative to target
-    true = self._batch["all_atom_positions"][:,1,:]
-    pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-    L = self._target_len
-    p = true - true[:L].mean(0)
-    q = pred - pred[:L].mean(0)
-    p = p @ _np_kabsch(p[:L], q[:L])
-    rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
+    if self.args["use_struct"]:
+      true = self._batch["all_atom_positions"][:,1,:]
+      pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+      L = self._target_len
+      p = true - true[:L].mean(0)
+      q = pred - pred[:L].mean(0)
+      p = p @ _np_kabsch(p[:L], q[:L])
+      rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
+      fape = get_fape_loss(self._batch, outputs, model_config=self._config)
+      losses.update({"rmsd":rmsd_binder, "fape":fape})
     
     # compute cce of binder + interface
     errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
-    dgram_cce = errors["errors"][L:,:].mean()
-    
-    losses.update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
-                   "dgram_cce": dgram_cce, "rmsd": rmsd_binder})
+    losses["dgram_cce"] = errors["errors"][L:,:].mean()
     
   def _get_partial_loss(self, losses, aux, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''
@@ -194,36 +194,36 @@ class _af_loss:
     losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
                                          logits=dgram, aatype=aatype)
 
-    # 6D loss
-    true = self._batch["all_atom_positions"]
-    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
+    if self.args["use_struct"]:
+      # 6D loss
+      true = self._batch["all_atom_positions"]
+      pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
+      losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
 
-    # rmsd
-    losses["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
-    
-    # fape
-    fape_loss = {"loss":0.0}
-    struct = outputs["structure_module"]
-    traj = {"traj":sub(struct["traj"],pos,-2)}
-    folding.backbone_loss(fape_loss, self._batch, traj, _config)
-    losses["fape"] = fape_loss["loss"]
+      # rmsd
+      losses["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
 
-    # sidechain specific losses
-    if self.args["use_sidechains"]:
+      # fape
+      fape_loss = {"loss":0.0}
+      struct = outputs["structure_module"]
+      traj = {"traj":sub(struct["traj"],pos,-2)}
+      folding.backbone_loss(fape_loss, self._batch, traj, _config)
+      losses["fape"] = fape_loss["loss"]
 
-      # sc_fape
-      pred_pos = sub(struct["final_atom14_positions"],pos)
-      sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
-                   "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
-      
-      losses["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
+      # sidechain specific losses
+      if self.args["use_sidechains"]:
 
-      # sc_rmsd
-      true_aa = self._batch["aatype"]
-      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-      losses["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
+        # sc_fape
+        pred_pos = sub(struct["final_atom14_positions"],pos)
+        sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
+                     "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
 
+        losses["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
+
+        # sc_rmsd
+        true_aa = self._batch["aatype"]
+        true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
+        losses["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
 
   def _get_pairwise_loss(self, losses, aux, outputs, opt, inputs=None):
     '''compute pairwise losses (contact and pae)'''

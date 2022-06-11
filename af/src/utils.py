@@ -22,57 +22,6 @@ except:
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################
 class _af_utils:
-  def _save_results(self, save_best=False, verbose=True):
-    '''save the results and update trajectory'''
-
-    # save best result
-    if save_best and self._loss < self._best_loss:
-      self._best_loss = self._loss
-      self._best_outs = self._outs
-    
-    # compile losses
-    self._losses.update({"model":self._model_num,"loss":self._loss, 
-                        **{k:self.opt[k] for k in ["soft","hard","temp"]}})
-    
-    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
-      # compute sequence recovery
-      _aatype = self._outs["seq"]["hard"].argmax(-1)
-      L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
-      self._losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
-
-    # save losses
-    self.losses.append(self._losses)
-
-    # print losses  
-    if verbose:
-      def to_str(ks, f=2):
-        out = []
-        for k in ks:
-          if k in self._losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
-            out.append(f"{k}")
-            if f is None: out.append(f"{self._losses[k]}")
-            else: out.append(f"{self._losses[k]:.{f}f}")
-        return out
-      out = [to_str(["model","recycles"],None),
-             to_str(["soft","temp","seqid","loss"]),
-             to_str(["msa_ent","plddt","pae","helix","con",
-                     "i_pae","i_con",
-                     "sc_fape","sc_rmsd",
-                     "dgram_cce","fape","6D","rmsd"])]
-      print_str = " ".join(sum(out,[]))
-      print(f"{self._k}\t{print_str}")
-
-    # save trajectory
-      
-    traj = {"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}
-    if self.use_struct:
-      traj["xyz"] = self._outs["final_atom_positions"][:,1,:]
-    else:
-      traj["con"] = self._outs["contact_map"]
-      
-    if "pae" in self._outs: traj.update({"pae":self._outs["pae"]})
-    for k,v in traj.items(): self._traj[k].append(np.array(v))
-
   def get_seqs(self):
     outs = self._outs if self._best_outs is None else self._best_outs
     outs = jax.tree_map(lambda x:np.asarray(x), outs)

@@ -61,30 +61,26 @@ class _af_utils:
   #-------------------------------------
   def animate(self, s=0, e=None, dpi=100):
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
-    if self.use_struct:
+    length = None
+    if self.protocol == "binder":
+      length = [self._target_len, self._binder_len]      
+    if self.protocol in ["hallucination","fixbb","partial"]:
+      length = [self._len] * self._copies
       
+    if self.use_struct:      
       if self.protocol == "fixbb":
         pos_ref = self._batch["all_atom_positions"][:,1,:]
-        length = self._len if self._copies > 1 else None
         return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
-
       if self.protocol == "binder":
         outs = self._outs if self._best_outs is None else self._best_outs
         pos_ref = outs["final_atom_positions"][:,1,:]
-        return make_animation(**sub_traj, pos_ref=pos_ref, length=self._target_len, dpi=dpi)
-
+        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
       if self.protocol in ["hallucination","partial"]:
         outs = self._outs if self._best_outs is None else self._best_outs
         pos_ref = outs["final_atom_positions"][:,1,:]
-        length = self._len if self._copies > 1 else None
-        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)      
       
     else:
-      length = None
-      if self.protocol == "binder":
-        length = [self._target_len, self._binder_len]
-      if self.protocol in ["hallucination","fixbb"] and self._copies > 1:
-        length = [self._len] * self._copies
       return make_animation(**sub_traj, length=length, dpi=dpi)
 
   def plot_pdb(self):

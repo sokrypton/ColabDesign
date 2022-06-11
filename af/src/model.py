@@ -76,10 +76,17 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     # backprop through recycles
     if recycle_mode == "add_prev":
       cfg.model.add_prev = True
+      
     if recycle_mode == "backprop":
-      cfg.model.backprop_recycle = True
-      cfg.model.embeddings_and_evoformer.backprop_dgram = True
-      cfg.model.embeddings_and_evoformer.backprop_dgram_temp = 2.0
+      cfg.model.backprop_recycle = True      
+      if self.use_struct:
+        cfg.model.embeddings_and_evoformer.recycle_pos = True
+        cfg.model.embeddings_and_evoformer.recycle_dgram = False
+        cfg.model.embeddings_and_evoformer.backprop_dgram = True
+        cfg.model.embeddings_and_evoformer.backprop_dgram_temp = 2.0
+      else:
+        cfg.model.embeddings_and_evoformer.recycle_pos = False
+        cfg.model.embeddings_and_evoformer.recycle_dgram = True
 
     self._config = cfg
 

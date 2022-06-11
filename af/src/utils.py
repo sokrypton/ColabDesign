@@ -65,7 +65,7 @@ class _af_utils:
     # save trajectory
     if self.use_struct:
       ca_xyz = self._outs["final_atom_positions"][:,1,:]
-    else
+    else:
       ca_xyz = self._outs["contact_map"]
       
     traj = {"xyz":ca_xyz,"plddt":self._outs["plddt"],"seq":self._outs["seq"]["pseudo"]}

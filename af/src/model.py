@@ -54,6 +54,9 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
 
     # subbatch_size / chunking
     cfg.model.global_config.subbatch_size = None
+    
+    # enable/disable structure module
+    cfg.model.use_struct = use_struct
 
     # number of sequences
     if use_templates:

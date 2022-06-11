@@ -334,7 +334,7 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
     if con is not None:
       plot_ticks(ax1, Ls, con[0].shape[0])
     if pae is not None:
-      plot_ticks(ax1, Ls, pae[0].shape[0])
+      plot_ticks(ax3, Ls, pae[0].shape[0])
 
   # make animation!
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)

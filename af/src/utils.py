@@ -288,7 +288,8 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
       else:
         ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
     else:
-      ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1))
+      L = con[k].shape[0]
+      ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1, extent=(0, L, L, 0)))
 
     if seq[k].shape[0] == 1:
       ims[-1].append(ax2.imshow(seq[k][0].T, animated=True, cmap="bwr_r",vmin=-1, vmax=1))
@@ -298,7 +299,18 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
       ims[-1].append(ax2.imshow(seq[k].argmax(-1), animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
     
     if pae is not None:
-      ims[-1].append(ax3.imshow(pae[k], animated=True, cmap="bwr",vmin=0, vmax=30))
+      L = pae[k].shape[0]
+      ims[-1].append(ax3.imshow(pae[k], animated=True, cmap="bwr",vmin=0, vmax=30, extent=(0, L, L, 0)))
+
+  # add lines
+  if length is not None:
+    L = con[0].shape[0]
+    if con is not None:
+      ax1.plot([0,L],[length,length],color="black")[0]
+      ax1.plot([length,length],[0,L],color="black")[0]
+    if pae is not None:
+      ax3.plot([0,L],[length,length],color="black")[0]
+      ax3.plot([length,length],[0,L],color="black")[0]
 
   # make animation!
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)

@@ -108,10 +108,11 @@ class _af_design:
 
     # initialize trajectory
     if not keep_history:
-      self.losses,self._traj = [],{"seq":[],"plddt":[],"pae":[]}
-      if self.use_struct: self._traj["xyz"] = []
-      else: self._traj["con"] = []
-      self._best_loss, self._best_outs = np.inf, None
+      if self.use_struct:
+        self._traj = {"seq":[],"xyz":[],"plddt":[],"pae":[]}
+      else:
+        self._traj = {"seq":[],"con":[]}
+      self.losses, self._best_loss, self._best_outs = [], np.inf, None
     
   def _recycle(self, model_params, key, params=None, opt=None):
     if params is None: params = self._params

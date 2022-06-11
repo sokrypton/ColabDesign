@@ -62,7 +62,7 @@ class _af_loss:
       
       # get outputs
       outputs = self._runner.apply(model_params, key, inputs)
-      if self.use_struct: outputs.pop("structure_module")
+      if not self.use_struct: outputs.pop("structure_module")
 
       if self.args["recycle_mode"] == "average":
         aux["init"] = {'init_msa_first_row': outputs['representations']['msa_first_row'][None],

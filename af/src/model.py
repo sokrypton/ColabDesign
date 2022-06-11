@@ -47,12 +47,6 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
       model_name = "model_3_ptm"
     
     cfg = config.model_config(model_name)
-    
-    # disable structure module during recycle:
-    if not use_struct:
-      cfg.model.embeddings_and_evoformer.recycle_pos = False
-      cfg.model.embeddings_and_evoformer.recycle_dgram = True
-
 
     # enable checkpointing
     cfg.model.global_config.use_remat = True

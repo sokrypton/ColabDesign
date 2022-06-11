@@ -93,30 +93,20 @@ class _af_loss:
       if self.protocol == "partial":
         self._get_partial_loss(**values, aatype=aatype)
 
-      # weighted loss (only include defined losses)
-      loss = []
-      keys = list(losses.keys())
-      for k in keys:
-        if k in opt["weights"]:
-          loss.append(losses[k] * opt["weights"][k])
-        else:
-          losses.pop(k)
-      loss = sum(loss)
+      # weighted loss
+      loss = sum([v*opt["weights"][k] for k,v in losses.items()])
+      aux["losses"] = losses
 
-      # save aux outputs
+      # add aux outputs
       if self.use_struct:
         aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                     "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                    "plddt":get_plddt(outputs),
-                    "losses":losses})
-      else:
-        aux.update({"contact_map":get_contact_map(outputs),
-                    "final_atom_positions":None,"final_atom_mask":None, "plddt":None,
-                    "losses":losses})
+                    "plddt":get_plddt(outputs)})
       
-      if self.args["debug"]:
-        aux.update({"outputs":outputs, "inputs":inputs})
-
+      if "contact_map" not in aux:
+        aux["contact_map"] = get_contact_map(outputs)          
+        
+      if self.args["debug"]: aux.update({"outputs":outputs, "inputs":inputs})
       return loss, (aux)
     
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
@@ -148,6 +138,7 @@ class _af_loss:
       if jnp.issubdtype(p.dtype, jnp.integer):
         seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
       else:
+        # TODO confirm this is correct
         seq_ref = p.T @ seq_ref
         w = 1 - seq_ref.sum(-1, keepdims=True)
         seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
@@ -427,7 +418,7 @@ def expand_copies(x, copies, block_diag=True):
 
 def get_contact_map(outputs, dist=8.0):
   '''get contact map from distogram'''
-  dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
   dist_logits = outputs["distogram"]["logits"]
+  dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
   dist_mtx = dist_bins[dist_logits.argmax(-1)]
   return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)

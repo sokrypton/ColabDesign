@@ -63,7 +63,7 @@ class _af_utils:
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    if self.arts["use_struct"]:
+    if self.use_struct:
       ca_xyz = self._outs["final_atom_positions"][:,1,:]
     else
       ca_xyz = self._outs["contact_map"]
@@ -110,7 +110,7 @@ class _af_utils:
   def animate(self, s=0, e=None, dpi=100):
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
     if self.protocol == "fixbb":
-      if self.args["use_struct"]:
+      if self.use_struct:
         pos_ref = self._batch["all_atom_positions"][:,1,:]
       else:
         pos_ref = None

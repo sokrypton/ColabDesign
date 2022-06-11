@@ -77,16 +77,17 @@ class _af_loss:
       # pairwise loss
       self._get_pairwise_loss(**values, inputs=inputs)
 
-      # confidence losses      
-      plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
-      plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
-
+      # confidence losses
+      if self.args["use_struct"]:
+        plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
+        plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+        if self.protocol == "binder":
+          if self._redesign: self._get_binder_redesign_loss(**values, aatype=aatype)
+          losses["plddt"] = plddt_loss[...,self._target_len:].mean()
+        else:
+          losses["plddt"] = plddt_loss.mean()
+          
       # get protocol specific losses
-      if self.protocol == "binder":
-        if self._redesign: self._get_binder_redesign_loss(**values, aatype=aatype)
-        losses["plddt"] = plddt_loss[...,self._target_len:].mean()
-      else:
-        losses["plddt"] = plddt_loss.mean()
       if self.protocol == "fixbb":
         self._get_fixbb_loss(**values, aatype=aatype)                  
       if self.protocol == "partial":
@@ -319,19 +320,27 @@ class _af_loss:
         else:
           return aa,abba
 
+      if self.args["use_struct"]:
+        ks,vs = ["pae","con"], [pae,dgram]
+      else:
+        ks,vs = ["con"], [dgram]
       x_offset, ix_offset = split_feats(jnp.abs(offset))
-      for k,v in zip(["pae","con"],[pae,dgram]):
+      for k,v in zip(ks,vs):
         x, ix = split_feats(v)        
         if k == "con":
           losses["helix"] = get_helix_loss(x, c, x_offset)
           x, ix = get_con_loss(x, c, x_offset), get_con_loss(ix, ic, ix_offset)
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
-      if self.protocol == "binder": aux["pae"] = get_pae(outputs)
-      losses.update({"con":get_con_loss(dgram, c, offset).mean(),
-                     "helix":get_helix_loss(dgram, c, offset),
-                     "pae":pae.mean()})
-      
+      if self.args["use_struct"]:
+        if self.protocol == "binder": aux["pae"] = get_pae(outputs)
+        losses.update({"con":get_con_loss(dgram, c, offset).mean(),
+                       "helix":get_helix_loss(dgram, c, offset),
+                       "pae":pae.mean()})
+      else:
+        losses.update({"con":get_con_loss(dgram, c, offset).mean(),
+                       "helix":get_helix_loss(dgram, c, offset)})
+              
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
     if self.protocol in ["partial","fixbb","binder"]:      

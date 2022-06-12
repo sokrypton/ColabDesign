@@ -20,7 +20,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                use_templates=False, use_pssm=False, data_dir=".",
                debug=False, use_struct=True):
     
-    assert recycle_mode in ["average","sample","add_prev","backprop","last"]
+    assert recycle_mode in ["average","add_prev","backprop","last"]
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True

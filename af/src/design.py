@@ -182,10 +182,13 @@ class _af_design:
       # average gradients across all recycles
       #----------------------------------------
       L = self._inputs["residue_index"].shape[-1]
-      self._inputs.update({'init_pos': np.zeros([1, L, 37, 3]),
-                           'init_msa_first_row': np.zeros([1, L, 256]),
+      self._inputs.update({'init_msa_first_row': np.zeros([1, L, 256]),
                            'init_pair': np.zeros([1, L, L, 128])})
-      
+      if self.use_struct:
+        self._inputs['init_pos'] = np.zeros([1, L, 37, 3])
+      else:
+        self._inputs['init_dgram'] = np.zeros([1, L, L, 64])
+                           
       grad = []
       for r in range(opt["recycles"]+1):
         key, _key = jax.random.split(key)
@@ -199,17 +202,11 @@ class _af_design:
         (loss,outs),_grad = self._grad_fn(params, model_params, self._inputs, _key, _opt)
         grad.append(_grad)
         self._inputs.update(outs["init"])
+      
       grad = jax.tree_util.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
       return (loss, outs), grad
+    
     else:
-      #----------------------------------------
-      # use gradients from last recycle
-      #----------------------------------------
-      if self.args["recycle_mode"] == "sample":
-        # decide number of recycles to use
-        key, _key = jax.random.split(key)
-        opt["recycles"] = int(jax.random.randint(_key,[],0,self._default_opt["recycles"]+1))
-      
       return self._grad_fn(params, model_params, self._inputs, key, opt)
       
   def _update_grad(self):

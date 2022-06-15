@@ -296,8 +296,7 @@ class _af_loss:
     # get contact options
     c,ic = opt["con"],opt["i_con"]
     
-    # if more than 1 chain, save pae
-    if self.use_struct and (self._copies > 1 and not self.args["repeat"]):
+    if self.use_struct:
       aux["pae"] = get_pae(outputs)
       
     if self.protocol == "binder":

@@ -94,7 +94,11 @@ class _af_loss:
         self._get_partial_loss(**values, aatype=aatype)
 
       # weighted loss
-      loss = sum([v*opt["weights"][k] for k,v in losses.items()])
+      loss = []
+      for k,v in losses.items():
+        if k in opt["weights"]: loss.append(v * opt["weights"][k])
+      loss = sum(loss)
+      
       aux["losses"] = losses
 
       # add aux outputs

@@ -346,6 +346,11 @@ MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
 def pdb_to_string(pdb_file):
   lines = []
   for line in open(pdb_file,"r"):
+    if line[:6] == "MODRES":
+      k = line[12:16]
+      v = line[24:27]
+      if k not in MODRES and v in residue_constants.restype_3to1:
+        MODRES[k] = v
     if line[:6] == "HETATM" and line[17:20] in MODRES:
       line = "ATOM  "+line[6:17]+MODRES[line[17:20]]+line[20:]
     if line[:4] == "ATOM":

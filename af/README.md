@@ -14,7 +14,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 ### setup
 - **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
 ```bash
-pip install git+https://github.com/sokrypton/af_backprop.git
+pip install git+https://github.com/sokrypton/af_backprop.git@beta
 pip install git+https://github.com/sokrypton/ColabDesign.git@beta
 
 mkdir params

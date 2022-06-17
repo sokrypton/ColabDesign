@@ -38,6 +38,7 @@ For a given length, generate/hallucinate a protein sequence that AlphaFold think
 protein (high plddt, low pae, many contacts).
 ```python
 model = mk_design_model(protocol="hallucination")
+model.prep_inputs(length=100)
 model.restart(seq_init="gumbel")
 model.design(50, soft=True)
 model.restart(seq_init=model._outs["seq_pseudo"], keep_history=True)

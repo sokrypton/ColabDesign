@@ -64,13 +64,8 @@ class _af_loss:
       outputs = self._runner.apply(model_params, key, inputs)
       if not self.use_struct: outputs.pop("structure_module")
 
-      if self.args["recycle_mode"] == "average":
-        aux["init"] = {'init_msa_first_row': outputs['representations']['msa_first_row'][None],
-                       'init_pair': outputs['representations']['pair'][None]}
-        if self.use_struct:
-          aux["init_pos"] = outputs['structure_module']['final_atom_positions'][None]
-        else:
-          aux["init_dgram"] = outputs["distogram"]["logits"][None]
+      # update prev
+      aux["prev"] = outputs["prev"]
 
       values = {"losses":losses,"aux":aux,"outputs":outputs,"opt":opt}
       

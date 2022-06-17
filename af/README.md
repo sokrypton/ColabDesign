@@ -86,14 +86,14 @@ model.opt["weights"]["pae"] = 0.0
 WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
 #### How do I control number of recycles used during design?
 ```python 
-model = mk_design_model(num_recycles=1, recycle_mode="sample")
+model = mk_design_model(num_recycles=1, recycle_mode="average")
 ```
 - `num_recycles` - max number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_model` - When `num_recycles` > 0:
   - *average* - compute loss at each recycle and average gradients. (Recommend).
-  - *sample* - at each iteration, randomly select number of recycles to use, use gradients from last recycle.
   - *add_prev* - average the logits (dgram, plddt, pae) across all recycles.
   - *last* - only use gradients from last recycle. (NOT recommended, unless you want to start with 0 and increase later).
+  - *backprop* - backprop through all recycles (NOT recommended)
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_sample=False`.

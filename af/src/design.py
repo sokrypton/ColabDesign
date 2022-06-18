@@ -185,9 +185,12 @@ class _af_design:
     L = self._inputs["residue_index"].shape[-1]
     
     # initialize previous (for recycle)
-    prev = {'prev_msa_first_row': np.zeros([L,256]), 'prev_pair': np.zeros([L,L,128])}
-    if self.use_struct: prev['prev_pos'] = np.zeros([L,37,3])
-    else: prev['prev_dgram'] = np.zeros([L,L,64])
+    prev = {'prev_msa_first_row': np.zeros([L,256]),
+            'prev_pair': np.zeros([L,L,128])}
+    if self.use_struct:
+      prev['prev_pos'] = np.zeros([L,37,3])
+    else:
+      prev['prev_dgram'] = np.zeros([L,L,64])
     self._inputs['prev'] = prev                           
     
     # get the gradients for each recycle

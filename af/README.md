@@ -87,7 +87,7 @@ WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0
 #### How do I control number of recycles used during design?
 ```python 
 model = mk_design_model(num_recycles=1, recycle_mode="average")
-# if reyclce_mode in ["average","last","sample"] the number of recycles can change during optimization
+# if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
 model.opt["recycles"] = 1
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)

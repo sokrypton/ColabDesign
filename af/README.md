@@ -10,7 +10,6 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default. The definition of contact has changed to minimize entropy within distance cutoff.
 - **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
 - **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
-- **18June2022** - Cleaning up the code, removing all the different recycle modes.
 
 ### setup
 - **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
@@ -87,11 +86,17 @@ model.opt["weights"]["pae"] = 0.0
 WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
 #### How do I control number of recycles used during design?
 ```python 
-model = mk_design_model(num_recycles=1)
-# or (to change after model has been setup)
+model = mk_design_model(num_recycles=1, recycle_mode="average")
+# if reyclce_mode in ["average","last","sample"] the number of recycles can change during optimization
 model.opt["recycles"] = 1
 ```
-- `num_recycles` - max number of recycles to use during design (for denovo proteins we find 0 is often enough)
+- `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
+  - *average* - compute loss at each recycle and average gradients. (Recommend).
+  - *last* - only use gradients from last recycle. (NOT recommended, unless you start w/ low recycles and then increased later)
+  - *add_prev* - average the logits (dgram, plddt, pae) across all recycles.
+  - *backprop* - backprop through all recycles.
+  - *sample* - each iteration random pick how many recycles to use.
+
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_sample=False`.

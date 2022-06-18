@@ -52,10 +52,6 @@ class _af_loss:
       if self.args["use_templates"]:
         key, key_ = jax.random.split(key)
         self._update_template(inputs, opt, key_)
-
-      # set number of recycles to use
-      if self.args["recycle_mode"] not in ["backprop","add_prev"]:
-        inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
       inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))

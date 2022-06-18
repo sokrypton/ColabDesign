@@ -174,50 +174,33 @@ class _af_design:
       
     for k,v in traj.items(): self._traj[k].append(np.array(v))
     
-  def _recycle(self, model_params, key, params=None, opt=None):
-    
+  def _recycle(self, model_params, key, params=None, opt=None):    
     if params is None: params = self._params
     if opt is None: opt = self.opt
         
+    aux["recycles"] = opt["recycles"]
+    
     # initialize previous (for recycle)
     L = self._inputs["residue_index"].shape[-1]
-    prev = {'prev_msa_first_row': np.zeros([L,256]), 'prev_pair': np.zeros([L,L,128])}
-    if self.use_struct: prev['prev_pos'] = np.zeros([L,37,3])
-    else: prev['prev_dgram'] = np.zeros([L,L,64])
-    self._inputs['prev'] = prev                           
+    self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),'prev_pair': np.zeros([L,L,128])}
+    if self.use_struct: self._inputs["prev"]['prev_pos']: np.zeros([L,37,3])
+    else: self._inputs["prev"]['prev_dgram'] = np.zeros([L,L,64])
     
     if self.args["recycle_mode"] == "average":
-      # average gradients across all recycles
-      num_recycles = opt["recycles"] + 1
-      keys = jax.random.split(key, num_recycles)
-      grad = []
-      for r,_key in enumerate(keys):        
-        _opt = copy.deepcopy(opt)        
-        for k,x in _opt["weights"].items():
-          # if weight is an array, use different weights at each recycle
-          if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray) or isinstance(x, list) or isinstance(x, tuple):
-            _opt["weights"][k] = float(x[r])
-          else:
-            _opt["weights"][k] = float(x)        
-        (loss, aux), _grad = self._grad_fn(params, model_params, self._inputs, _key, _opt)
-        grad.append(_grad)        
-        # update previous (for recycle)
-        self._inputs["prev"] = aux["prev"]              
-
       # average gradient across recycles
-      grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
-
+      grad = []
+      for r in range(opt["recycles"] + 1):
+        key, sub_key = jax.random.split(key)
+        (loss, aux), _grad = self._grad_fn(params, model_params, self._inputs, sub_key, opt)
+        grad.append(jax.tree_map(lambda x:x*w[r],_grad))        
+        self._inputs["prev"] = aux["prev"]
+      return (loss, aux), jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
     else:
+      _opt = copy.deepcopy(opt)
       if self.args["recycle_mode"] == "sample":
-        _opt = copy.deepcopy(opt)
-        key, _key = jax.random.split(key)
-        _opt["recycles"] = jax.random.randint(_key, [], 0, opt["recycles"] + 1)
-      else:
-        _opt = opt
-      (loss, aux), grad = self._grad_fn(params, model_params, self._inputs, key, _opt)
-    
-    aux["recycles"] = _opt["recycles"]
-    return (loss, aux), grad
+        key, sub_key = jax.random.split(key)
+        aux["recycles"] = _opt["recycle"] = jax.random.randint(sub_key, [], 0, opt["recycles"] + 1)
+      return self._grad_fn(params, model_params, self._inputs, key, opt)
           
   def _update_grad(self):
     '''update the gradient'''

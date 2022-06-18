@@ -57,12 +57,7 @@ class _af_loss:
       inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
       
       # get outputs
-      outputs = self._runner.apply(model_params, key, inputs)
-      if not self.use_struct: outputs.pop("structure_module")
-
-      # update prev
-      aux["prev"] = outputs["prev"]
-
+      outputs = self._get_out(inputs, model_params, aux, key)
       values = {"losses":losses,"aux":aux,"outputs":outputs,"opt":opt}
       
       # pairwise loss
@@ -105,6 +100,31 @@ class _af_loss:
       return loss, (aux)
     
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
+
+  def _get_out(self, inputs, model_params, aux, key):
+    '''get outputs'''
+    mode = self.args["recycle_mode"]
+    if mode in ["backprop","add_prev"]:
+      def recycle(prev, key):
+        inputs["prev"] = prev
+        outputs = self._runner.apply(model_params, key, inputs)
+        prev = outputs["prev"]
+        if mode == "add_prev":
+          prev = jax.lax.stop_gradient(prev)
+        return prev, outputs
+
+      num_recycles = self.opt["recycles"] + 1
+      keys = jax.random.split(key, num_recycles)
+      aux["prev"], o = jax.lax.scan(recycle, inputs["prev"], keys)
+      outputs = jax.tree_map(lambda x:x[-1], o)
+      if mode == "add_prev":
+        for k in ["distogram","predicted_lddt","predicted_aligned_error"]:
+          outputs[k]["logits"] = o[k]["logits"].mean(0)
+    else:
+      outputs = self._runner.apply(model_params, key, inputs)
+      aux["prev"] = outputs["prev"]
+
+    return outputs
 
   def _get_seq(self, params, opt, key):
     '''get sequence features'''

@@ -131,8 +131,8 @@ class _af_design:
       self._best_outs = self._outs
     
     # compile losses
-    self._losses.update({"model":self._model_num,"loss":self._loss, 
-                        **{k:self.opt[k] for k in ["soft","hard","temp"]}})
+    self._losses.update({"models":self._model_num,"recycles":self._outs["recycles"],
+                         "loss":self._loss,**{k:self.opt[k] for k in ["soft","hard","temp"]}})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
@@ -153,7 +153,7 @@ class _af_design:
             if f is None: out.append(f"{self._losses[k]}")
             else: out.append(f"{self._losses[k]:.{f}f}")
         return out
-      out = [to_str(["model","recycles"],None),
+      out = [to_str(["models","recycles"],None),
              to_str(["soft","temp","seqid","loss"]),
              to_str(["msa_ent","plddt","pae","helix","con",
                      "i_pae","i_con",
@@ -206,9 +206,18 @@ class _af_design:
 
       # average gradient across recycles
       grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
-      return (loss, aux), grad
+
     else:
-      return self._grad_fn(params, model_params, self._inputs, key, opt)
+      if self.args["recycle_mode"] == "sample":
+        _opt = copy.deepcopy(opt)
+        key, _key = jax.random.split(key)
+        _opt["recycles"] = jax.random.randint(_key, [], 0, opt["recycles"] + 1)
+      else:
+        _opt = opt
+      (loss, aux), grad = self._grad_fn(params, model_params, self._inputs, key, _opt)
+    
+    aux["recycles"] = _opt["recycles"]
+    return (loss, aux), grad
           
   def _update_grad(self):
     '''update the gradient'''

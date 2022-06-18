@@ -26,9 +26,10 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     self.protocol = protocol
     self.use_struct = use_struct
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
-                 "recycle_mode": recycle_mode, "model_sample":model_sample,
-                 "model_parallel": model_parallel, "use_pssm":use_pssm,
-                 "debug":debug, "repeat": False}
+                 "recycle_mode": recycle_mode,
+                 "model_sample":model_sample, "model_parallel": model_parallel,
+                 "use_pssm":use_pssm, "debug":debug,
+                 "repeat": False}
     
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
@@ -68,7 +69,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     cfg.data.eval.masked_msa_replace_fraction = 0
 
     # number of recycles (recycles are now managed in AfDesign)
-    assert recycle_mode in ["average","add_prev","backprop","last"]
+    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
     cfg.model.num_recycle = 0
     cfg.data.common.num_recycle = 0
 

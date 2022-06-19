@@ -110,9 +110,9 @@ model = mk_design_model(num_models=1, model_sample=True, model_parallel=False)
 - `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
 if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
 #### How is contact defined? How do I change it?
-[con]tact is defined as cβ-cβ < 14.0Å (where distogram bins < 14Å are summed) and sequence seperation ≥ 9. This can be changed with:
+By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
 ```python
-model.opt["con"].update({"cutoff":8.0,"seqsep":5})
+model.opt["con"].update({"cutoff":8.0,"seqsep":5,"num":1})
 ```
 For interface:
 ```python

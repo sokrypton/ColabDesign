@@ -48,7 +48,8 @@ class _af_design:
     x = 0.01 * jax.random.normal(_key, shape)
 
     # initialize bias
-    b = jnp.zeros(shape[1:])
+    bias = jnp.zeros(shape[1:])
+    use_bias = False
 
     if "gumbel" in mode:
       x = jax.random.gumbel(_key, shape) / 2.0
@@ -62,10 +63,14 @@ class _af_design:
         wt = wt[...,:self._len]
       elif self.protocol == "partial":
         x = x.at[...,self.opt["pos"],:].set(wt)
-        if add_seq: b = b.at[self.opt["pos"],:].set(wt * 1e8)
+        if add_seq:
+          bias = bias.at[self.opt["pos"],:].set(wt * 1e8)
+          use_bias = True
       else:
         x = x.at[...,:,:].set(wt)
-        if add_seq: b = b.at[:,:].set(wt * 1e8)
+        if add_seq:
+          bias = bias.at[:,:].set(wt * 1e8)
+          use_bias = True
 
     if seq is not None:
       if isinstance(seq, np.ndarray) or isinstance(seq, jnp.ndarray):
@@ -74,13 +79,17 @@ class _af_design:
         x_ = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
         x_ = jax.nn.one_hot(x_,20)
       x = x + x_
-      if add_seq: b = b + x_ * 1e8
+      if add_seq:
+        bias = bias + x_ * 1e8
+        use_bias = True 
 
     if rm_aa is not None:
       for aa in rm_aa.split(","):
-        b = b - 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
+        bias = bias - 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
+        use_bias = True
 
-    self.opt["bias"] = b
+    if use_bias:
+      self.opt["bias"] = bias
     self._params = {"seq":x}
     self._state = self._init_fun(self._params)
 

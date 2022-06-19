@@ -70,14 +70,15 @@ class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
 
     # number of recycles (recycles are now managed in AfDesign)
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
-    cfg.model.num_recycle = 0
-    cfg.data.common.num_recycle = 0
+    cfg.data.common.num_recycle = 0      # for feature processing
+    cfg.model.num_recycle = num_recycles # for model configuration
 
     self._config = cfg
 
     # setup model
     self._model_params = [data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)]
-    self._runner = model.RunModel(self._config, self._model_params[0], is_training=True)
+    self._runner = model.RunModel(self._config, self._model_params[0],
+                                  is_training=True, recycle_mode=recycle_mode)
 
     # load the other model_params
     if use_templates:

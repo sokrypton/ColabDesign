@@ -353,11 +353,6 @@ class _af_loss:
           losses["helix"] = get_helix_loss(x, c, x_offset)
           x = get_con_loss(x, c, x_offset)
           ix = get_con_loss(ix, ic, ix_offset)
-          #################################
-          # DEBUG
-          #################################
-          aux.update({"x":x,"ix":ix})
-          #################################
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
       if self.use_struct:

@@ -4,7 +4,7 @@ import numpy as np
 
 from alphafold.model import data, config, model
 
-from af.src.init import _af_init
+from af.src.prep import _af_prep
 from af.src.loss import _af_loss
 from af.src.utils import _af_utils
 from af.src.design import _af_design
@@ -13,7 +13,7 @@ from af.src.design import _af_design
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
+class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_sample=True, model_parallel=False,
                recycle_mode="average", num_recycles=0,
@@ -36,7 +36,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
                          "recycles":num_recycles, "models":num_models,
                          "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
                          "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
-                         "bias":np.zeros(20), "template_aatype":21, "template_dropout":0.15}
+                         "bias":0.0, "template_aatype":21, "template_dropout":0.15}
 
     self._default_weights = {"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}
 

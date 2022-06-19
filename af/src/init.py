@@ -343,21 +343,6 @@ MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
           'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
           'CSD':'CYS','SEC':'CYS'}
 
-MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
-          'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
-          'HSK':'HIS','SAC':'SER','PCA':'GLU','DAL':'ALA',
-          'CME':'CYS','CSD':'CYS','OCS':'CYS','DPR':'PRO',
-          'B3K':'LYS','ALY':'LYS','YCM':'CYS','MLZ':'LYS',
-          '4BF':'TYR','KCX':'LYS','B3E':'GLU','B3D':'ASP',
-          'HZP':'PRO','CSX':'CYS','BAL':'ALA','HIC':'HIS',
-          'DBZ':'ALA','DCY':'CYS','DVA':'VAL','NLE':'LEU',
-          'SMC':'CYS','AGM':'ARG','B3A':'ALA','DAS':'ASP',
-          'DLY':'LYS','DSN':'SER','DTH':'THR','GL3':'GLY',
-          'HY3':'PRO','LLP':'LYS','MGN':'GLN','MHS':'HIS',
-          'TRQ':'TRP','B3Y':'TYR','PHI':'PHE','PTR':'TYR',
-          'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
-          'CSD':'CYS','SEC':'CYS'}
-
 def pdb_to_string(pdb_file):
   modres = {**MODRES}
   lines = []

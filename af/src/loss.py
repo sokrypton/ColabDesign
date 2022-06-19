@@ -52,26 +52,13 @@ class _af_loss:
       if self.args["use_templates"]:
         key, key_ = jax.random.split(key)
         self._update_template(inputs, opt, key_)
-
-      # set number of recycles to use
-      if self.args["recycle_mode"] not in ["backprop","add_prev"]:
-        inputs["num_iter_recycling"] = jnp.asarray([opt["recycles"]])
       
       # scale dropout rate
       inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
       
       # get outputs
-      outputs = self._runner.apply(model_params, key, inputs)
-      if not self.use_struct: outputs.pop("structure_module")
-
-      if self.args["recycle_mode"] == "average":
-        aux["init"] = {'init_msa_first_row': outputs['representations']['msa_first_row'][None],
-                       'init_pair': outputs['representations']['pair'][None]}
-        if self.use_struct:
-          aux["init_pos"] = outputs['structure_module']['final_atom_positions'][None]
-        else:
-          aux["init_dgram"] = outputs["distogram"]["logits"][None]
-
+      outputs = self._get_out(inputs, model_params, opt, key)
+      aux["prev"] = outputs["prev"]
       values = {"losses":losses,"aux":aux,"outputs":outputs,"opt":opt}
       
       # pairwise loss
@@ -114,6 +101,44 @@ class _af_loss:
       return loss, (aux)
     
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
+
+  def _get_out(self, inputs, model_params, opt, key):
+    '''get outputs'''
+    mode = self.args["recycle_mode"]
+
+    def recycle(prev, key):
+      inputs["prev"] = prev
+      outputs = self._runner.apply(model_params, key, inputs)
+      prev = outputs["prev"]
+      if mode != "backprop":
+        prev = jax.lax.stop_gradient(prev)
+      return prev, outputs
+
+    if mode in ["backprop","add_prev"]:
+      num_iters = self.opt["recycles"] + 1
+      keys = jax.random.split(key, num_iters)
+      _, o = jax.lax.scan(recycle, inputs["prev"], keys)
+      outputs = jax.tree_map(lambda x:x[-1], o)
+      
+      if mode == "add_prev":
+        for k in ["distogram","predicted_lddt","predicted_aligned_error"]:
+          outputs[k]["logits"] = o[k]["logits"].mean(0)
+    
+    elif mode in ["last","sample"]:
+      def body(x):
+        i,prev,key = x
+        key,_key = jax.random.split(key)
+        prev, _ = recycle(prev, _key)          
+        return (x[0]+1, prev, key)
+        
+      init = (0,inputs["prev"],key)
+      _, prev, key = jax.lax.while_loop(lambda x: x[0] < opt["recycles"], body, init)
+      _, outputs = recycle(prev, key)
+    
+    else:
+      outputs = self._runner.apply(model_params, key, inputs)
+
+    return outputs
 
   def _get_seq(self, params, opt, key):
     '''get sequence features'''
@@ -328,11 +353,6 @@ class _af_loss:
           losses["helix"] = get_helix_loss(x, c, x_offset)
           x = get_con_loss(x, c, x_offset)
           ix = get_con_loss(ix, ic, ix_offset)
-          #################################
-          # DEBUG
-          #################################
-          aux.update({"x":x,"ix":ix})
-          #################################
         losses.update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
       if self.use_struct:

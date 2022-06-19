@@ -16,21 +16,19 @@ from af.src.design import _af_design
 class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_sample=True, model_parallel=False,
-               num_recycles=0, recycle_mode="average",
+               recycle_mode="average", num_recycles=0,
                use_templates=False, use_pssm=False, data_dir=".",
                debug=False, use_struct=True):
     
-    assert recycle_mode in ["average","add_prev","backprop","last"]
-
     # decide if templates should be used
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
     self.use_struct = use_struct
-        
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
+                 "recycle_mode": recycle_mode,
                  "model_sample":model_sample, "model_parallel": model_parallel,
-                 "recycle_mode":recycle_mode, "use_pssm":use_pssm, "debug":debug,
+                 "use_pssm":use_pssm, "debug":debug,
                  "repeat": False}
     
     self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
@@ -52,7 +50,7 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     cfg = config.model_config(model_name)
 
     # enable checkpointing
-    cfg.model.global_config.use_remat = True
+    cfg.model.global_config.use_remat = True  
 
     # subbatch_size / chunking
     cfg.model.global_config.subbatch_size = None
@@ -70,22 +68,10 @@ class mk_design_model(_af_init, _af_loss, _af_design, _af_utils):
     cfg.data.common.max_extra_msa = 1
     cfg.data.eval.masked_msa_replace_fraction = 0
 
-    # number of recycles
-    if recycle_mode == "average":
-      cfg.model.num_recycle = 0
-      cfg.data.common.num_recycle = 0
-    else:
-      cfg.model.num_recycle = num_recycles
-      cfg.data.common.num_recycle = num_recycles
-
-    # backprop through recycles
-    if recycle_mode == "add_prev":
-      cfg.model.add_prev = True
-      
-    if recycle_mode == "backprop":
-      cfg.model.backprop_recycle = True      
-      cfg.model.embeddings_and_evoformer.backprop_dgram = True
-      cfg.model.embeddings_and_evoformer.backprop_dgram_temp = 2.0
+    # number of recycles (recycles are now managed in AfDesign)
+    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
+    cfg.model.num_recycle = 0
+    cfg.data.common.num_recycle = 0
 
     self._config = cfg
 

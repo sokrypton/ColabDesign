@@ -1,5 +1,5 @@
 - model.py  - configure the model
-- init.py   - configure the inputs
+- prep.py   - configure the inputs
 - loss.py   - configure the loss
 - design.py - gradient update loop
 - utils.py  - various tools for saving/plotting

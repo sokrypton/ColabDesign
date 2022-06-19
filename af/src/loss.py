@@ -105,40 +105,9 @@ class _af_loss:
   def _get_out(self, inputs, model_params, opt, key):
     '''get outputs'''
     mode = self.args["recycle_mode"]
-
-    def recycle(prev, key):
-      inputs["prev"] = prev
-      outputs = self._runner.apply(model_params, key, inputs)
-      prev = outputs["prev"]
-      if mode != "backprop":
-        prev = jax.lax.stop_gradient(prev)
-      return prev, outputs
-
-    if mode in ["backprop","add_prev"]:
-      num_iters = self.opt["recycles"] + 1
-      keys = jax.random.split(key, num_iters)
-      _, o = jax.lax.scan(recycle, inputs["prev"], keys)
-      outputs = jax.tree_map(lambda x:x[-1], o)
-      
-      if mode == "add_prev":
-        for k in ["distogram","predicted_lddt","predicted_aligned_error"]:
-          outputs[k]["logits"] = o[k]["logits"].mean(0)
-    
-    elif mode in ["last","sample"]:
-      def body(x):
-        i,prev,key = x
-        key,_key = jax.random.split(key)
-        prev, _ = recycle(prev, _key)          
-        return (x[0]+1, prev, key)
-        
-      init = (0,inputs["prev"],key)
-      _, prev, key = jax.lax.while_loop(lambda x: x[0] < opt["recycles"], body, init)
-      _, outputs = recycle(prev, key)
-    
-    else:
-      outputs = self._runner.apply(model_params, key, inputs)
-
-    return outputs
+    if mode in ["last","sample"]:
+      inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
+    return self._runner.apply(model_params, key, inputs)
 
   def _get_seq(self, params, opt, key):
     '''get sequence features'''

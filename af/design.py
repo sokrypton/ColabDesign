@@ -155,7 +155,6 @@ class mk_design_model:
         seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
         seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
         seq_pseudo = jnp.concatenate([seq_target, seq_pseudo], 1)
-        seq_pseudo = jnp.pad(seq_pseudo,[[0,1],[0,0],[0,0]])
       
       if self.protocol == "hallucination" and self._copies > 1:
         seq_pseudo = jnp.concatenate([seq_pseudo]*self._copies, 1)
@@ -279,7 +278,12 @@ class mk_design_model:
     batch = jax.tree_map(lambda x:x[has_ca], batch)
     batch.update(all_atom.atom37_to_frames(**batch))
 
-    template_features = {"template_aatype":jax.nn.one_hot(protein_obj.aatype[has_ca],22)[None],
+    # BUGFIX
+    ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
+    seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
+    template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
+
+    template_features = {"template_aatype":template_aatype[None],
                          "template_all_atom_masks":protein_obj.atom_mask[has_ca][None],
                          "template_all_atom_positions":protein_obj.atom_positions[has_ca][None],
                          "template_domain_names":np.asarray(["None"])}
@@ -315,8 +319,8 @@ class mk_design_model:
     self._hotspot = self._prep_hotspot(hotspot)
 
     total_len = target_len + binder_len
-    self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
-    self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+    self._inputs = make_fixed_size(self._inputs, self._runner, total_len, bugfix=True)
+    self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False, bugfix=True)
 
     # offset residue index for binder
     self._inputs["residue_index"] = self._inputs["residue_index"].copy()

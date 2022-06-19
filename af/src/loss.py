@@ -105,14 +105,9 @@ class _af_loss:
   def _get_out(self, inputs, model_params, opt, key):
     '''get outputs'''
     mode = self.args["recycle_mode"]
-    prev = inputs["prev"]
-    if mode in ["backprop","add_prev"]:
-      recycles = self.opt["recycles"]
-    elif mode in ["last","sample"]:
-      recycles = opt["recycles"]
-    else:
-      recycles = 0
-    return self._runner.apply(model_params, key, inputs, mode, recycles, prev)
+    if mode in ["last","sample"]:
+      inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
+    return self._runner.apply(model_params, key, inputs)
 
   def _get_seq(self, params, opt, key):
     '''get sequence features'''

@@ -13,9 +13,9 @@ from af.src.misc import _np_get_cb
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 #################################################
-# AF_INIT - input prep functions
+# AF_PREP - input prep functions
 #################################################
-class _af_init:
+class _af_prep:
   def repeat_idx(self, idx, copies=1, offset=50):
     idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
     return np.tile(idx,copies) + idx_offset

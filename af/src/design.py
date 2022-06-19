@@ -184,11 +184,14 @@ class _af_design:
     if self.use_struct: self._inputs["prev"]['prev_pos'] = np.zeros([L,37,3])
     else: self._inputs["prev"]['prev_dgram'] = np.zeros([L,L,64])
     
+    if self.args["recycle_mode"] in ["add_prev","backprop"]:
+      opt["recycles"] = self._runner.config.model.num_recycle    
+    
     recycles = opt["recycles"]
     if self.args["recycle_mode"] == "average":
       # average gradient across recycles
       grad = []
-      for r in range(opt["recycles"] + 1):
+      for r in range(recycles+1):
         key, sub_key = jax.random.split(key)
         (loss, aux), _grad = self._grad_fn(params, model_params, self._inputs, sub_key, opt)
         grad.append(_grad)
@@ -198,7 +201,7 @@ class _af_design:
       _opt = copy.deepcopy(opt)
       if self.args["recycle_mode"] == "sample":
         key, sub_key = jax.random.split(key)
-        recycles = _opt["recycle"] = jax.random.randint(sub_key, [], 0, opt["recycles"] + 1)
+        recycles = _opt["recycle"] = jax.random.randint(sub_key, [], 0, recycles+1)
       (loss, aux), grad = self._grad_fn(params, model_params, self._inputs, key, _opt)
 
     aux["recycles"] = recycles

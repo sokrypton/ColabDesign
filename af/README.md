@@ -180,6 +180,30 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
 - partial hallucination specific losses
   - *sc_fape* - sidechain-specific fape
 
+#### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
+We are actively trying to find the best weights `model.opt["weights"]`, settings `model.opt` for each protocol.
+Please send us a note if you find something better! To revert back to old settings do this after prepping the model
+- fixbb:
+```python
+model.restart()
+model.opt["weights"].update({"dgram_cce":1.0,"pae":0.1,"plddt":0.1})
+model.design_3stage()
+```
+- hallucination:
+```python
+model.restart(mode="gumbel")
+model.opt["weights"].update({"pae":1.0,"plddt":1.0,"con":0.5})
+model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._len, "seqsep":0})
+model.design_2stage(100,100,10)
+```
+- binder hallucination:
+```python
+model.restart()
+model.opt["weights"].update({"plddt":0.1, "pae":0.1, "i_pae":1.0, "con":0.1, "i_con":0.5})
+model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._target_len, "seqsep":0})
+model.opt["i_con"].update({"binary":True, "cutoff":21.6875, "num":model._binder_len})
+model.design_3stage(100,100,10)
+```
 # Advanced FAQ
 #### I don't like your design_??? function, can I write my own with more detailed control?
 ```python

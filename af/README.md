@@ -181,9 +181,9 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
   - *sc_fape* - sidechain-specific fape
 
 # Advanced FAQ
-#### Gradient descent seems to be jumping around too much, can I do some kind of greedy search towards the end?
-Gradient descent updates multiple positions each iteration which can be a little too aggressive during hard (discrete) mode.
-Instead one can `tries` a few random mutations and accept one that decrease loss. If `use_plddt=True` the random mutations will be biased towards positions with low pLDDT.
+#### loss during Gradient descent is too jumpy, can I do some kind of greedy search towards the end?
+Gradient descent updates multiple positions each iteration, which can be a little too aggressive during hard (discrete) mode.
+Instead, one can try (`tries`) a few random mutations and accept one with lowest loss. If `use_plddt=True` the random mutations will be biased towards positions with low pLDDT.
 ```python
 model.design_3stage(hard_iters=0)
 # set number of model params to evaluate at each iteration

@@ -1,4 +1,4 @@
-# ColabDesign (beta branch)
+# ColabDesign
 ### Making Protein Design accessible to all via Google Colab! 
 
 - [TrDesign](https://github.com/gjoni/trDesign/tree/master/02-GD) - using TrRosetta for design (support for TrMRF coming soon)

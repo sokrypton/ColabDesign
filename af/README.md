@@ -186,8 +186,9 @@ Gradient descent updates multiple positions each iteration which can be a little
 Instead one can `tries` a few random mutations and accept one that decrease loss. If `use_plddt=True` the random mutations will be biased towards positions with low pLDDT.
 ```python
 model.design_3stage(hard_iters=0)
+# set number of model params to evaluate at each iteration
 model.opt["models"] = 2 if model.args["use_templates"] else 5
-model.design_semigreedy(iters=50, tries=20, use_plddt=True)
+model.design_semigreedy(iters=10, tries=20, use_plddt=True)
 ```
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
 We are actively trying to find the best weights `model.opt["weights"]`, settings `model.opt` for each protocol.

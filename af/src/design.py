@@ -140,8 +140,10 @@ class _af_design:
       self._best_outs = self._outs
     
     # compile losses
-    self._losses.update({"models":self._model_num,"recycles":self._outs["recycles"],
-                         "loss":self._loss,**{k:self.opt[k] for k in ["soft","hard","temp"]}})
+    self._losses.update({"models":self._model_num,
+                         "recycles":self._outs["recycles"],
+                         "loss":self._loss,
+                         **{k:self.opt[k] for k in ["soft","hard","temp"]}})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
@@ -258,8 +260,9 @@ class _af_design:
         self._grad = jax.tree_map(lambda x: x.mean(0), g)
       else:
         l,o = self._recycle(p, key, backprop=False)
-      self._loss, self._outs = l.mean(),jax.tree_map(lambda x:x[0],o)
+      self._loss = l.mean()
       self._losses = jax.tree_map(lambda x: x.mean(0), o["losses"])
+      self._outs = jax.tree_map(lambda x:x[0],o)
 
     #------------------------
     # run in serial
@@ -279,9 +282,10 @@ class _af_design:
         _loss.append(l); _outs.append(o)
         _losses.append(o["losses"])
       if backprop:
-        self._grad = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)      
-      self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
-      self._losses = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
+        self._grad = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)
+      self._loss = jnp.asarray(_loss).mean()
+      self._losses = jax.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
+      self._outs = _outs[0]
 
   #-------------------------------------
   # STEP FUNCTION
@@ -362,9 +366,10 @@ class _af_design:
       self.opt["template_dropout"] = i/(iters-1)
       self._step(**kwargs)
   
-  def design_semigreedy(self, iters=100, tries=20, use_plddt=False, **kwargs):
+  def design_semigreedy(self, iters=100, tries=20, dropout=False,
+                        use_plddt=True, save_best=True, verbose=True):
     '''semigreedy search'''
-    self.opt.update({"hard":1.0, "soft":1.0, "temp":1.0, "dropout":False})    
+    self.opt.update({"hard":1.0, "soft":1.0, "temp":1.0, "dropout":dropout})    
 
     if self._k == 0:
       self._update(backprop=False)
@@ -387,7 +392,7 @@ class _af_design:
         if seq[0,i,a] == 0: break      
       return seq.at[:,i,:].set(jnp.eye(A)[a])
 
-    for _ in range(iters):
+    for i in range(iters):
       seq = self._outs["seq"]["hard"]
       plddt = None
       if use_plddt:
@@ -396,21 +401,18 @@ class _af_design:
           plddt = plddt[self._target_len:]
         elif self.protocol == "partial":
           # TODO
-          plddt = None
+          plddt = plddt[self.opt["pos"]]
         else:
           plddt = plddt[:self._len]
-      else:
-        plddt = None
       
-      _outs,_loss = [],[]      
+      buff = []
       for _ in range(tries):
         self._params["seq"] = mut(seq, plddt)
         self._update(backprop=False)
-        _outs.append(self._outs)
-        _loss.append(self._loss)
+        buff.append({"outs":self._outs,"loss":self._loss,"losses":self._losses})
       
       # accept best
-      i = np.argmin(_loss)
-      self._outs,self._loss = _outs[i],_loss[i]
+      buff = buff[np.argmin([x["loss"] for x in buff])]
+      self._outs, self._loss, self._losses = buff["outs"], buff["loss"], buff["losses"]
+      self._save_results(save_best=save_best, verbose=verbose)
       self._k += 1
-      self._save_results(**kwargs)

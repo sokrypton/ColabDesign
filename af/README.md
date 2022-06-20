@@ -92,11 +92,12 @@ model = mk_design_model(num_recycles=1, recycle_mode="average")
 model.opt["recycles"] = 1
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
+- `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
   - *average* - compute loss at each recycle and average gradients. (Recommend).
-  - *last* - only use gradients from last recycle. (NOT recommended, unless you start w/ low recycles and then increased later)
-  - *add_prev* - average the logits (dgram, plddt, pae) across all recycles.
-  - *backprop* - backprop through all recycles.
-  - *sample* - each iteration random pick how many recycles to use.
+  - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
+  - *backprop* - use loss from last recycle, but backprop through all recycles.
+  - *last* - use loss from last recycle. (NOT recommended, unless you gradually increase number of recycles during optimization)
+  - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
 
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 

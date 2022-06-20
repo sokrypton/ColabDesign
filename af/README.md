@@ -182,9 +182,11 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
 
 # Advanced FAQ
 #### Gradient descent seems to be jumping around too much, can I do some kind of greedy search towards the end?
-Gradient descent updates multiple positions at once and this could be a little aggressive 
+Gradient descent updates multiple positions each iteration which can be a little too aggressive. Instead one can `tries` a few random mutations and accept those that decrease loss for defined number of `iters`.
 ```python
-# TODO
+model.design_3stage(hard_iters=0)
+model.opt["models"] = 2 if model.args["use_templates"] else 5
+model.design_semigreedy(iters=50, tries=20)
 ```
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
 We are actively trying to find the best weights `model.opt["weights"]`, settings `model.opt` for each protocol.

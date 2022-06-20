@@ -362,7 +362,7 @@ class _af_design:
       self.opt["template_dropout"] = i/(iters-1)
       self._step(**kwargs)
   
-  def design_semigreedy(self, iters=100, tries=20, use_plddt=False):
+  def design_semigreedy(self, iters=100, tries=20, use_plddt=False, **kwargs):
     '''semigreedy search'''
     self.opt.update({"hard":1.0, "soft":1.0, "temp":1.0, "dropout":False})    
 
@@ -413,4 +413,4 @@ class _af_design:
       i = np.argmin(_loss)
       self._outs,self._loss = _outs[i],_loss[i]
       self._k += 1
-      self._save_results()
+      self._save_results(**kwargs)

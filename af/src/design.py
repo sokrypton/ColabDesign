@@ -399,9 +399,6 @@ class _af_design:
         plddt = np.asarray(self._outs["plddt"])
         if self.protocol == "binder":
           plddt = plddt[self._target_len:]
-        elif self.protocol == "partial":
-          # TODO
-          plddt = plddt[self.opt["pos"]]
         else:
           plddt = plddt[:self._len]
       
@@ -414,5 +411,5 @@ class _af_design:
       # accept best
       buff = buff[np.argmin([x["loss"] for x in buff])]
       self._outs, self._loss, self._losses = buff["outs"], buff["loss"], buff["losses"]
-      self._save_results(save_best=save_best, verbose=verbose)
       self._k += 1
+      self._save_results(save_best=save_best, verbose=verbose)

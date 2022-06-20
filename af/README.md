@@ -181,6 +181,11 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
   - *sc_fape* - sidechain-specific fape
 
 # Advanced FAQ
+#### Gradient descent seems to be jumping around too much, can I do some kind of greedy search towards the end?
+Gradient descent updates multiple positions at once and this could be a little aggressive 
+```python
+# TODO
+```
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
 We are actively trying to find the best weights `model.opt["weights"]`, settings `model.opt` for each protocol.
 Please send us a note if you find something better! To revert back to old settings do this after prepping the model:

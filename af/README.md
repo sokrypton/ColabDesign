@@ -104,11 +104,10 @@ and the gradients/losses are averaged. Each iteration a random set of model para
 ```python
 model = mk_design_model(num_models=1, model_sample=True, model_parallel=False)
 ```
-- `num_models` - number of model params to use at each iteration.
+- `num_models` - number of model params to use at each iteration. Set `model_parallel=True` to run model params in parallel, instead of serial. Running in parallel won't change the results, but may speedup runtime, if you have high-end GPUs.
 - `model_sample`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
-- `model_parallel` - This flag will NOT change the results, but may run faster if `num_models` > 1 and if you have high-end GPUs. If `True` model params are evaluated in parallel. If `False` they are evaluated in serial.
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
 ```python

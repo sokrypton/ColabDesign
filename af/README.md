@@ -5,12 +5,12 @@
 </a>
 
 # Updates
-- **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
+- **24Feb2022** - "Beta" branch started. Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
 Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
 - **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default. The definition of contact has changed to minimize entropy within distance cutoff.
 - **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
 - **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
-- **19June2022** - "Beta" branch merged to "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
+- **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
 
 ### setup
 - **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
@@ -92,11 +92,12 @@ model = mk_design_model(num_recycles=1, recycle_mode="average")
 model.opt["recycles"] = 1
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
+- `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
   - *average* - compute loss at each recycle and average gradients. (Recommend).
-  - *last* - only use gradients from last recycle. (NOT recommended, unless you start w/ low recycles and then increased later)
-  - *add_prev* - average the logits (dgram, plddt, pae) across all recycles.
-  - *backprop* - backprop through all recycles.
-  - *sample* - each iteration random pick how many recycles to use.
+  - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
+  - *backprop* - use loss from last recycle, but backprop through all recycles.
+  - *last* - use loss from last recycle. (NOT recommended, unless you gradually increase number of recycles during optimization)
+  - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
 
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
@@ -104,12 +105,10 @@ and the gradients/losses are averaged. Each iteration a random set of model para
 ```python
 model = mk_design_model(num_models=1, model_sample=True, model_parallel=False)
 ```
-- `num_models` - number of model params to use at each iteration.
+- `num_models` - number of model params to use at each iteration. Set `model_parallel=True` to run model params in parallel, instead of serial. Running in parallel won't change the results, but may speedup runtime, if you have high-end GPUs.
 - `model_sample`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
-- `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
-if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
 ```python

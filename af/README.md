@@ -5,12 +5,12 @@
 </a>
 
 # Updates
-- **24Feb2022** - Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
+- **24Feb2022** - "Beta" branch started. Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
 Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
 - **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default. The definition of contact has changed to minimize entropy within distance cutoff.
 - **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
 - **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
-- **19June2022** - "Beta" branch merged to "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
+- **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
 
 ### setup
 - **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
@@ -108,8 +108,7 @@ model = mk_design_model(num_models=1, model_sample=True, model_parallel=False)
 - `model_sample`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
-- `model_parallel` - run model params in parallel if `num_models` > 1. By default, the model params are evaluated in serial,
-if you have access to high-end GPU, you can run all model params in parallel by enabling this flag. 
+- `model_parallel` - This flag will NOT change the results, but may run faster if `num_models` > 1 and if you have high-end GPUs. If `True` model params are evaluated in parallel. If `False` they are evaluated in serial.
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
 ```python

@@ -180,6 +180,7 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
 - partial hallucination specific losses
   - *sc_fape* - sidechain-specific fape
 
+# Advanced FAQ
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
 We are actively trying to find the best weights `model.opt["weights"]`, settings `model.opt` for each protocol.
 Please send us a note if you find something better! To revert back to old settings do this after prepping the model:
@@ -204,7 +205,6 @@ model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._target_le
 model.opt["i_con"].update({"binary":True, "cutoff":21.6875, "num":model._binder_len})
 model.design_3stage(100,100,10)
 ```
-# Advanced FAQ
 #### I don't like your design_??? function, can I write my own with more detailed control?
 ```python
 def design_custom(self):

@@ -182,7 +182,7 @@ and maximizing *pae* results in a two helix bundle. To encourage compact structu
 
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
 We are actively trying to find the best weights `model.opt["weights"]`, settings `model.opt` for each protocol.
-Please send us a note if you find something better! To revert back to old settings do this after prepping the model
+Please send us a note if you find something better! To revert back to old settings do this after prepping the model:
 - fixbb:
 ```python
 model.restart()

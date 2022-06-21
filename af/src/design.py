@@ -61,7 +61,7 @@ class _af_design:
       wt = jax.nn.one_hot(self._wt_aatype, 20)
       if self.protocol == "fixbb":
         wt = wt[...,:self._len]
-      elif self.protocol == "partial":
+      if self.protocol == "partial":
         x = x.at[...,self.opt["pos"],:].set(wt)
         if add_seq:
           bias = bias.at[self.opt["pos"],:].set(wt * 1e8)
@@ -140,8 +140,10 @@ class _af_design:
       self._best_outs = self._outs
     
     # compile losses
-    self._losses.update({"models":self._model_num,"recycles":self._outs["recycles"],
-                         "loss":self._loss,**{k:self.opt[k] for k in ["soft","hard","temp"]}})
+    self._losses.update({"models":self._model_num,
+                         "recycles":self._outs["recycles"],
+                         "loss":self._loss,
+                         **{k:self.opt[k] for k in ["soft","hard","temp"]}})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
@@ -183,7 +185,7 @@ class _af_design:
       
     for k,v in traj.items(): self._traj[k].append(np.array(v))
     
-  def _recycle(self, model_params, key, params=None, opt=None):    
+  def _recycle(self, model_params, key, params=None, opt=None, backprop=True):    
     if params is None: params = self._params
     if opt is None: opt = self.opt
             
@@ -199,28 +201,40 @@ class _af_design:
     recycles = opt["recycles"]
     if self.args["recycle_mode"] == "average":
       # average gradient across recycles
-      grad = []
+      if backprop:
+        grad = []
       for r in range(recycles+1):
         key, sub_key = jax.random.split(key)
-        (loss, aux), _grad = self._grad_fn(params, model_params, self._inputs, sub_key, opt)
-        grad.append(_grad)
+        if backprop:
+          (loss, aux), _grad = self._grad_fn(params, model_params, self._inputs, sub_key, opt)
+          grad.append(_grad)
+        else:
+          loss, aux = self._fn(params, model_params, self._inputs, sub_key, opt)
         self._inputs["prev"] = aux["prev"]
-      grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
+      if backprop:
+        grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
     else:
       _opt = copy.deepcopy(opt)
       if self.args["recycle_mode"] == "sample":
         key, sub_key = jax.random.split(key)
         recycles = _opt["recycle"] = jax.random.randint(sub_key, [], 0, recycles+1)
-      (loss, aux), grad = self._grad_fn(params, model_params, self._inputs, key, _opt)
+      if backprop:
+        (loss, aux), grad = self._grad_fn(params, model_params, self._inputs, key, _opt)
+      else:
+        loss, aux = self._fn(params, model_params, self._inputs, key, _opt)
 
     aux["recycles"] = recycles
-    return (loss, aux), grad
+    if backprop:
+      return (loss, aux), grad
+    else:
+      return loss, aux
     
-  def _update_grad(self):
-    '''update the gradient'''
+  def _update(self, backprop=True):
+    '''update outputs, losses and gradients'''
 
-    # get current params
-    self._params = self._get_params(self._state)
+    if backprop:
+      # get current params
+      self._params = self._get_params(self._state)
 
     # update key
     self._key, key = jax.random.split(self._key)
@@ -241,36 +255,48 @@ class _af_design:
       p = self._model_params
       if self.args["model_sample"]:
         p = self._sample_params(p, self._model_num)
-      (l,o),g = self._recycle(p, key)
-      self._grad = jax.tree_map(lambda x: x.mean(0), g)
-      self._loss, self._outs = l.mean(),jax.tree_map(lambda x:x[0],o)
+      if backprop:
+        (l,o),g = self._recycle(p, key)
+        self._grad = jax.tree_map(lambda x: x.mean(0), g)
+      else:
+        l,o = self._recycle(p, key, backprop=False)
+      self._loss = l.mean()
       self._losses = jax.tree_map(lambda x: x.mean(0), o["losses"])
+      self._outs = jax.tree_map(lambda x:x[0],o)
 
     #------------------------
     # run in serial
     #------------------------
     else:
       self._model_num = np.array(self._model_num).tolist()    
-      _loss, _losses, _outs, _grad = [],[],[],[]
+      _loss, _losses, _outs = [],[],[]
+      if backprop:
+        _grad = []
       for n in self._model_num:
         p = self._model_params[n]
-        (l,o),g = self._recycle(p, key)
-        _loss.append(l); _outs.append(o); _grad.append(g)
+        if backprop:
+          (l,o),g = self._recycle(p, key)
+          _grad.append(g)
+        else:
+          l,o = self._recycle(p, key, backprop=False)
+        _loss.append(l); _outs.append(o)
         _losses.append(o["losses"])
-      self._grad = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)      
-      self._loss, self._outs = jnp.mean(jnp.asarray(_loss)), _outs[0]
-      self._losses = jax.tree_util.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
+      if backprop:
+        self._grad = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)
+      self._loss = jnp.asarray(_loss).mean()
+      self._losses = jax.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
+      self._outs = _outs[0]
 
   #-------------------------------------
   # STEP FUNCTION
   #-------------------------------------
-  def _step(self, weights=None, lr_scale=1.0, **kwargs):
-    '''do one step'''
+  def _step(self, weights=None, opt=None, lr_scale=1.0, **kwargs):
+    '''do one step of gradient descent'''
 
-    if weights is not None: self.opt["weights"].update(weights)
-    
-    # update gradient
-    self._update_grad()
+    if opt is not None: self.opt.update(opt)
+    if weights is not None: self.opt["weights"].update(weights) 
+
+    self._update()
 
     # normalize gradient
     g = self._grad["seq"]
@@ -279,6 +305,7 @@ class _af_design:
 
     # apply gradient
     self._state = self._update_fun(self._k, self._grad, self._state)
+
     self._k += 1
     self._save_results(**kwargs)
 
@@ -338,3 +365,51 @@ class _af_design:
     for i in range(iters):
       self.opt["template_dropout"] = i/(iters-1)
       self._step(**kwargs)
+  
+  def design_semigreedy(self, iters=100, tries=20, dropout=False,
+                        use_plddt=True, save_best=True, verbose=True):
+    '''semigreedy search'''
+    self.opt.update({"hard":1.0, "soft":1.0, "temp":1.0, "dropout":dropout})    
+
+    if self._k == 0:
+      self._update(backprop=False)
+
+    def mut(seq, plddt=None):
+      '''mutate random position'''
+      L,A = seq.shape[-2:]
+      while True:
+        self._key, key_L, key_A = jax.random.split(self._key,3)
+
+        if plddt is None:
+          i = jax.random.randint(key_L,[],0,L)
+        else:
+          p = (1-plddt)/(1-plddt).sum(-1,keepdims=True)
+          # bias mutations towards positions with low pLDDT
+          # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
+          i = jax.random.choice(key_L,jnp.arange(L),[],p=p)
+
+        a = jax.random.randint(key_A,[],0,A)
+        if seq[0,i,a] == 0: break      
+      return seq.at[:,i,:].set(jnp.eye(A)[a])
+
+    for i in range(iters):
+      seq = self._outs["seq"]["hard"]
+      plddt = None
+      if use_plddt:
+        plddt = np.asarray(self._outs["plddt"])
+        if self.protocol == "binder":
+          plddt = plddt[self._target_len:]
+        else:
+          plddt = plddt[:self._len]
+      
+      buff = []
+      for _ in range(tries):
+        self._params["seq"] = mut(seq, plddt)
+        self._update(backprop=False)
+        buff.append({"outs":self._outs,"loss":self._loss,"losses":self._losses})
+      
+      # accept best
+      buff = buff[np.argmin([x["loss"] for x in buff])]
+      self._outs, self._loss, self._losses = buff["outs"], buff["loss"], buff["losses"]
+      self._k += 1
+      self._save_results(save_best=save_best, verbose=verbose)

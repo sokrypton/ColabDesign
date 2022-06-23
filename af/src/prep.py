@@ -279,7 +279,7 @@ class _af_prep:
     self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
     self._wt_aatype = self._batch["aatype"]
 
-    if sidechain:
+    if use_sidechains:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
     self._len = pdb["residue_index"].shape[0] if length is None else length

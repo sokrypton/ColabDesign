@@ -171,9 +171,13 @@ class _af_loss:
     
   def _get_partial_loss(self, losses, aux, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''
+
     def sub(x, p, axis=0):
-      if jnp.issubdtype(p.dtype, jnp.integer): return jnp.take(x,p,axis)
-      else: return jnp.tensordot(p,x,(-1,axis)).swapaxes(axis,0)
+      if jnp.issubdtype(p.dtype, jnp.integer):
+        fn = lambda y:jnp.take(y,p,axis)
+      else:
+        fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
+      return jax.tree_map(fn, x)
 
     pos = opt["pos"]
     _config = self._config.model.heads.structure_module

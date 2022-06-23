@@ -1,429 +1,363 @@
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from af.src.misc import _np_get_6D_loss, _np_rmsd, _np_kabsch
-from af.src.misc import update_seq, update_aatype 
-from af.src.misc import get_plddt, get_pae, get_fape_loss, get_dgram_loss, get_rmsd_loss_w, get_sc_rmsd
+from alphafold.data import pipeline, prep_inputs
+from alphafold.common import protein, residue_constants
+from alphafold.model import all_atom
+from alphafold.model.tf import shape_placeholders
 
-from alphafold.model import model, folding, all_atom
+from af.src.misc import _np_get_cb
+ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
-####################################################
-# AF_LOSS - setup loss function
-####################################################
-class _af_loss:
-  def _get_fn(self):
-    # setup function to get gradients
-    def mod(params, model_params, inputs, key, opt):
+#################################################
+# AF_PREP - input prep functions
+#################################################
+class _af_prep:
+  def repeat_idx(self, idx, copies=1, offset=50):
+    idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
+    return np.tile(idx,copies) + idx_offset
 
-      # initialize the loss function
-      losses = {}
-
-      # get sequence
-      key, key_ = jax.random.split(key)
-      seq = self._get_seq(params, opt, key_)      
-      aux = {"seq":seq, "seq_pseudo":seq["pseudo"]}
-
-      # entropy loss for msa
-      if self.args["num_seq"] > 1:
-        seq_prf = seq["hard"].mean(0)
-        losses["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
+  def _prep_features(self, length, num_templates=1, template_features=None):
+    '''process features'''
+    num_seq = self.args["num_seq"]
+    sequence = "A" * length
+    feature_dict = {
+        **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
+        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
+    }
+    if self.args["use_templates"]:
+      # reconfigure model
+      self._runner.config.data.eval.max_templates = num_templates
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] + num_templates
+      if template_features is None:
+        feature_dict.update({'template_aatype': np.zeros([num_templates,length,22]),
+                             'template_all_atom_masks': np.zeros([num_templates,length,37]),
+                             'template_all_atom_positions': np.zeros([num_templates,length,37,3]),
+                             'template_domain_names': np.zeros(num_templates)})
+      else:
+        feature_dict.update(template_features)
       
-      # protocol specific modifications to seq features
-      if self.protocol == "binder":
-        # concatenate target and binder sequence
-        seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
-        seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
-        seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
-        
-      if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-        seq = jax.tree_map(lambda x:expand_copies(x, self._copies, self.args["block_diag"]), seq)
+    inputs = self._runner.process_features(feature_dict, random_seed=0)
+    if num_seq > 1:
+      inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
+      inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
+    return inputs
+
+  def _prep_pdb(self, pdb_filename, chain=None):
+    '''extract features from pdb'''
+    
+    def add_cb(batch):
+      '''add missing CB atoms based on N,CA,C'''
+      p,m = batch["all_atom_positions"],batch["all_atom_mask"]
+      atom_idx = residue_constants.atom_order
+      atoms = {k:p[...,atom_idx[k],:] for k in ["N","CA","C"]}
+      cb = atom_idx["CB"]
+      cb_atoms = _np_get_cb(**atoms, use_jax=False)
+      cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
+      batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
+      batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
+
+    chains = [None] if chain is None else chain.split(",")
+    o,last = [],0
+    residue_idx, chain_idx = [],[]
+    for chain in chains:
+      protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
+      batch = {'aatype': protein_obj.aatype,
+               'all_atom_positions': protein_obj.atom_positions,
+               'all_atom_mask': protein_obj.atom_mask}
             
-      # update sequence features
-      seq_pssm = seq["soft"] if self.args["use_pssm"] else None
-      update_seq(seq["pseudo"], inputs, seq_pssm=seq_pssm)
+      add_cb(batch) # add in missing cb (in the case of glycine)
+
+      has_ca = batch["all_atom_mask"][:,0] == 1
+      batch = jax.tree_map(lambda x:x[has_ca], batch)
+      batch.update(all_atom.atom37_to_frames(**batch))
+
+      seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
+      template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
+      template_features = {"template_aatype":template_aatype,
+                           "template_all_atom_masks":batch["all_atom_mask"],
+                           "template_all_atom_positions":batch["all_atom_positions"]}
       
-      # update amino acid sidechain identity
-      B,L = inputs["aatype"].shape[:2]
-      aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
-      update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
+      residue_index = protein_obj.residue_index[has_ca] + last      
+      last = residue_index[-1] + 50
+      o.append({"batch":batch,
+                "template_features":template_features,
+                "residue_index": residue_index})
       
-      # update template features
-      if self.args["use_templates"]:
-        key, key_ = jax.random.split(key)
-        self._update_template(inputs, opt, key_)
-      
-      # scale dropout rate
-      inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
-      
-      # get outputs
-      outputs = self._get_out(inputs, model_params, opt, key)
-      aux["prev"] = outputs["prev"]
-      values = {"losses":losses,"aux":aux,"outputs":outputs,"opt":opt}
-      
-      # pairwise loss
-      self._get_pairwise_loss(**values, inputs=inputs)
+      # original residue and chain index
+      residue_idx.append(protein_obj.residue_index[has_ca])
+      chain_idx.append([chain] * len(residue_idx[-1]))
 
-      # confidence losses
-      if self.use_struct:
-        plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
-        plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
-        if self.protocol == "binder":
-          if self._redesign: self._get_binder_redesign_loss(**values, aatype=aatype)
-          losses["plddt"] = plddt_loss[...,self._target_len:].mean()
-        else:
-          losses["plddt"] = plddt_loss.mean()
-          
-      # get protocol specific losses
-      if self.protocol == "fixbb":
-        self._get_fixbb_loss(**values, aatype=aatype)                  
-      if self.protocol == "partial":
-        self._get_partial_loss(**values, aatype=aatype)
+    o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
+    o["template_features"] = {"template_domain_names":np.asarray(["None"]),
+                              **jax.tree_map(lambda x:x[None],o["template_features"])}
 
-      # weighted loss
-      loss = []
-      for k,v in losses.items():
-        if k in opt["weights"]: loss.append(v * opt["weights"][k])
-      loss = sum(loss)
-      
-      aux["losses"] = losses
-
-      # add aux outputs
-      if self.use_struct:
-        aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
-                    "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                    "plddt":get_plddt(outputs)})
-      
-      if "contact_map" not in aux:
-        aux["contact_map"] = get_contact_map(outputs)          
-        
-      if self.args["debug"]: aux.update({"outputs":outputs, "inputs":inputs})
-      return loss, (aux)
-    
-    return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
-
-  def _get_out(self, inputs, model_params, opt, key):
-    '''get outputs'''
-    mode = self.args["recycle_mode"]
-    if mode in ["last","sample"]:
-      inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
-    return self._runner.apply(model_params, key, inputs)
-
-  def _get_seq(self, params, opt, key):
-    '''get sequence features'''
-    seq = {"input":params["seq"]}
-    seq_shape = params["seq"].shape
-
-    # shuffle msa (randomly pick which sequence is query)
-    if self.args["num_seq"] > 1:
-      n = jax.random.randint(key,[],0,seq_shape[0])
-      seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
-
-    # straight-through/reparameterization
-    seq["logits"] = 2.0 * seq["input"] + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_shape), 0.0)
-    seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
-    seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
-    seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
-
-    # create pseudo sequence
-    seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-    seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
-    
-    # for partial hallucination, force sequence if sidechain constraints defined
-    if self.protocol == "partial" and (self.args["fix_seq"] or self.args["use_sidechains"]):
-      p = opt["pos"]
-      seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      if jnp.issubdtype(p.dtype, jnp.integer):
-        seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
-      else:
-        # TODO confirm this is correct
-        seq_ref = p.T @ seq_ref
-        w = 1 - seq_ref.sum(-1, keepdims=True)
-        seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
-    return seq
+    # save original residue and chain index
+    o["idx"] = {"residue":np.concatenate(residue_idx),
+                "chain":np.concatenate(chain_idx)}
+    return o
   
-  def _get_fixbb_loss(self, losses, aux, outputs, opt, aatype=None):
-    '''get backbone specific losses'''
-    copies = 1 if self.args["repeat"] else self._copies
-    if self.use_struct:    
-      losses.update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
-                     "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies)})
-    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies)
+  def _prep_pos(self, pos, residue=None, chain=None):
+    if residue is None: residue = self._inputs["residue_index"][0]
+    if chain is None: chain = np.full(len(residue),None)
+    residue_set,chain_set = [],[]
+    for idx in pos.split(","):
+      i,j = idx.split("-") if "-" in idx else (idx, None)
 
+      # if chain defined
+      if i[0].isalpha():
+        c,i = i[0], int(i[1:])
+      else:
+        c,i = chain[0], int(i)
+
+      if j is None:
+        residue_set.append(i)
+        chain_set.append(c)
+      else:
+        j = int(j[1:] if j[0].isalpha() else j)
+        residue_set += list(range(i,j+1))
+        chain_set += [c] * (j-i+1)
+
+    # get positions
+    pos_array = []
+    for i,c in zip(residue_set, chain_set):
+      idx = np.where((residue == i) & (chain == c))[0]
+      if idx.shape[0] > 0: pos_array.append(idx[0])
+
+    return np.asarray(pos_array)
   
-  def _get_binder_redesign_loss(self, losses, aux, outputs, opt, aatype=None):
-    '''get binder redesign specific losses'''
-    # compute rmsd of binder relative to target
-    if self.use_struct:
-      true = self._batch["all_atom_positions"][:,1,:]
-      pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-      L = self._target_len
-      p = true - true[:L].mean(0)
-      q = pred - pred[:L].mean(0)
-      p = p @ _np_kabsch(p[:L], q[:L])
-      rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
-      fape = get_fape_loss(self._batch, outputs, model_config=self._config)
-      losses.update({"rmsd":rmsd_binder, "fape":fape})
+  # prep functions specific to protocol
+  def _prep_binder(self, pdb_filename, chain="A",
+                   binder_len=50, binder_chain=None,
+                   use_binder_template=False, split_templates=False,
+                   hotspot=None, **kwargs):
+    '''
+    ---------------------------------------------------
+    prep inputs for binder design
+    ---------------------------------------------------
+    -binder_len = length of binder to hallucinate (option ignored if binder_chain is defined)
+    -binder_chain = chain of binder to redesign
+    -use_binder_template = use binder coordinates as template input
+    -split_templates = use target and binder coordinates as seperate template inputs
+    -hotspot = define position on target
+    '''
     
-    # compute cce of binder + interface
-    errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
-    losses["dgram_cce"] = errors["errors"][L:,:].mean()
-    
-  def _get_partial_loss(self, losses, aux, outputs, opt, aatype=None):
-    '''compute loss for partial hallucination protocol'''
+    self._redesign = binder_chain is not None
+    self._copies = 1
+    self._default_opt["template_dropout"] = 0.0 if use_binder_template else 1.0
+    num_templates = 1
 
-    def sub(x, p, axis=0):
-      if jnp.issubdtype(p.dtype, jnp.integer):
-        fn = lambda y:jnp.take(y,p,axis)
-      else:
-        fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
-      return jax.tree_map(fn, x)
-
-    pos = opt["pos"]
-    _config = self._config.model.heads.structure_module
-
-    # dgram
-    dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
-    if aatype is not None: aatype = sub(aatype,pos,0)
-    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
-                                         logits=dgram, aatype=aatype)
-
-    if self.use_struct:
-      # 6D loss
-      true = self._batch["all_atom_positions"]
-      pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-      losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
-
-      # rmsd
-      losses["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
-
-      # fape
-      fape_loss = {"loss":0.0}
-      struct = outputs["structure_module"]
-      traj = {"traj":sub(struct["traj"],pos,-2)}
-      folding.backbone_loss(fape_loss, self._batch, traj, _config)
-      losses["fape"] = fape_loss["loss"]
-
-      # sidechain specific losses
-      if self.args["use_sidechains"]:
-
-        # sc_fape
-        pred_pos = sub(struct["final_atom14_positions"],pos)
-        sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
-                     "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
-
-        losses["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
-
-        # sc_rmsd
-        true_aa = self._batch["aatype"]
-        true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-        losses["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
-
-  def _get_pairwise_loss(self, losses, aux, outputs, opt, inputs=None):
-    '''compute pairwise losses (contact and pae)'''
-
-    if inputs is None:
-      offset = None
+    # get pdb info
+    chains = f"{chain},{binder_chain}" if self._redesign else chain
+    pdb = self._prep_pdb(pdb_filename, chain=chains)
+    if self._redesign:
+      target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
+      binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      if split_templates: num_templates = 2      
+      # get input features
+      self._inputs = self._prep_features(target_len + binder_len, num_templates=num_templates)
     else:
-      if "offset" in inputs:
-        offset = inputs["offset"][0] if "offset" in inputs else None
-      else:
-        idx = inputs["residue_index"][0]
-        offset = idx[:,None] - idx[None,:]
+      target_len = pdb["residue_index"].shape[0]
+      self._inputs = self._prep_features(target_len)
+      
+    self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
-    # pae loss
-    if self.use_struct:
-      pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
-      pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
-    
-    # define distogram
-    dgram = outputs["distogram"]["logits"]
-    dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-    if self.args["debug"]:
-      aux.update({"dgram":dgram, "dgram_bins":dgram_bins})
-
-    # contact
-    def get_pw_con_loss(dgram, cutoff, binary=True, entropy=True):
-      '''convert distogram into pairwise contact loss'''
-      bins = dgram_bins < cutoff
-      
-      px = jax.nn.softmax(dgram)
-      px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))
-      
-      # con_loss_cat = (bins * px_ * (1-px)).sum(-1) 
-      con_loss_cat = 1 - (bins * px).max(-1)
-      con_loss_bin = 1 - (bins * px).sum(-1)
-      con_loss = jnp.where(binary, con_loss_bin, con_loss_cat)
-      
-      # binary/cateogorical cross-entropy
-      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
-      con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))      
-      con_loss_ent = jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
-      
-      return jnp.where(entropy, con_loss_ent, con_loss)
-    
-    def get_con_loss(dgram, c, offset=None):
-      '''convert distogram into contact loss'''  
-      def min_k(x, k=1, seqsep=0):
-        a,b = x.shape
-        if offset is None:
-          mask = jnp.abs(jnp.arange(a)[:,None] - jnp.arange(b)[None,:]) >= seqsep
-        else:
-          mask = jnp.abs(offset) >= seqsep
-          
-        x = jnp.sort(jnp.where(mask,x,jnp.nan))
-        k_mask = (jnp.arange(b) < k) * (jnp.isnan(x) == False)
-        
-        return jnp.where(k_mask,x,0.0).sum(-1) / (k_mask.sum(-1) + 1e-8)
-
-      x = get_pw_con_loss(dgram,c["cutoff"],c["binary"],c["entropy"])
-      if "seqsep" in c:
-        return min_k(x, c["num"], seqsep=c["seqsep"])
-      else:
-        return min_k(x, c["num"])
-    
-    def get_helix_loss(dgram,c,offset=None):
-      '''helix bias loss'''
-      x = get_pw_con_loss(dgram, 6.0, binary=True, entropy=c["entropy"])
-      if offset is None:
-        return jnp.diagonal(x,3).mean()
-      else:
-        mask = offset == 3
-        return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
-
-    # get contact options
-    c,ic = opt["con"],opt["i_con"]
-    
-    if self.use_struct:
-      aux["pae"] = get_pae(outputs)
-      
-    if self.protocol == "binder":
-      # split pae/con into inter/intra
-      
-      L = self._target_len if self.protocol == "binder" else self._len
-      H = self._hotspot if hasattr(self,"_hotspot") else None
-      
-      def split_feats(v):
-        '''split pairwise features into intra and inter features'''
-        if v is None: return None,None
-        aa,bb = v[:L,:L], v[L:,L:]
-        ab = v[:L,L:] if H is None else v[H,L:]
-        ba = v[L:,:L] if H is None else v[L:,H]
-        abba = (ab + ba.swapaxes(0,1)) / 2
-        if self.protocol == "binder":
-          return bb,abba.swapaxes(0,1)
-        else:
-          return aa,abba
-
-      if self.use_struct:
-        ks,vs = ["pae","con"], [pae,dgram]
-      else:
-        ks,vs = ["con"], [dgram]
-      x_offset, ix_offset = split_feats(jnp.abs(offset))
-      for k,v in zip(ks,vs):
-        x, ix = split_feats(v)        
-        if k == "con":
-          losses["helix"] = get_helix_loss(x, c, x_offset)
-          x = get_con_loss(x, c, x_offset)
-          ix = get_con_loss(ix, ic, ix_offset)
-        losses.update({k:x.mean(),f"i_{k}":ix.mean()})
+    # gather hotspot info
+    if hotspot is None:
+      self._hotspot = None
     else:
-      if self.use_struct:
-        if self.protocol == "binder": aux["pae"] = get_pae(outputs)
-        losses.update({"con":get_con_loss(dgram, c, offset).mean(),
-                       "helix":get_helix_loss(dgram, c, offset),
-                       "pae":pae.mean()})
+      self._hotspot = self._prep_pos(hotspot, **pdb["idx"])
+
+    if self._redesign:      
+      self._batch = pdb["batch"]
+      self._wt_aatype = self._batch["aatype"][target_len:]
+      self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
+                                    "con":0.0, "i_pae":0.01, "i_con":0.0})      
+    else: # binder hallucination            
+      # pad inputs
+      total_len = target_len + binder_len
+      self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
+      self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+
+      # offset residue index for binder
+      self._inputs["residue_index"] = self._inputs["residue_index"].copy()
+      self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
+      for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+      self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
+
+    self._target_len = target_len
+    self._binder_len = self._len = binder_len
+
+    self.restart(set_defaults=True, **kwargs)
+
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, 
+                  homooligomer=False, repeat=False, block_diag=False, **kwargs):
+    '''prep inputs for fixed backbone design'''
+
+    # block_diag the msa features
+    if block_diag and not repeat and copies > 1:
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+    else:
+      block_diag = False
+
+    pdb = self._prep_pdb(pdb_filename, chain=chain)
+    self._batch = pdb["batch"]
+    self._wt_aatype = self._batch["aatype"]
+    self._len = pdb["residue_index"].shape[0]
+    self._inputs = self._prep_features(self._len)
+    self._copies = copies
+    self.args.update({"repeat":repeat,"block_diag":block_diag})
+    
+    # set weights
+    self._default_weights.update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
+
+    # update residue index from pdb
+    if copies > 1:
+      if repeat:
+        self._len = self._len // copies
+        block_diag = False
       else:
-        losses.update({"con":get_con_loss(dgram, c, offset).mean(),
-                       "helix":get_helix_loss(dgram, c, offset)})
-              
-  def _update_template(self, inputs, opt, key):
-    ''''dynamically update template features'''
-    if self.protocol in ["partial","fixbb","binder"]:      
-      L = self._batch["aatype"].shape[0]
-      
-      if self.protocol in ["partial","fixbb"]:
-        aatype = jnp.zeros(L)
-        template_aatype = jnp.broadcast_to(opt["template_aatype"],(L,))
-      
-      if self.protocol == "binder":
-        if self._redesign:
-          aatype = jnp.asarray(self._batch["aatype"])
-          aatype = aatype.at[self._target_len:].set(0)
-          template_aatype = aatype.at[self._target_len:].set(opt["template_aatype"])
+        if homooligomer:
+          self._len = self._len // copies
+          self._inputs["residue_index"] = pdb["residue_index"][None]
         else:
-          aatype = template_aatype = self._batch["aatype"]
-      
-      # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-      pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
-                                                 self._batch["all_atom_positions"],
-                                                 self._batch["all_atom_mask"])
-      
-      # define template features
-      template_feats = {"template_aatype": template_aatype,
-                        "template_all_atom_positions": self._batch["all_atom_positions"],
-                        "template_all_atom_masks": self._batch["all_atom_mask"],
-                        "template_pseudo_beta": pb,
-                        "template_pseudo_beta_mask": pb_mask}
-      
-      # protocol specific template injection
-      if self.protocol == "fixbb":
-        for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0].set(v)            
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
-      
-      if self.protocol == "binder":
-        n = self._target_len
-        for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])            
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
-      
-      if self.protocol == "partial":
-        p = opt["pos"]
-        for k,v in template_feats.items():
-          if jnp.issubdtype(p.dtype, jnp.integer):
-            inputs[k] = inputs[k].at[:,0,p].set(v)
-          else:
-            if k == "template_aatype": v = jax.nn.one_hot(v,22)
-            inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
+          self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
+          self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
+          self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
+          for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+        self._default_weights.update({"i_pae":0.01, "i_con":0.0})
+    else:
+      self._inputs["residue_index"] = pdb["residue_index"][None]
 
-    # dropout template input features
-    L = inputs["template_aatype"].shape[2]
-    n = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt["template_dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
+    self.restart(set_defaults=True, **kwargs)
+    
+  def _prep_hallucination(self, length=100, copies=1,
+                          repeat=False, block_diag=False, **kwargs):
+    '''prep inputs for hallucination'''
+    
+    # block_diag the msa features
+    if block_diag and not repeat and copies > 1:
+      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+    else:
+      block_diag = False
+      
+    self._len = length
+    self._copies = copies
+    self._inputs = self._prep_features(length * copies)
+    self.args.update({"block_diag":block_diag, "repeat":repeat})
+    
+    # set weights
+    self._default_weights.update({"con":1.0})
+    if copies > 1:
+      if repeat:
+        offset = 1
+      else:
+        offset = 50
+        self._default_weights.update({"i_pae":0.01, "i_con":0.1})
+      self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
 
-def expand_copies(x, copies, block_diag=True):
-  '''given msa (N,L,20) expand to 
-  if block_diag:
-    (N*(1+copies),L*copies,22)
+    self.restart(set_defaults=True, **kwargs)
+
+  def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
+                    fix_seq=True, use_sidechains=False, use_6D=False, **kwargs):
+    '''prep input for partial hallucination'''
+    if "sidechain" in kwargs: use_sidechains = kwargs["sidechain"]
+    self.args.update({"use_sidechains":use_sidechains,
+                      "fix_seq":fix_seq})
+    self._copies = 1
+    
+    # get [pos]itions of interests
+    pdb = self._prep_pdb(pdb_filename, chain=chain)
+    if pos is None:
+      pos = np.arange(pdb["residue_index"].shape[0])
+    else:
+      pos = self._prep_pos(pos, **pdb["idx"])
+    
+    self._default_opt["pos"] = pos
+    self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
+    self._wt_aatype = self._batch["aatype"]
+
+    if use_sidechains:
+      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
+
+    self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._inputs = self._prep_features(self._len)
+    
+    weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
+    if use_6D:
+      weights["6D"] = 1.0
+    if use_sidechains:
+      weights.update({"sc_rmsd":0.0,"sc_fape":0.0})
+      
+    self._default_weights.update(weights)
+    self.restart(set_defaults=True, **kwargs)
+
+#######################
+# utils
+#######################
+def make_fixed_size(feat, model_runner, length, batch_axis=True):
+  '''pad input features'''
+  cfg = model_runner.config
+  if batch_axis:
+    shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
   else:
-    (N,L*copies,22)
-  '''
-  if x.shape[-1] < 22:
-    x = jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
-  x = jnp.tile(x,[1,copies,1])
-  if copies > 1 and block_diag:
-    L = x.shape[1]
-    sub_L = L // copies
-    y = x.reshape((-1,1,copies,sub_L,22))
-    block_diag_mask = jnp.expand_dims(jnp.eye(copies),(0,3,4))
-    seq = block_diag_mask * y
-    gap_seq = (1-block_diag_mask) * jax.nn.one_hot(jnp.repeat(21,sub_L),22)  
-    y = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
-    return jnp.concatenate([x,y],0)
-  else:
-    return x
+    shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
 
-def get_contact_map(outputs, dist=8.0):
-  '''get contact map from distogram'''
-  dist_logits = outputs["distogram"]["logits"]
-  dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
-  dist_mtx = dist_bins[dist_logits.argmax(-1)]
-  return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)
+  num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
+  pad_size_map = {
+      shape_placeholders.NUM_RES: length,
+      shape_placeholders.NUM_MSA_SEQ: num_msa_seq,
+      shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
+      shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
+  }
+  for k, v in feat.items():
+    # Don't transfer this to the accelerator.
+    if k == 'extra_cluster_assignment':
+      continue
+    shape = list(v.shape)
+    schema = shape_schema[k]
+    assert len(shape) == len(schema), (
+        f'Rank mismatch between shape and shape schema for {k}: '
+        f'{shape} vs {schema}')
+    pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
+    padding = [(0, p - tf.shape(v)[i]) for i, p in enumerate(pad_size)]
+    if padding:
+      feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
+      feat[k].set_shape(pad_size)
+  return {k:np.asarray(v) for k,v in feat.items()}
+
+MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
+          'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
+          'HSK':'HIS','SAC':'SER','PCA':'GLU','DAL':'ALA',
+          'CME':'CYS','CSD':'CYS','OCS':'CYS','DPR':'PRO',
+          'B3K':'LYS','ALY':'LYS','YCM':'CYS','MLZ':'LYS',
+          '4BF':'TYR','KCX':'LYS','B3E':'GLU','B3D':'ASP',
+          'HZP':'PRO','CSX':'CYS','BAL':'ALA','HIC':'HIS',
+          'DBZ':'ALA','DCY':'CYS','DVA':'VAL','NLE':'LEU',
+          'SMC':'CYS','AGM':'ARG','B3A':'ALA','DAS':'ASP',
+          'DLY':'LYS','DSN':'SER','DTH':'THR','GL3':'GLY',
+          'HY3':'PRO','LLP':'LYS','MGN':'GLN','MHS':'HIS',
+          'TRQ':'TRP','B3Y':'TYR','PHI':'PHE','PTR':'TYR',
+          'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
+          'CSD':'CYS','SEC':'CYS'}
+
+def pdb_to_string(pdb_file):
+  modres = {**MODRES}
+  lines = []
+  for line in open(pdb_file,"rb"):
+    line = line.decode("utf-8","ignore").rstrip()
+    if line[:6] == "MODRES":
+      k = line[12:15]
+      v = line[24:27]
+      if k not in modres and v in residue_constants.restype_3to1:
+        modres[k] = v
+    if line[:6] == "HETATM":
+      k = line[17:20]
+      if k in modres:
+        line = "ATOM  "+line[6:17]+modres[k]+line[20:]
+    if line[:4] == "ATOM":
+      lines.append(line)
+  return "\n".join(lines)

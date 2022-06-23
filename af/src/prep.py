@@ -265,7 +265,8 @@ class _af_prep:
                     fix_seq=True, use_sidechains=False, use_6D=False, **kwargs):
     '''prep input for partial hallucination'''
     if "sidechain" in kwargs: use_sidechains = kwargs["sidechain"]
-    self.args.update({"use_sidechain":use_sidechains, "fix_seq":fix_seq})
+    self.args.update({"use_sidechains":use_sidechains,
+                      "fix_seq":fix_seq})
     self._copies = 1
     
     # get [pos]itions of interests

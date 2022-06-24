@@ -82,8 +82,12 @@ class _af_loss:
 
       # weighted loss
       loss = []
-      for k,v in losses.items():
-        if k in opt["weights"]: loss.append(v * opt["weights"][k])
+      losses_keys = list(losses.keys())
+      for k in losses_keys:
+        if k in opt["weights"]:
+          loss.append(losses[k] * opt["weights"][k])
+        else:
+          _ = losses.pop(k)
       loss = sum(loss)
       
       aux["losses"] = losses

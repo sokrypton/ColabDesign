@@ -210,7 +210,7 @@ model.design_2stage(100,100,10)
 ```python
 model.restart()
 model.opt["weights"].update({"plddt":0.1, "pae":0.1, "i_pae":1.0, "con":0.1, "i_con":0.5})
-model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._target_len, "seqsep":0})
+model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._binder_len, "seqsep":0})
 model.opt["i_con"].update({"binary":True, "cutoff":21.6875, "num":model._binder_len})
 model.design_3stage(100,100,10)
 ```

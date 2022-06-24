@@ -17,6 +17,16 @@ try:
   import py3Dmol
 except:
   print("py3Dmol not installed")
+  
+
+from string import ascii_uppercase,ascii_lowercase
+alphabet_list = list(ascii_uppercase+ascii_lowercase)
+pymol_color_list = ["#33ff33","#00ffff","#ff33cc","#ffff00","#ff9999","#e5e5e5","#7f7fff","#ff7f00",
+                    "#7fff7f","#199999","#ff007f","#ffdd5e","#8c3f99","#b2b2b2","#007fff","#c4b200",
+                    "#8cb266","#00bfbf","#b27f7f","#fcd1a5","#ff7f7f","#ffbfdd","#7fffff","#ffff7f",
+                    "#00ff7f","#337fcc","#d8337f","#bfff3f","#ff7fff","#d8d8ff","#3fffbf","#b78c4c",
+                    "#339933","#66b2b2","#ba8c84","#84bf00","#b24c66","#7f7f7f","#3f3fa5","#a5512b"]
+pymol_cmap = matplotlib.colors.ListedColormap(pymol_color_list)
 
 ####################################################
 # AF_UTILS - various utils (save, plot, etc)
@@ -47,7 +57,7 @@ class _af_utils:
             "aatype":aatype,
             "atom_positions":outs["final_atom_positions"],
             "atom_mask":outs["final_atom_mask"]}
-      b_factors = outs["plddt"][:,None] * p["atom_mask"]
+      b_factors = 100.0 * outs["plddt"][:,None] * p["atom_mask"]
       p = protein.Protein(**p,b_factors=b_factors)
       pdb_lines = protein.to_pdb(p)
       if filename is None:
@@ -61,8 +71,7 @@ class _af_utils:
   #-------------------------------------
   def animate(self, s=0, e=None, dpi=100):
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
-    length = None
-    
+    length = None    
     if self.protocol == "binder":
       length = [self._target_len, self._binder_len]      
     if self.protocol == "partial":
@@ -89,20 +98,27 @@ class _af_utils:
     else:
       return make_animation(**sub_traj, length=length, dpi=dpi)
 
-  def plot_pdb(self):
-    '''use py3Dmol to plot pdb coordinates'''
+  def plot_pdb(self, show_sidechains=False, show_mainchains=False,
+               color="pLDDT", color_HP=False, size=(800,480)):
+    '''
+    use py3Dmol to plot pdb coordinates
+    color=["pLDDT","chain","rainbow"]
+    '''
     if self.use_struct:
-      view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js')
-      view.addModel(self.save_pdb(),'pdb')
-      view.setStyle({'cartoon': {}})
-      BB = ['C','O','N']
-      view.addStyle({'and':[{'resn':["GLY","PRO"],'invert':True},{'atom':BB,'invert':True}]},
-                    {'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
-      view.addStyle({'and':[{'resn':"GLY"},{'atom':'CA'}]},
-                    {'sphere':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
-      view.addStyle({'and':[{'resn':"PRO"},{'atom':['C','O'],'invert':True}]},
-                    {'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})  
-      view.zoomTo()
+      Ls = None    
+      if self.protocol == "binder":
+        Ls = [self._target_len, self._binder_len]      
+      if self.protocol == "partial":
+        Ls = [self._len]
+      if self.protocol in ["hallucination","fixbb"]:
+        Ls = [self._len] * self._copies
+      view = show_pdb(self.save_pdb(),
+                      show_sidechains=show_sidechains,
+                      show_mainchains=show_mainchains,
+                      color=color,
+                      Ls=Ls,
+                      color_HP=color_HP,
+                      size=size)
       view.show()
     else:
       print("ERROR: structure module disabled")
@@ -346,3 +362,68 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
 def clear_mem():
   backend = jax.lib.xla_bridge.get_backend()
   for buf in backend.live_buffers(): buf.delete()
+
+def renum_pdb_str(pdb_str, Ls=None):
+  if Ls is not None:
+    L_init = 0
+    new_chain = {}
+    for L,c in zip(Ls, alphabet_list):
+      new_chain.update({i:c for i in range(L_init,L_init+L)})
+      L_init += L  
+
+  n,pdb_out = 1,[]
+  resnum_,chain_ = None,None
+  for line in pdb_str.split("\n"):
+    if line[:4] == "ATOM":
+      chain = line[21:22]
+      resnum = int(line[22:22+5])
+      if resnum_ is None: resnum_ = resnum
+      if chain_ is None: chain_ = chain
+      if resnum != resnum_ or chain != chain_:
+        resnum_,chain_ = resnum,chain
+        n += 1
+      if Ls is None: pdb_out.append("%s%4i%s" % (line[:22],n,line[26:]))
+      else: pdb_out.append("%s%s%4i%s" % (line[:21],new_chain[n-1],n,line[26:]))        
+  return "\n".join(pdb_out)
+    
+def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
+             color="pLDDT", chains=None, Ls=None, vmin=50, vmax=90,
+             color_HP=False, size=(800,480), hbondCutoff=4.0):
+  
+  if chains is None:
+    chains = 1 if Ls is None else len(Ls)
+
+  view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js', width=size[0], height=size[1])
+  pdb_str_renum = renum_pdb_str(pdb_str, Ls)
+  view.addModel(pdb_str_renum,'pdb',{'hbondCutoff':hbondCutoff})
+  if color == "pLDDT":
+    view.setStyle({'cartoon': {'colorscheme': {'prop':'b','gradient': 'roygb','min':vmin,'max':vmax}}})
+  elif color == "rainbow":
+    view.setStyle({'cartoon': {'color':'spectrum'}})
+  elif color == "chain":
+    for n,chain,color in zip(range(chains),alphabet_list,pymol_color_list):
+       view.setStyle({'chain':chain},{'cartoon': {'color':color}})
+  if show_sidechains:
+    BB = ['C','O','N']
+    HP = ["ALA","GLY","VAL","ILE","LEU","PHE","MET","PRO","TRP","CYS","TYR"]
+    if color_HP:
+      view.addStyle({'and':[{'resn':HP},{'atom':BB,'invert':True}]},
+                    {'stick':{'colorscheme':"yellowCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':HP,'invert':True},{'atom':BB,'invert':True}]},
+                    {'stick':{'colorscheme':"whiteCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"GLY"},{'atom':'CA'}]},
+                    {'sphere':{'colorscheme':"yellowCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"PRO"},{'atom':['C','O'],'invert':True}]},
+                    {'stick':{'colorscheme':"yellowCarbon",'radius':0.3}})
+    else:
+      view.addStyle({'and':[{'resn':["GLY","PRO"],'invert':True},{'atom':BB,'invert':True}]},
+                    {'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"GLY"},{'atom':'CA'}]},
+                    {'sphere':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"PRO"},{'atom':['C','O'],'invert':True}]},
+                    {'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})  
+  if show_mainchains:
+    BB = ['C','O','N','CA']
+    view.addStyle({'atom':BB},{'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
+  view.zoomTo()
+  return view

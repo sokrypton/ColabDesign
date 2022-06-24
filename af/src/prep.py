@@ -265,7 +265,8 @@ class _af_prep:
                     fix_seq=True, use_sidechains=False, use_6D=False, **kwargs):
     '''prep input for partial hallucination'''
     if "sidechain" in kwargs: use_sidechains = kwargs["sidechain"]
-    self.args.update({"use_sidechain":use_sidechains, "fix_seq":fix_seq})
+    self.args.update({"use_sidechains":use_sidechains,
+                      "fix_seq":fix_seq})
     self._copies = 1
     
     # get [pos]itions of interests
@@ -279,7 +280,7 @@ class _af_prep:
     self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
     self._wt_aatype = self._batch["aatype"]
 
-    if sidechain:
+    if use_sidechains:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
     self._len = pdb["residue_index"].shape[0] if length is None else length

@@ -82,8 +82,12 @@ class _af_loss:
 
       # weighted loss
       loss = []
-      for k,v in losses.items():
-        if k in opt["weights"]: loss.append(v * opt["weights"][k])
+      losses_keys = list(losses.keys())
+      for k in losses_keys:
+        if k in opt["weights"]:
+          loss.append(losses[k] * opt["weights"][k])
+        else:
+          _ = losses.pop(k)
       loss = sum(loss)
       
       aux["losses"] = losses
@@ -171,9 +175,13 @@ class _af_loss:
     
   def _get_partial_loss(self, losses, aux, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''
+
     def sub(x, p, axis=0):
-      if jnp.issubdtype(p.dtype, jnp.integer): return jnp.take(x,p,axis)
-      else: return jnp.tensordot(p,x,(-1,axis)).swapaxes(axis,0)
+      if jnp.issubdtype(p.dtype, jnp.integer):
+        fn = lambda y:jnp.take(y,p,axis)
+      else:
+        fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
+      return jax.tree_map(fn, x)
 
     pos = opt["pos"]
     _config = self._config.model.heads.structure_module

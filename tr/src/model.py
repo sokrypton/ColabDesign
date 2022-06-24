@@ -118,7 +118,7 @@ def get_TrR(blocks=12, trainable=False, weights=None, name="TrR"):
   if weights is not None: model.set_weights(weights)
   return model
 
-def get_TrR_model(L=None, num_models=1, hard=True):
+def get_TrR_model(protocol="fixbb", L=None, num_models=1, hard=True):
 
   def gather_idx(x):
     idx = x[1][0]
@@ -157,11 +157,18 @@ def get_TrR_model(L=None, num_models=1, hard=True):
 
   I_seq_logits = Input((L,20),name="seq_logits")
   seq = Lambda(prep_seq,name="seq")(I_seq_logits)
-  I_true = Input((L,L,100),name="true")
-  I_bkg = Input((L,L,100),name="bkg")
-  I_idx = Input((None,),dtype=tf.int32,name="idx")
-  I_idx_true = Input((None,),dtype=tf.int32,name="idx_true")
   
+  if protocol in ["fixbb","partial"]:
+    I_true = Input((L,L,100),name="true")
+
+  if protocol in ["partial","hallucination"]:
+    I_bkg = Input((L,L,100),name="bkg")
+  
+  if protocol in ["partial"]:
+    I_idx = Input((None,),dtype=tf.int32,name="idx")
+    I_idx_true = Input((None,),dtype=tf.int32,name="idx_true")
+  
+  # TODO
   pred = []
   for nam in ["xaa","xab","xac","xad","xae"][:num_models]:
     print(nam)
@@ -169,26 +176,60 @@ def get_TrR_model(L=None, num_models=1, hard=True):
     pred.append(TrR(seq))
   pred = sum(pred)/len(pred)
 
-  pred_sub = Lambda(gather_idx, name="pred_sub")([pred,I_idx])
-  true_sub = Lambda(gather_idx, name="true_sub")([I_true,I_idx_true])
+  if protocol in ["partial"]:
+    pred_sub = Lambda(gather_idx, name="pred_sub")([pred,I_idx])
+    true_sub = Lambda(gather_idx, name="true_sub")([I_true,I_idx_true])
+    cce_loss = Lambda(get_cce_loss,name="cce_loss")([true_sub, pred_sub])
   
-  cce_loss = Lambda(get_cce_loss,name="cce_loss")([true_sub, pred_sub])
-  bkg_loss = Lambda(get_bkg_loss,name="bkg_loss")([I_bkg, pred])
+  if protocol in ["fixbb"]:
+    cce_loss = Lambda(get_cce_loss,name="cce_loss")([true, pred])
+  
+  if protocol in ["hallucination","partial"]:
+    bkg_loss = Lambda(get_bkg_loss,name="bkg_loss")([I_bkg, pred])
 
-  loss = Lambda(lambda x: x[0]+0.1*x[1])([cce_loss,bkg_loss])
-  grad = Lambda(lambda x: tf.gradients(x[0],x[1]), name="grad")([loss,I_seq_logits])
-  model = Model([I_seq_logits, I_true, I_bkg, I_idx, I_idx_true], [cce_loss, bkg_loss, grad, pred], name="TrR_model")
+  # define model, loss and gradients
+  inputs = [I_seq_logits]
+  outputs = []
+  if protocol == "partial":
+    inputs += [I_true, I_bkg, I_idx, I_idx_true]
+    outputs += [cce_loss, bkg_loss]
+    loss = Lambda(lambda x: x[0]+0.1*x[1])([cce_loss,bkg_loss])
+  if protocol == "hallucination":
+    inputs += [I_bkg]
+    outputs += [bkg_loss]
+    loss = bkg_loss
+  if protocol == "fixbb":
+    inputs += [I_true]
+    outputs += [cce_loss]
+    loss = cce_loss
+
+  grad = Lambda(lambda x: tf.gradients(x[0],x[1]), name="grad")([loss,I_seq_logits])  
+  outputs += [grad, pred]
+  model = Model(inputs, outputs, name="TrR_model")
   
-  def TrR_model(seq, true, bkg, pos_idx, pos_idx_ref=None):
+  def _fixbb_model(seq, true):
+    cce_loss, grad, pred = model.predict([seq[None],true[None]])
+    return {"cce_loss":cce_loss[0],
+            "grad":grad[0],
+            "pred":pred[0]}
+  
+  def _hallucination_model(seq, bkg):
+    bkg_loss, grad, pred = model.predict([seq[None],bkg[None]])
+    return {"bkg_loss":bkg_loss[0],
+            "grad":grad[0],
+            "pred":pred[0]}
+
+  def _partial_model(seq, true, bkg, pos_idx, pos_idx_ref=None):
     if pos_idx_ref is None: pos_idx_ref = pos_idx
-    cce_loss, bkg_loss, grad, pred = model.predict([seq[None],
-                                                    true[None],
-                                                    bkg[None],
-                                                    pos_idx[None],
-                                                    pos_idx_ref[None]])
+    cce_loss, bkg_loss, grad, pred = model.predict([seq[None],true[None],bkg[None],pos_idx[None],pos_idx_ref[None]])
     return {"cce_loss":cce_loss[0],
             "bkg_loss":bkg_loss[0],
             "grad":grad[0],
             "pred":pred[0]}
   
-  return TrR_model
+  if protocol == "fixbb":
+    return _fixbb_model
+  if protocol == "hallucination":
+    return _hallucination_model
+  if protocol == "partial":
+    return _partial_model

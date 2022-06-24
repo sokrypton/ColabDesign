@@ -126,18 +126,22 @@ def get_TrR_model(protocol="fixbb", L=None, num_models=1, hard=True, use_theta=T
 
   def get_cce_loss(x, eps=1e-8):
     if use_theta:
-      return -tf.reduce_mean(tf.reduce_sum(x[0]*tf.math.log(x[1] + eps),-1),[-1,-2])
+      loss = -tf.reduce_sum(x[0]*tf.math.log(x[1] + eps),-1)
+      loss = tf.reduce_mean(loss)/4
     else:
       # remove theta
       true_x = split_feat(x[0])
       pred_x = split_feat(x[1])
       true_x = tf.concat([true_x[k] for k in ["phi","dist","omega"]],-1)
       pred_x = tf.concat([pred_x[k] for k in ["phi","dist","omega"]],-1)
-      loss = -tf.reduce_mean(tf.reduce_sum(true_x*tf.math.log(pred_x + eps),-1),[-1,-2])
-      return loss * 4/3
+      loss = -tf.reduce_sum(true_x*tf.math.log(pred_x + eps),-1)
+      loss = tf.reduce_mean(loss)/3
+    return loss[None]
   
   def get_bkg_loss(x, eps=1e-8):
-    return -tf.reduce_mean(tf.reduce_sum(x[1]*(tf.math.log(x[1]+eps)-tf.math.log(x[0]+eps)),-1),[-1,-2])      
+    loss = -tf.reduce_sum(x[1]*(tf.math.log(x[1]+eps)-tf.math.log(x[0]+eps)),-1)
+    loss = tf.reduce_mean(loss)/4
+    return loss[None]
 
   def prep_seq(x_logits):
     x_soft = tf.nn.softmax(x_logits,-1)
@@ -176,7 +180,7 @@ def get_TrR_model(protocol="fixbb", L=None, num_models=1, hard=True, use_theta=T
     cce_loss = Lambda(get_cce_loss,name="cce_loss")([true_sub, pred_sub])
   
   if protocol in ["fixbb"]:
-    cce_loss = Lambda(get_cce_loss,name="cce_loss")([true, pred])
+    cce_loss = Lambda(get_cce_loss,name="cce_loss")([I_true, pred])
   
   if protocol in ["hallucination","partial"]:
     bkg_loss = Lambda(get_bkg_loss,name="bkg_loss")([I_bkg, pred])

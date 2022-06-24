@@ -118,7 +118,7 @@ def get_TrR(blocks=12, trainable=False, weights=None, name="TrR"):
   if weights is not None: model.set_weights(weights)
   return model
 
-def get_TrR_model(L=None, num_models=1):
+def get_TrR_model(L=None, num_models=1, hard=True):
 
   def gather_idx(x):
     idx = x[1][0]
@@ -147,8 +147,11 @@ def get_TrR_model(L=None, num_models=1):
 
   def prep_seq(x_logits):
     x_soft = tf.nn.softmax(x_logits,-1)
-    x_hard = tf.one_hot(tf.argmax(x_logits,-1),20)
-    x = tf.stop_gradient(x_hard - x_soft) + x_soft
+    if hard:
+      x_hard = tf.one_hot(tf.argmax(x_logits,-1),20)
+      x = tf.stop_gradient(x_hard - x_soft) + x_soft
+    else:
+      x = x_soft
     x = tf.pad(x,[[0,0],[0,0],[0,1]])
     return x[None]
 

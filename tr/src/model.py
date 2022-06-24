@@ -1,12 +1,27 @@
+# supressing warnings
+import warnings, logging, os
+warnings.filterwarnings('ignore',category=FutureWarning)
+logging.disable(logging.WARNING)
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+
 import tensorflow as tf
-import tensorflow.compat.v1 as tf1
-import tensorflow.compat.v1.keras.backend as K1
-import tensorflow.keras.backend as K
-tf1.disable_eager_execution()
-tf_config = tf1.ConfigProto()
+tf.compat.v1.disable_eager_execution()
+
+from tr.src.utils import split_feat
+
+def tr_clear_mem():
+  tf.compat.v1.reset_default_graph()
+  tf.compat.v1.keras.backend.clear_session()
+
+def tr_set_mem(frac=0.5):
+  tf_config = tf.compat.v1.ConfigProto()
+  tf_config.gpu_options.per_process_gpu_memory_fraction=frac
+  tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session(config=tf_config))
 
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Conv2D, Activation, Dense, Lambda, Layer, Concatenate
+
+import numpy as np
 
 def get_TrR_weights(filename):
   weights = [np.squeeze(w) for w in np.load(filename, allow_pickle=True)]

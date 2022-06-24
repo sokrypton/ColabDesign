@@ -118,29 +118,23 @@ def get_TrR(blocks=12, trainable=False, weights=None, name="TrR"):
   if weights is not None: model.set_weights(weights)
   return model
 
-def get_TrR_model(protocol="fixbb", L=None, num_models=1, hard=True):
+def get_TrR_model(protocol="fixbb", L=None, num_models=1, hard=True, use_theta=True):
 
   def gather_idx(x):
     idx = x[1][0]
     return tf.gather(tf.gather(x[0],idx,axis=-2),idx,axis=-3)
 
-  def get_cce_loss(x, eps=1e-8, exclude_theta=True, only_dist=False):
-    if only_dist:
-      true_x = split_feat(x[0])["dist"]
-      pred_x = split_feat(x[1])["dist"]
-      loss = -tf.reduce_mean(tf.reduce_sum(true_x*tf.math.log(pred_x + eps),-1),[-1,-2])
-      return loss * 4
-      
-    elif exclude_theta:
+  def get_cce_loss(x, eps=1e-8):
+    if use_theta:
+      return -tf.reduce_mean(tf.reduce_sum(x[0]*tf.math.log(x[1] + eps),-1),[-1,-2])
+    else:
+      # remove theta
       true_x = split_feat(x[0])
       pred_x = split_feat(x[1])
       true_x = tf.concat([true_x[k] for k in ["phi","dist","omega"]],-1)
       pred_x = tf.concat([pred_x[k] for k in ["phi","dist","omega"]],-1)
       loss = -tf.reduce_mean(tf.reduce_sum(true_x*tf.math.log(pred_x + eps),-1),[-1,-2])
       return loss * 4/3
-
-    else:
-      return -tf.reduce_mean(tf.reduce_sum(x[0]*tf.math.log(x[1] + eps),-1),[-1,-2])
   
   def get_bkg_loss(x, eps=1e-8):
     return -tf.reduce_mean(tf.reduce_sum(x[1]*(tf.math.log(x[1]+eps)-tf.math.log(x[0]+eps)),-1),[-1,-2])      

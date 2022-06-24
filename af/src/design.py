@@ -131,7 +131,7 @@ class _af_design:
         self._traj = {"seq":[],"con":[]}
       self.losses, self._best_loss, self._best_outs = [], np.inf, None
       
-  def _save_results(self, save_best=False, verbose=True):
+  def _save_results(self, save_best=False, verbose=True, extra_losses=None):
     '''save the results and update trajectory'''
 
     # save best result
@@ -144,6 +144,8 @@ class _af_design:
                          "recycles":self._outs["recycles"],
                          "loss":self._loss,
                          **{k:self.opt[k] for k in ["soft","hard","temp"]}})
+    if extra_losses is not None:
+      self._losses.update(extra_losses)
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
@@ -170,6 +172,11 @@ class _af_design:
                      "i_pae","i_con",
                      "sc_fape","sc_rmsd",
                      "dgram_cce","fape","6D","rmsd"])]
+      
+      if extra_losses is not None:
+        extra_loss_list = list(extra_losses.keys())
+        out.append(to_str(extra_loss_list))
+      
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 

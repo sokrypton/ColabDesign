@@ -2,7 +2,10 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 
-def TrRosetta():  
+def TrRosetta(mode="Tr"):  
+  
+  assert mode in ["Tr","Tr_bkg"]
+  
   def pseudo_mrf(seq):
     '''single sequence'''    
     L,A = seq.shape[0],21
@@ -26,15 +29,22 @@ def TrRosetta():
     return x * inv + p["offset"] - mu * inv
 
   def conv_2D(x, p, dilation=1, stride=1, padding="SAME"):
+    flags = dict(window_strides=(stride,stride),
+                 rhs_dilation=(dilation,dilation),
+                 padding=padding)
     x = x.transpose([2,0,1])
     f = p["filters"].transpose([3,2,0,1])
-    flags = dict(window_strides=(stride,stride), rhs_dilation=(dilation,dilation), padding=padding)
     x = jax.lax.conv_general_dilated(x[None], f, **flags)[0]
     x = x.transpose([1,2,0])
     return x + p["bias"]
 
   def dense(x, p):
     return x @ p["filters"] + p["bias"]
+  
+  def encoder(x, p):
+    x = dense(x,p)
+    x = instance_norm(x,p)
+    return jax.nn.elu(x)
       
   def block(x, p, dilation=1):
     y = x
@@ -52,36 +62,42 @@ def TrRosetta():
         y = block(y,q,dilation)
       return y, None
     return jax.lax.scan(body,x,p)[0]
-      
-  def model(seq, params):
-    x = pseudo_mrf(seq)
-    x = dense(x,params["dense"])
-    x = instance_norm(x,params["dense"])
-    x = jax.nn.elu(x)
-    x = resnet(x,params["resnet"])
-    x = block(x,params["block"])
-    
-    o = {}
-    o["theta"] = dense(x,params["theta"])
-    o["phi"] = dense(x,params["phi"])    
-    x = (x + x.swapaxes(0,1)) / 2
-    o["dist"] = dense(x,params["dist"]) 
-    o["bb"] = dense(x,params["beta"])
-    o["omega"] = dense(x,params["omega"])
-    return o
-
-  return model
+  
+  def heads(x, p):
+    o = {k:dense(x,p[k]) for k in ["theta","phi"]}
+    x = (x + x.swapaxes(0,1)) / 2  
+    o.update({k:dense(x,p[k]) for k in ["dist","bb","omega"]})
+    return o    
+  
+  if mode == "Tr":
+    def model(seq, model_params):
+      x = pseudo_mrf(seq)
+      x = encoder(x, model_params["encoder"])
+      x = resnet(x, model_params["resnet"])
+      x = block(x, model_params["block"])  
+      x = heads(x, model_params)
+    return model
+  
+  if mode == "Tr_bkg":
+    def model(length, model_params, seed):
+      x = jax.random.normal(seed, (length, length, 64))
+      x = encoder(x, model_params["encoder"])
+      x = resnet(x, model_params["resnet"])
+      x = block(x, model_params["block"])  
+      x = heads(x, model_params)
+    return model
 
 def get_model_params(npy):
   '''parse TrRosetta params into dictionary'''
   xaa = np.load(npy,allow_pickle=True).tolist()
-  layers = ["dense","resnet","block","theta","phi","dist","bb","omega"]
-  num = np.array([4,480,8,2,2,2,2,2])
+  layers = ["encoder","resnet","block","theta","phi","dist","bb","omega"]
+  num = np.array([4,0,8,2,2,2,2,2])
+  num[1] = len(xaa) - num.sum()
   idx = np.cumsum(num) - num
   def split(params):
     labels = ["filters","bias","offset","scale"]
     steps = min(len(params),len(labels))
     return {labels[n]:np.squeeze(params[n::steps]) for n in range(steps)}
   params = {k:split(xaa[i:i+n]) for k,i,n in zip(layers,idx,num)}
-  params["resnet"] = jax.tree_map(lambda x:x.reshape(12,5,2,*x.shape[1:]), params["resnet"])
+  params["resnet"] = jax.tree_map(lambda x:x.reshape(-1,5,2,*x.shape[1:]), params["resnet"])
   return params

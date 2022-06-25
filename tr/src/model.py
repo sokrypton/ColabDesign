@@ -3,6 +3,7 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
+from tr.src.utils import update_dict
 from tr.src.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -11,7 +12,7 @@ from af.src.prep import prep_pdb, prep_pos
 from alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
-class mk_design_model():
+class mk_trdesign_model():
   def __init__(self, protocol="fixbb", model_num=1, model_sample=True,
                seed=None, data_dir="."):
     

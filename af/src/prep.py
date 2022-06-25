@@ -253,9 +253,12 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
       template_features = {"template_aatype":template_aatype,
                            "template_all_atom_masks":batch["all_atom_mask"],
                            "template_all_atom_positions":batch["all_atom_positions"]}
-      o["template_features"] = template_features,
-   
-    o.append({"batch":batch, "residue_index": residue_index})
+      o.append({"batch":batch,
+                "template_features":template_features,
+                "residue_index": residue_index})
+    else:        
+      o.append({"batch":batch,
+                "residue_index": residue_index})
     
     residue_idx.append(protein_obj.residue_index[has_ca])
     chain_idx.append([chain] * len(residue_idx[-1]))

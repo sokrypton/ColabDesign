@@ -2,9 +2,7 @@ import jax.numpy as jnp
 import jax
 import numpy as np
 
-def TrRosetta(mode="Tr"):  
-  
-  assert mode in ["Tr","Tr_bkg"]
+def TrRosetta(bkg_model=False):  
   
   def pseudo_mrf(seq):
     '''single sequence'''    
@@ -69,23 +67,23 @@ def TrRosetta(mode="Tr"):
     o.update({k:dense(x,p[k]) for k in ["dist","bb","omega"]})
     return o    
   
-  if mode == "Tr":
-    def model(seq, model_params):
-      x = pseudo_mrf(seq)
-      x = encoder(x, model_params["encoder"])
-      x = resnet(x, model_params["resnet"])
-      x = block(x, model_params["block"])  
-      x = heads(x, model_params)
-    return model
+  def trunk(x,p):
+    x = encoder(x, p["encoder"])
+    x = resnet(x, p["resnet"])
+    x = block(x, p["block"])  
+    return heads(x, p)
   
-  if mode == "Tr_bkg":
+  # decide which model to use
+  if bkg_model:
     def model(length, model_params, seed):
       x = jax.random.normal(seed, (length, length, 64))
-      x = encoder(x, model_params["encoder"])
-      x = resnet(x, model_params["resnet"])
-      x = block(x, model_params["block"])  
-      x = heads(x, model_params)
+      return trunk(x,model_params)
     return model
+  else:
+    def model(seq, model_params):
+      x = pseudo_mrf(seq)
+      return trunk(x,model_params)
+    return model  
 
 def get_model_params(npy):
   '''parse TrRosetta params into dictionary'''

@@ -75,15 +75,30 @@ def TrRosetta(bkg_model=False):
   
   # decide which model to use
   if bkg_model:
-    def model(length, model_params, seed):
+    def model(model_params, seed, length=100):
       x = jax.random.normal(seed, (length, length, 64))
       return trunk(x,model_params)
-    return model
+    return jax.jit(model, static_argnums=2)
   else:
     def model(seq, model_params):
       x = pseudo_mrf(seq)
       return trunk(x,model_params)
-    return model  
+    return jax.jit(model)
+
+def get_model_params(npy):
+  '''parse TrRosetta params into dictionary'''
+  xaa = np.load(npy,allow_pickle=True).tolist()
+  layers = ["encoder","resnet","block","theta","phi","dist","bb","omega"]
+  num = np.array([4,0,8,2,2,2,2,2])
+  num[1] = len(xaa) - num.sum()
+  idx = np.cumsum(num) - num
+  def split(params):
+    labels = ["filters","bias","offset","scale"]
+    steps = min(len(params),len(labels))
+    return {labels[n]:np.squeeze(params[n::steps]) for n in range(steps)}
+  params = {k:split(xaa[i:i+n]) for k,i,n in zip(layers,idx,num)}
+  params["resnet"] = jax.tree_map(lambda x:x.reshape(-1,5,2,*x.shape[1:]), params["resnet"])
+  return params 
 
 def get_model_params(npy):
   '''parse TrRosetta params into dictionary'''

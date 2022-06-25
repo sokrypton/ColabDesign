@@ -31,7 +31,7 @@ class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
                  "use_pssm":use_pssm, "debug":debug,
                  "repeat": False}
     
-    self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
+    self._default_opt = {"temp":1.0, "soft":1.0, "hard":1.0, "gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
                          "recycles":num_recycles, "models":num_models,
                          "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},

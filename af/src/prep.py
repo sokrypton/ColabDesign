@@ -45,89 +45,6 @@ class _af_prep:
       inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
       inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
     return inputs
-
-  def _prep_pdb(self, pdb_filename, chain=None):
-    '''extract features from pdb'''
-    
-    def add_cb(batch):
-      '''add missing CB atoms based on N,CA,C'''
-      p,m = batch["all_atom_positions"],batch["all_atom_mask"]
-      atom_idx = residue_constants.atom_order
-      atoms = {k:p[...,atom_idx[k],:] for k in ["N","CA","C"]}
-      cb = atom_idx["CB"]
-      cb_atoms = _np_get_cb(**atoms, use_jax=False)
-      cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
-      batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
-      batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
-
-    chains = [None] if chain is None else chain.split(",")
-    o,last = [],0
-    residue_idx, chain_idx = [],[]
-    for chain in chains:
-      protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
-      batch = {'aatype': protein_obj.aatype,
-               'all_atom_positions': protein_obj.atom_positions,
-               'all_atom_mask': protein_obj.atom_mask}
-            
-      add_cb(batch) # add in missing cb (in the case of glycine)
-
-      has_ca = batch["all_atom_mask"][:,0] == 1
-      batch = jax.tree_map(lambda x:x[has_ca], batch)
-      batch.update(all_atom.atom37_to_frames(**batch))
-
-      seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
-      template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
-      template_features = {"template_aatype":template_aatype,
-                           "template_all_atom_masks":batch["all_atom_mask"],
-                           "template_all_atom_positions":batch["all_atom_positions"]}
-      
-      residue_index = protein_obj.residue_index[has_ca] + last      
-      last = residue_index[-1] + 50
-      o.append({"batch":batch,
-                "template_features":template_features,
-                "residue_index": residue_index})
-      
-      # original residue and chain index
-      residue_idx.append(protein_obj.residue_index[has_ca])
-      chain_idx.append([chain] * len(residue_idx[-1]))
-
-    o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
-    o["template_features"] = {"template_domain_names":np.asarray(["None"]),
-                              **jax.tree_map(lambda x:x[None],o["template_features"])}
-
-    # save original residue and chain index
-    o["idx"] = {"residue":np.concatenate(residue_idx),
-                "chain":np.concatenate(chain_idx)}
-    return o
-  
-  def _prep_pos(self, pos, residue=None, chain=None):
-    if residue is None: residue = self._inputs["residue_index"][0]
-    if chain is None: chain = np.full(len(residue),None)
-    residue_set,chain_set = [],[]
-    for idx in pos.split(","):
-      i,j = idx.split("-") if "-" in idx else (idx, None)
-
-      # if chain defined
-      if i[0].isalpha():
-        c,i = i[0], int(i[1:])
-      else:
-        c,i = chain[0], int(i)
-
-      if j is None:
-        residue_set.append(i)
-        chain_set.append(c)
-      else:
-        j = int(j[1:] if j[0].isalpha() else j)
-        residue_set += list(range(i,j+1))
-        chain_set += [c] * (j-i+1)
-
-    # get positions
-    pos_array = []
-    for i,c in zip(residue_set, chain_set):
-      idx = np.where((residue == i) & (chain == c))[0]
-      if idx.shape[0] > 0: pos_array.append(idx[0])
-
-    return np.asarray(pos_array)
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
@@ -152,7 +69,7 @@ class _af_prep:
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if self._redesign else chain
-    pdb = self._prep_pdb(pdb_filename, chain=chains)
+    pdb = prep_pdb(pdb_filename, chain=chains)
     if self._redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
@@ -169,7 +86,7 @@ class _af_prep:
     if hotspot is None:
       self._hotspot = None
     else:
-      self._hotspot = self._prep_pos(hotspot, **pdb["idx"])
+      self._hotspot = prep_pos(hotspot, **pdb["idx"])
 
     if self._redesign:      
       self._batch = pdb["batch"]
@@ -203,7 +120,7 @@ class _af_prep:
     else:
       block_diag = False
 
-    pdb = self._prep_pdb(pdb_filename, chain=chain)
+    pdb = prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
     self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
@@ -270,11 +187,11 @@ class _af_prep:
     self._copies = 1
     
     # get [pos]itions of interests
-    pdb = self._prep_pdb(pdb_filename, chain=chain)
+    pdb = prep_pdb(pdb_filename, chain=chain)
     if pos is None:
       pos = np.arange(pdb["residue_index"].shape[0])
     else:
-      pos = self._prep_pos(pos, **pdb["idx"])
+      pos = prep_pos(pos, **pdb["idx"])
     
     self._default_opt["pos"] = pos
     self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
@@ -298,6 +215,90 @@ class _af_prep:
 #######################
 # utils
 #######################
+def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
+  '''extract features from pdb'''
+
+  def add_cb(batch):
+    '''add missing CB atoms based on N,CA,C'''
+    p,m = batch["all_atom_positions"],batch["all_atom_mask"]
+    atom_idx = residue_constants.atom_order
+    atoms = {k:p[...,atom_idx[k],:] for k in ["N","CA","C"]}
+    cb = atom_idx["CB"]
+    cb_atoms = _np_get_cb(**atoms, use_jax=False)
+    cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
+    batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
+    batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
+
+  # go through each defined chain
+  chains = [None] if chain is None else chain.split(",")
+  o,last = [],0
+  residue_idx, chain_idx = [],[]
+  for chain in chains:
+    protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
+    batch = {'aatype': protein_obj.aatype,
+             'all_atom_positions': protein_obj.atom_positions,
+             'all_atom_mask': protein_obj.atom_mask}
+
+    add_cb(batch) # add in missing cb (in the case of glycine)
+
+    has_ca = batch["all_atom_mask"][:,0] == 1
+    batch = jax.tree_map(lambda x:x[has_ca], batch)
+    seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
+    residue_index = protein_obj.residue_index[has_ca] + last      
+    last = residue_index[-1] + 50
+    
+    if for_alphafold:
+      batch.update(all_atom.atom37_to_frames(**batch))
+      template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
+      template_features = {"template_aatype":template_aatype,
+                           "template_all_atom_masks":batch["all_atom_mask"],
+                           "template_all_atom_positions":batch["all_atom_positions"]}
+      o["template_features"] = template_features,
+   
+    o.append({"batch":batch, "residue_index": residue_index})
+    
+    residue_idx.append(protein_obj.residue_index[has_ca])
+    chain_idx.append([chain] * len(residue_idx[-1]))
+
+  # concatenate chains
+  o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
+  
+  if for_alphafold:
+    o["template_features"] = jax.tree_map(lambda x:x[None],o["template_features"])
+    o["template_features"]["template_domain_names"] = np.asarray(["None"])
+
+  # save original residue and chain index
+  o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
+  return o
+
+def prep_pos(pos, residue, chain=None):
+  if chain is None: chain = np.full(len(residue),None)
+  residue_set,chain_set = [],[]
+  for idx in pos.split(","):
+    i,j = idx.split("-") if "-" in idx else (idx, None)
+
+    # if chain defined
+    if i[0].isalpha():
+      c,i = i[0], int(i[1:])
+    else:
+      c,i = chain[0], int(i)
+
+    if j is None:
+      residue_set.append(i)
+      chain_set.append(c)
+    else:
+      j = int(j[1:] if j[0].isalpha() else j)
+      residue_set += list(range(i,j+1))
+      chain_set += [c] * (j-i+1)
+
+  # get positions
+  pos_array = []
+  for i,c in zip(residue_set, chain_set):
+    idx = np.where((residue == i) & (chain == c))[0]
+    if idx.shape[0] > 0: pos_array.append(idx[0])
+
+  return np.asarray(pos_array)
+
 def make_fixed_size(feat, model_runner, length, batch_axis=True):
   '''pad input features'''
   cfg = model_runner.config

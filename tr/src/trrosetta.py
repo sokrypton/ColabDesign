@@ -99,18 +99,3 @@ def get_model_params(npy):
   params = {k:split(xaa[i:i+n]) for k,i,n in zip(layers,idx,num)}
   params["resnet"] = jax.tree_map(lambda x:x.reshape(-1,5,2,*x.shape[1:]), params["resnet"])
   return params 
-
-def get_model_params(npy):
-  '''parse TrRosetta params into dictionary'''
-  xaa = np.load(npy,allow_pickle=True).tolist()
-  layers = ["encoder","resnet","block","theta","phi","dist","bb","omega"]
-  num = np.array([4,0,8,2,2,2,2,2])
-  num[1] = len(xaa) - num.sum()
-  idx = np.cumsum(num) - num
-  def split(params):
-    labels = ["filters","bias","offset","scale"]
-    steps = min(len(params),len(labels))
-    return {labels[n]:np.squeeze(params[n::steps]) for n in range(steps)}
-  params = {k:split(xaa[i:i+n]) for k,i,n in zip(layers,idx,num)}
-  params["resnet"] = jax.tree_map(lambda x:x.reshape(-1,5,2,*x.shape[1:]), params["resnet"])
-  return params

@@ -17,6 +17,7 @@ class mk_trdesign_model():
                seed=None, data_dir="."):
     
     self.protocol = protocol
+    self._data_dir = data_dir
 
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
@@ -32,6 +33,9 @@ class mk_trdesign_model():
     self._runner = TrRosetta()
     self._model_params = [get_model_params(f"{data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
+
+    if protocol in ["partial","hallucination"]:
+      self.bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
 
@@ -82,13 +86,13 @@ class mk_trdesign_model():
 
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
-  def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None):
-    '''Parse PDB file and return features compatible with TrRosetta'''
-    if pdb_filename is not None:
+  def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None):    
+    if self.protocol in ["partial","fixbb"]:
+      # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
       ref = _np_get_6D(pdb["batch"]["all_atom_positions"],
-                       pdb["batch"]["all_atom_mask"],
-                       use_jax=False, for_trrosetta=True)
+                      pdb["batch"]["all_atom_mask"],
+                      use_jax=False, for_trrosetta=True)
       ref = jax.tree_map(jnp.squeeze,ref)
 
       def mtx2bins(x_ref, start, end, nbins, mask):
@@ -104,10 +108,20 @@ class mk_trdesign_model():
                     "phi":  mtx2bins(ref["phi"],      0.0, np.pi, 13,  mask=mask)}
       
       self._wt_seq = pdb["batch"]["aatype"]
-      self._len = len(self._wt_seq)      
+      self._len = len(self._wt_seq)
 
-      if self.params["seq"] is None:
-        self.params["seq"] = np.zeros((self._len,20))
+    if self.protocol in ["partial","hallucination"]:
+      # compute background distribution
+      if length is not None: self._len = length
+      self.bkg_feats = []
+      for n in range(1,6):
+        model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
+        self._key, key = jax.random.split(self._key)
+        self.bkg_feats.append(self.bkg_model(model_params,key,self._len))
+      self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
+
+    if self.params["seq"] is None:
+      self.params["seq"] = np.zeros((self._len,20))
     
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
     # update settings if defined

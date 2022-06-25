@@ -7,7 +7,7 @@ from tr.src.utils import update_dict
 from tr.src.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
-from af.src.misc import _np_len, _np_ang, _np_dih, _np_get_cb
+from af.src.misc import _np_get_6D
 from af.src.prep import prep_pdb, prep_pos
 from alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
@@ -20,7 +20,8 @@ class mk_trdesign_model():
 
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                "weights":{},
+                "weights":{"dist":0.25,"omega":0.25,
+                           "theta":0.25,"phi":0.25},
                 "model":{"num":model_num,"sample":model_sample}}
                 
     self.params = {"seq":None}
@@ -56,8 +57,21 @@ class mk_trdesign_model():
     
     def _get_loss(outputs, opt):
       aux = {"outputs":outputs, "losses":{}}
-      loss = jnp.square(outputs["dist"]).sum()
-      return loss, aux
+      if self.protocol in ["fixbb"]:
+        log_p = jax.tree_map(jax.nn.log_softmax, outputs)
+        for k in ["dist","omega","theta","phi"]:
+          q = self.feats[k]
+          aux["losses"][k] = -(q*log_p[k]).sum(-1).mean()
+
+      # weighted loss
+      loss = []
+      losses_keys = list(aux["losses"].keys())
+      for k in losses_keys:
+        if k in opt["weights"]:
+          loss.append(aux["losses"][k] * opt["weights"][k])
+        else:
+          aux["losses"].pop(k)
+      return sum(loss), aux
 
     def _model(params, model_params, opt):
       seq = _get_seq(params, opt)
@@ -68,25 +82,14 @@ class mk_trdesign_model():
 
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
-  def prep_inputs(self, pdb=None, chain=None, length=None, pos=None):
+  def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None):
     '''Parse PDB file and return features compatible with TrRosetta'''
-    if pdb is not None:
-      return prep_pdb(pdb,chain)
-      '''
-      ncac, seq = parse_PDB(pdb,["N","CA","C"], chain=chain)
-
-      # mask gap regions
-      if mask_gaps:
-        mask = seq != 20
-        ncac, seq = ncac[mask], seq[mask]
-
-      N,CA,C = ncac[:,0], ncac[:,1], ncac[:,2]
-      CB = extend(C, N, CA, 1.522, 1.927, -2.143)
-
-      dist_ref  = to_len(CB[:,None], CB[None,:])
-      omega_ref = to_dih(CA[:,None], CB[:,None], CB[None,:], CA[None,:])
-      theta_ref = to_dih( N[:,None], CA[:,None], CB[:,None], CB[None,:])
-      phi_ref   = to_ang(CA[:,None], CB[:,None], CB[None,:])
+    if pdb_filename is not None:
+      pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
+      ref = _np_get_6D(pdb["batch"]["all_atom_positions"],
+                       pdb["batch"]["all_atom_mask"],
+                       use_jax=False, for_trrosetta=True)
+      ref = jax.tree_map(jnp.squeeze,ref)
 
       def mtx2bins(x_ref, start, end, nbins, mask):
         bins = np.linspace(start, end, nbins)
@@ -94,14 +97,18 @@ class mk_trdesign_model():
         x_true[mask] = 0
         return np.eye(nbins+1)[x_true][...,:-1]
 
-      mask = (dist_ref > 20)
-      feats = {"dist":mtx2bins(dist_ref,     2.0,  20.0, 37, mask=mask),
-               "omega":mtx2bins(omega_ref, -np.pi, np.pi, 25, mask=mask),
-               "theta": mtx2bins(theta_ref, -np.pi, np.pi, 25, mask=(p_dist[...,0]==1)),
-               "phi":mtx2bins(phi_ref,      0.0, np.pi, 13, mask=(p_dist[...,0]==1))}
-      return feats
-      '''
+      mask = (ref["dist"] > 20) | (np.eye(ref["dist"].shape[0]) == 1)
+      self.feats = {"dist":mtx2bins(ref["dist"],     2.0,  20.0,  37, mask=mask),
+                    "omega":mtx2bins(ref["omega"], -np.pi, np.pi, 25,  mask=mask),
+                    "theta":mtx2bins(ref["theta"], -np.pi, np.pi, 25,  mask=mask),
+                    "phi":  mtx2bins(ref["phi"],      0.0, np.pi, 13,  mask=mask)}
+      
+      self._wt_seq = pdb["batch"]["aatype"]
+      self._len = len(self._wt_seq)      
 
+      if self.params["seq"] is None:
+        self.params["seq"] = np.zeros((self._len,20))
+    
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
     # update settings if defined
     update_dict(self.params, {"seq":seq})

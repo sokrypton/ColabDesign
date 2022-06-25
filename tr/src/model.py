@@ -1,9 +1,15 @@
 import random
-
 import numpy as np
 import jax
 import jax.numpy as jnp
+
 from tr.src.trrosetta import TrRosetta, get_model_params
+
+# borrow some stuff from AfDesign
+from af.src.misc import _np_len, _np_ang, _np_dih, _np_get_cb
+from af.src.prep import prep_pdb, prep_pos
+from alphafold.common import protein, residue_constants
+ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 class mk_design_model():
   def __init__(self, protocol="fixbb", model_num=1, model_sample=True,
@@ -64,8 +70,8 @@ class mk_design_model():
   def prep_inputs(self, pdb=None, chain=None, length=None, pos=None):
     '''Parse PDB file and return features compatible with TrRosetta'''
     if pdb is not None:
-
-      
+      return prep_pdb(pdb,chain)
+      '''
       ncac, seq = parse_PDB(pdb,["N","CA","C"], chain=chain)
 
       # mask gap regions
@@ -93,6 +99,7 @@ class mk_design_model():
                "theta": mtx2bins(theta_ref, -np.pi, np.pi, 25, mask=(p_dist[...,0]==1)),
                "phi":mtx2bins(phi_ref,      0.0, np.pi, 13, mask=(p_dist[...,0]==1))}
       return feats
+      '''
 
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
     # update settings if defined

@@ -13,7 +13,7 @@ from af.src.design import _af_design
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
+class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, model_sample=True,
                recycle_mode="average", num_recycles=0,

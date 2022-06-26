@@ -164,7 +164,6 @@ class _af_design:
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
       losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
 
-
     # print losses  
     if verbose:
       SEEN = []
@@ -298,6 +297,9 @@ class _af_design:
     _aux = jax.tree_map(lambda *v: jnp.stack(v), *_aux)    
     self._aux = jax.tree_map(lambda x:x[0], _aux) # pick one example
     self._aux["losses"] = jax.tree_map(lambda v: v.mean(0), _aux["losses"])
+    
+    # backward compatibility
+    self._outs = self._aux
         
     if callback is not None: callback(self)
 

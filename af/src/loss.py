@@ -16,18 +16,18 @@ class _af_loss:
     # setup function to get gradients
     def mod(params, model_params, inputs, key, opt):
 
-      # initialize the loss function
-      losses = {}
-
       # get sequence
       key, key_ = jax.random.split(key)
       seq = self._get_seq(params, opt, key_)      
-      aux = {"seq":seq, "seq_pseudo":seq["pseudo"]}
+      
+      aux = {"seq":seq,
+             "seq_pseudo":seq["pseudo"], # backward compatibility
+             "losses":{}}
 
       # entropy loss for msa
       if self.args["num_seq"] > 1:
         seq_prf = seq["hard"].mean(0)
-        losses["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
+        aux["losses"]["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
       
       # protocol specific modifications to seq features
       if self.protocol == "binder":
@@ -59,7 +59,7 @@ class _af_loss:
       # get outputs
       outputs = self._get_out(inputs, model_params, opt, key)
       aux["prev"] = outputs["prev"]
-      values = {"losses":losses,"aux":aux,"outputs":outputs,"opt":opt}
+      values = {"aux":aux,"outputs":outputs,"opt":opt}
       
       # pairwise loss
       self._get_pairwise_loss(**values, inputs=inputs)
@@ -70,9 +70,9 @@ class _af_loss:
         plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
         if self.protocol == "binder":
           if self._redesign: self._get_binder_redesign_loss(**values, aatype=aatype)
-          losses["plddt"] = plddt_loss[...,self._target_len:].mean()
+          aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
         else:
-          losses["plddt"] = plddt_loss.mean()
+          aux["losses"]["plddt"] = plddt_loss.mean()
           
       # get protocol specific losses
       if self.protocol == "fixbb":
@@ -82,16 +82,14 @@ class _af_loss:
 
       # weighted loss
       loss = []
-      losses_keys = list(losses.keys())
+      losses_keys = list(aux["losses"].keys())
       for k in losses_keys:
         if k in opt["weights"]:
-          loss.append(losses[k] * opt["weights"][k])
+          loss.append(aux["losses"][k] * opt["weights"][k])
         else:
-          _ = losses.pop(k)
+          _ = aux["losses"].pop(k)
       loss = sum(loss)
       
-      aux["losses"] = losses
-
       # add aux outputs
       if self.use_struct:
         aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
@@ -102,7 +100,7 @@ class _af_loss:
         aux["contact_map"] = get_contact_map(outputs)          
         
       if self.args["debug"]: aux.update({"outputs":outputs, "inputs":inputs})
-      return loss, (aux)
+      return loss, aux
     
     return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
 
@@ -146,16 +144,16 @@ class _af_loss:
         seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
     return seq
   
-  def _get_fixbb_loss(self, losses, aux, outputs, opt, aatype=None):
+  def _get_fixbb_loss(self, aux, outputs, opt, aatype=None):
     '''get backbone specific losses'''
     copies = 1 if self.args["repeat"] else self._copies
     if self.use_struct:    
-      losses.update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
-                     "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies)})
-    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies)
+      aux["losses"].update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
+                            "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies)})
+    aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies)
 
   
-  def _get_binder_redesign_loss(self, losses, aux, outputs, opt, aatype=None):
+  def _get_binder_redesign_loss(self, aux, outputs, opt, aatype=None):
     '''get binder redesign specific losses'''
     # compute rmsd of binder relative to target
     if self.use_struct:
@@ -167,13 +165,13 @@ class _af_loss:
       p = p @ _np_kabsch(p[:L], q[:L])
       rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
       fape = get_fape_loss(self._batch, outputs, model_config=self._config)
-      losses.update({"rmsd":rmsd_binder, "fape":fape})
+      aux["losses"].update({"rmsd":rmsd_binder, "fape":fape})
     
     # compute cce of binder + interface
     errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
-    losses["dgram_cce"] = errors["errors"][L:,:].mean()
+    aux["losses"]["dgram_cce"] = errors["errors"][L:,:].mean()
     
-  def _get_partial_loss(self, losses, aux, outputs, opt, aatype=None):
+  def _get_partial_loss(self, aux, outputs, opt, aatype=None):
     '''compute loss for partial hallucination protocol'''
 
     def sub(x, p, axis=0):
@@ -189,24 +187,25 @@ class _af_loss:
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
     if aatype is not None: aatype = sub(aatype,pos,0)
-    losses["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
+    aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
                                          logits=dgram, aatype=aatype)
 
     if self.use_struct:
-      # 6D loss
       true = self._batch["all_atom_positions"]
       pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-      losses["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
+
+      # TODO: 6D loss
+      # aux["losses"]["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
 
       # rmsd
-      losses["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
+      aux["losses"]["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
 
       # fape
       fape_loss = {"loss":0.0}
       struct = outputs["structure_module"]
       traj = {"traj":sub(struct["traj"],pos,-2)}
       folding.backbone_loss(fape_loss, self._batch, traj, _config)
-      losses["fape"] = fape_loss["loss"]
+      aux["losses"]["fape"] = fape_loss["loss"]
 
       # sidechain specific losses
       if self.args["use_sidechains"]:
@@ -216,14 +215,14 @@ class _af_loss:
         sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
                      "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
 
-        losses["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
+        aux["losses"]["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
 
         # sc_rmsd
         true_aa = self._batch["aatype"]
         true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-        losses["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
+        aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
 
-  def _get_pairwise_loss(self, losses, aux, outputs, opt, inputs=None):
+  def _get_pairwise_loss(self, aux, outputs, opt, inputs=None):
     '''compute pairwise losses (contact and pae)'''
 
     if inputs is None:
@@ -327,19 +326,19 @@ class _af_loss:
       for k,v in zip(ks,vs):
         x, ix = split_feats(v)        
         if k == "con":
-          losses["helix"] = get_helix_loss(x, c, x_offset)
+          aux["losses"]["helix"] = get_helix_loss(x, c, x_offset)
           x = get_con_loss(x, c, x_offset)
           ix = get_con_loss(ix, ic, ix_offset)
-        losses.update({k:x.mean(),f"i_{k}":ix.mean()})
+        aux["losses"].update({k:x.mean(),f"i_{k}":ix.mean()})
     else:
       if self.use_struct:
         if self.protocol == "binder": aux["pae"] = get_pae(outputs)
-        losses.update({"con":get_con_loss(dgram, c, offset).mean(),
-                       "helix":get_helix_loss(dgram, c, offset),
-                       "pae":pae.mean()})
+        aux["losses"].update({"con":get_con_loss(dgram, c, offset).mean(),
+                              "helix":get_helix_loss(dgram, c, offset),
+                              "pae":pae.mean()})
       else:
-        losses.update({"con":get_con_loss(dgram, c, offset).mean(),
-                       "helix":get_helix_loss(dgram, c, offset)})
+        aux["losses"].update({"con":get_con_loss(dgram, c, offset).mean(),
+                             "helix":get_helix_loss(dgram, c, offset)})
               
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''

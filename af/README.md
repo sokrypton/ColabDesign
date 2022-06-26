@@ -84,7 +84,6 @@ model.restart()
 ```python
 model.set_weights(pae=0.0,plddt=1.0)
 ```
-WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
 #### How do I control number of recycles used during design?
 ```python 
 model = mk_afdesign_model(num_recycles=1, recycle_mode="average")

@@ -2,11 +2,8 @@ import random, copy, os
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 from alphafold.common import residue_constants
-
-# borrowing update_dict function from TrDesign
-from tr.src.utils import update_dict
+from af.src.utils import update_dict
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -97,33 +94,32 @@ class _af_design:
     self.params = {"seq":x}
     self._state = self._init_fun(self.params)
 
-  def set_weights(self, *args, **kwargs):
-    update_dict(self.opt["weights"], *args, **kwargs)
 
   def set_opt(self, *args, **kwargs):
-    update_dict(self.opt, *args, **kwargs)
+    update_dict(self.opt, *args, **kwargs)   
+  def set_weights(self, *args, **kwargs):
+    update_dict(self.opt["weights"], *args, **kwargs)
 
   def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False, **kwargs):
     
     # set weights and options
     if set_defaults:
-      update_dict(self._default_weights, weights)
       update_dict(self._default_opt, opt)
+      update_dict(self._default_opt["weights"], weights)
         
       if not self.use_struct:
         # remove structure module specific weights
         struct_list = ["rmsd","fape","plddt","pae"]
-        keys = list(self._default_weights.keys())
+        keys = list(self._default_opt["weights"].keys())
         for k in keys:
           if k.split("_")[-1] in struct_list:
-            self._default_weights.pop(k)
+            self._default_opt["weights"].pop(k)
     
     if not keep_history:
       self.opt = copy.deepcopy(self._default_opt)
-      self.opt["weights"] = self._default_weights.copy()
 
-    self.set_weights(weights)
     self.set_opt(opt)
+    self.set_weights(weights)
 
     # setup optimizer
     self._setup_optimizer(**kwargs)
@@ -136,72 +132,80 @@ class _af_design:
     # initialize trajectory
     if not keep_history:
       if self.use_struct:
-        self._traj = {"seq":[],"xyz":[],"plddt":[],"pae":[]}
+        self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       else:
-        self._traj = {"seq":[],"con":[]}
-      self.losses, self._best_loss, self._best_outs = [], np.inf, None
-      
+        self._traj = {"losses":[],"seq":[],"con":[]}
+      self._best_loss, self._best_aux = np.inf, None
+      self._best_outs = self._best_aux
+  
+  def clear_best(self):
+    self._best_loss, self._best_aux = p.inf, None
+    self._best_outs = self._best_aux
+  
   def _save_results(self, save_best=False, verbose=True):
     '''save the results and update trajectory'''
 
     # save best result
     if save_best and self._loss < self._best_loss:
       self._best_loss = self._loss
-      self._best_outs = self._outs
-    
-    # compile losses
-    self._losses.update({"models":self._model_num,
-                         "recycles":self._outs["recycles"],
-                         "loss":self._loss,
-                         **{k:self.opt[k] for k in ["soft","hard","temp"]}})
+      self._best_aux = self._aux
+      # backward compatibility
+      self._best_outs = self._best_aux
+
+    # save losses
+    losses = jax.tree_map(float, self._aux["losses"])
+    losses.update({"models":self._model_num,
+                   "recycles":int(self._aux["recycles"]),
+                   "loss":float(self._loss),
+                   "hard":int(self.opt["hard"]),
+                   "soft":float(self.opt["soft"]),
+                   "temp":float(self.opt["temp"])})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
-      _aatype = self._outs["seq"]["hard"].argmax(-1)
+      _aatype = self._aux["seq"]["hard"].argmax(-1)
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
-      self._losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
-
-    # save losses
-    self.losses.append(self._losses)
+      losses["seqid"] = float((_aatype[...,:L] == self._wt_aatype[...,:L]).mean())
 
     # print losses  
     if verbose:
       SEEN = []
-      def to_str(ks, f=2):
+      
+      def to_str(ks):
         out = []
         for k in ks:
           SEEN.append(k)
-          if k in self._losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
+          if k in losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
             out.append(f"{k}")
-            if f is None: out.append(f"{self._losses[k]}")
-            else: out.append(f"{self._losses[k]:.{f}f}")
+            v = losses[k]
+            if isinstance(v,int): f = 0
+            elif isinstance(v,float): f = 2
+            else: f = None
+            out.append(f"{v}" if f is None else f"{v:.{f}f}")
         return out
       
-      out = [to_str(["models","recycles"],None),
-             to_str(["hard"],0),
-             to_str(["soft","temp","seqid","loss"]),
-             to_str(["msa_ent","plddt","pae","helix","con",
+      out = [to_str(["models","recycles",
+                     "hard","soft","temp","seqid","loss",
+                     "msa_ent","plddt","pae","helix","con",
                      "i_pae","i_con",
                      "sc_fape","sc_rmsd",
                      "dgram_cce","fape","6D","rmsd"])]
 
-      for k in self._losses.keys():
+      for k,v in losses.items():
         if k not in SEEN: out.append(to_str([k]))
 
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    traj = {"seq":self._outs["seq"]["pseudo"]}
+    traj = {"losses":losses, "seq":np.asarray(self._aux["seq"]["pseudo"])}
     if self.use_struct:
-      traj.update({"xyz":self._outs["final_atom_positions"][:,1,:],
-                   "plddt":self._outs["plddt"]})
-      if "pae" in self._outs:
-        traj.update({"pae":self._outs["pae"]})
+      traj["xyz"] = np.asarray(self._aux["final_atom_positions"][:,1,:])
+      traj["plddt"] = np.asarray(self._aux["plddt"])
+      if "pae" in self._aux: traj["pae"] = np.asarray(self._aux["pae"])
     else:
-      traj["con"] = self._outs["contact_map"]
-      
-    for k,v in traj.items(): self._traj[k].append(np.array(v))
+      traj["con"] = np.asarray(self._aux["contact_map"])
+    for k,v in traj.items(): self._traj[k].append(v)
     
   def _recycle(self, model_params, backprop=True):                
     # initialize previous (for recycle)
@@ -274,16 +278,15 @@ class _af_design:
       self._model_num = ns[:m]
     
     self._model_num = np.array(self._model_num).tolist()    
-    _loss, _losses, _outs, _grad = [],[],[],[]
+    _loss, _aux, _grad = [],[],[]
     for n in self._model_num:
       p = self._model_params[n]
       if backprop:
-        (l,o),g = self._recycle(p)
+        (l,a),g = self._recycle(p)
         _grad.append(g)
       else:
-        l,o = self._recycle(p, backprop=False)
-      _loss.append(l); _outs.append(o)
-      _losses.append(o["losses"])
+        l,a = self._recycle(p, backprop=False)
+      _loss.append(l); _aux.append(a)
 
     # update
     if backprop:
@@ -291,10 +294,16 @@ class _af_design:
     else:
       self._grad = jax.tree_map(jnp.zeros_like, self.params)
 
-    self._loss = jnp.asarray(_loss).mean()
-    self._losses = jax.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
-    self._outs = _outs[0]
+    # take mean of losses
+    self._loss = jnp.stack(_loss).mean()
     
+    _aux = jax.tree_map(lambda *v: jnp.stack(v), *_aux)    
+    self._aux = jax.tree_map(lambda x:x[0], _aux) # pick one example
+    self._aux["losses"] = jax.tree_map(lambda v: v.mean(0), _aux["losses"])
+    
+    # backward compatibility
+    self._outs = self._aux
+        
     if callback is not None: callback(self)
 
   #-------------------------------------
@@ -402,10 +411,10 @@ class _af_design:
       return seq.at[:,i,:].set(jnp.eye(A)[a])
 
     for i in range(iters):
-      seq = self._outs["seq"]["hard"]
+      seq = self._aux["seq"]["hard"]
       plddt = None
       if use_plddt:
-        plddt = np.asarray(self._outs["plddt"])
+        plddt = np.asarray(self._aux["plddt"])
         if self.protocol == "binder":
           plddt = plddt[self._target_len:]
         else:
@@ -415,10 +424,10 @@ class _af_design:
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
         self.run(backprop=False)
-        buff.append({"outs":self._outs,"loss":self._loss,"losses":self._losses})
+        buff.append({"aux":self._aux,"loss":self._loss})
       
       # accept best
       buff = buff[np.argmin([x["loss"] for x in buff])]
-      self._outs, self._loss, self._losses = buff["outs"], buff["loss"], buff["losses"]
+      self._aux, self._loss = buff["aux"], buff["loss"]
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)

@@ -155,45 +155,44 @@ class _af_design:
     # save losses
     losses = jax.tree_map(float, self._aux["losses"])
     losses.update({"models":self._model_num,
-                   "recycles":self._aux["recycles"],
+                   "recycles":int(self._aux["recycles"]),
                    "loss":float(self._loss),
-                   "hard":self.opt["hard"],
-                   "soft":self.opt["soft"],
-                   "temp":self.opt["temp"]})
+                   "hard":int(self.opt["hard"]),
+                   "soft":float(self.opt["soft"]),
+                   "temp":float(self.opt["temp"])})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
       _aatype = self._aux["seq"]["hard"].argmax(-1)
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
-      losses["seqid"] = (_aatype[...,:L] == self._wt_aatype[...,:L]).mean()
+      losses["seqid"] = float((_aatype[...,:L] == self._wt_aatype[...,:L]).mean())
 
     # print losses  
     if verbose:
       SEEN = []
-      def to_str(ks, f=2):
+      
+      def to_str(ks):
         out = []
         for k in ks:
           SEEN.append(k)
           if k in losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
             out.append(f"{k}")
-            if f is None: out.append(f"{losses[k]}")
-            else: out.append(f"{losses[k]:.{f}f}")
+            v = losses[k]
+            if isinstance(v,int): f = 0
+            elif isinstance(v,float): f = 2
+            else: f = None
+            out.append(f"{v}" if f is None else f"{v:.{f}f}")
         return out
       
-      out = [to_str(["models","recycles"],None),
-             to_str(["hard"],0),
-             to_str(["soft","temp","seqid","loss"]),
-             to_str(["msa_ent","plddt","pae","helix","con",
+      out = [to_str(["models","recycles",
+                     "hard","soft","temp","seqid","loss",
+                     "msa_ent","plddt","pae","helix","con",
                      "i_pae","i_con",
                      "sc_fape","sc_rmsd",
                      "dgram_cce","fape","6D","rmsd"])]
 
       for k,v in losses.items():
-        if k not in SEEN:
-          if isinstance(v,int): f = 0
-          elif isinstance(v,float): f = 2
-          else: f = None
-          out.append(to_str([k],f))
+        if k not in SEEN: out.append(to_str([k]))
 
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")

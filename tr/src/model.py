@@ -191,3 +191,15 @@ class mk_trdesign_model():
     self._aux = _aux
     self._aux["model_num"] = model_num
     self._grad = _grad
+
+def TrDesign_callback(weight=1.0):
+  backprop = weight > 0
+  def callback(self):
+    for k in ["soft","temp","hard"]:
+      tr_model.opt[k] = self.opt[k]  
+    tr_model.run(seq=self.params["seq"][0], backprop=backprop)
+    if backprop:
+      self._grad["seq"] += weight * tr_model._grad["seq"]
+      self._loss += weight * tr_model._loss
+    self._losses["TrDesign"] = tr_model._loss
+  return callback

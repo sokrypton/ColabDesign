@@ -94,7 +94,7 @@ class mk_trdesign_model():
 
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
-  def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None):    
+  def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None, **kwargs):    
     if self.protocol in ["partial","fixbb"]:
       # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
@@ -128,20 +128,29 @@ class mk_trdesign_model():
         self.bkg_feats.append(self.bkg_model(model_params, key, self._len))
       self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
 
-    self.restart()
+    self.restart(**kwargs)
   
-  def restart(self, seed=None):
+  def update_weights(self, *args, **kwargs):
+    update_dict(self.opt["weights"], *args, **kwargs)
+
+  def update_opt(self, *args, **kwargs):
+    update_dict(self.opt, *args, **kwargs)
+
+  def restart(self, seed=None, opt=None, weights=None):
     self._seed = random.randint(0,2147483647) if seed is None else seed
     self._key = jax.random.PRNGKey(self._seed)
     self.params["seq"] = np.zeros((self._len,20))
+    self.update_opt(opt)
+    self.update_weights(weights)
     
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
-    # update settings if defined
-    update_dict(self.params, {"seq":seq})
+
+    # override settings if defined
+    update_dict(self.params, seq=seq)
     update_dict(self.params, params)
-    update_dict(self.opt, opt)
-    update_dict(self.opt, {"weights":weights})
+    self.update_opt(opt)
+    self.update_weights(weights)
     
     # decide which model params to use
     m = self.opt["model"]["num"]

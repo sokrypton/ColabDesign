@@ -2,11 +2,8 @@ import random, copy, os
 import jax
 import jax.numpy as jnp
 import numpy as np
-
 from alphafold.common import residue_constants
-
-# borrowing update_dict function from TrDesign
-from tr.src.utils import update_dict
+from af.src.utils import update_dict
 
 try:
   from jax.example_libraries.optimizers import sgd, adam

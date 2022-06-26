@@ -122,9 +122,9 @@ class mk_trdesign_model():
       # compute background distribution
       if length is not None: self._len = length
       self.bkg_feats = []
+      key = jax.random.PRNGKey(0)
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
-        self._key, key = jax.random.split(self._key)
         self.bkg_feats.append(self.bkg_model(model_params, key, self._len))
       self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
 
@@ -191,15 +191,16 @@ class mk_trdesign_model():
     self._aux = _aux
     self._aux["model_num"] = model_num
     self._grad = _grad
-
-def trdesign_callback(weight=1.0):
-  backprop = weight > 0
-  def callback(self):
-    for k in ["soft","temp","hard"]:
-      tr_model.opt[k] = self.opt[k]  
-    tr_model.run(seq=self.params["seq"][0], backprop=backprop)
-    if backprop:
-      self._grad["seq"] += weight * tr_model._grad["seq"]
-      self._loss += weight * tr_model._loss
-    self._losses["TrDesign"] = tr_model._loss
-  return callback
+  
+  def af_callback(self, weight=1.0):
+    backprop = weight > 0
+    def callback(af_model):
+      for k in ["soft","temp","hard"]:
+        self.opt[k] = af_model.opt[k]  
+      seq = af_model.params["seq"][0]
+      self.run(seq=seq, backprop=backprop)
+      if backprop:
+        af_model._grad["seq"] += weight * self._grad["seq"]
+        af_model._loss += weight * self._loss
+      af_model._losses["TrDesign"] = self._loss
+    return callback

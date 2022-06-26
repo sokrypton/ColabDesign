@@ -387,8 +387,8 @@ class _af_design:
   def design_semigreedy(self, iters=100, tries=20, dropout=False,
                         use_plddt=True, save_best=True, verbose=True):
     '''semigreedy search'''
+    
     self.set_opt(hard=True, soft=True, temp=1.0, dropout=dropout)
-
     if self._k == 0:
       self.run(backprop=False)
 
@@ -410,8 +410,12 @@ class _af_design:
         if seq[0,i,a] == 0: break      
       return seq.at[:,i,:].set(jnp.eye(A)[a])
 
+    def get_seq():
+      return jax.nn.one_hot(self.params["seq"].argmax(-1),20)
+
+    # optimize!
     for i in range(iters):
-      seq = self._aux["seq"]["hard"]
+      seq = get_seq()
       plddt = None
       if use_plddt:
         plddt = np.asarray(self._aux["plddt"])
@@ -422,12 +426,12 @@ class _af_design:
       
       buff = []
       for _ in range(tries):
-        self.params["seq"] = mut(seq, plddt)
-        self.run(backprop=False)
-        buff.append({"aux":self._aux,"loss":self._loss})
+        _seq = mut(seq, plddt)
+        self.run(seq=_seq, backprop=False)
+        buff.append({"aux":self._aux,"loss":self._loss,"seq":_seq})
       
-      # accept best
+      # accept best      
       buff = buff[np.argmin([x["loss"] for x in buff])]
-      self._aux, self._loss = buff["aux"], buff["loss"]
+      self._aux, self._loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)

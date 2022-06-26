@@ -148,6 +148,8 @@ class _af_design:
     if save_best and self._loss < self._best_loss:
       self._best_loss = self._loss
       self._best_aux = self._aux
+      # backward compatibility
+      self._best_outs = self._best_aux
 
     # save losses
     losses = {**self._aux["losses"],
@@ -185,24 +187,27 @@ class _af_design:
                      "sc_fape","sc_rmsd",
                      "dgram_cce","fape","6D","rmsd"])]
 
-      for k in losses.keys():
-        if k not in SEEN: out.append(to_str([k]))
+      for k,v in losses.items():
+        if k not in SEEN:
+          if isinstance(v,int): f = 0
+          elif isinstance(v,float): f = 2
+          else: f = None
+          out.append(to_str([k],f))
 
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    traj = {"losses":losses,
-            "seq":self._aux["seq"]["pseudo"]}
+    traj = {"losses":losses, "seq":self._aux["seq"]["pseudo"]}
     if self.use_struct:
-      traj.update({"xyz":self._aux["final_atom_positions"][:,1,:],
-                   "plddt":self._aux["plddt"]})
+      traj["xyz"] = self._aux["final_atom_positions"][:,1,:]
+      traj["plddt"] = self._aux["plddt"]
       if "pae" in self._aux:
-        traj.update({"pae":self._aux["pae"]})
+        traj["pae"] = self._aux["pae"]    
     else:
-      traj["con"] = self._aux["contact_map"]
-      
-    for k,v in traj.items(): self._traj[k].append(np.array(v))
+      traj["con"] = self._aux["contact_map"]          
+    for k,v in traj.items():
+      self._traj[k].append(np.array(v))
     
   def _recycle(self, model_params, backprop=True):                
     # initialize previous (for recycle)

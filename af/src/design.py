@@ -297,7 +297,8 @@ class _af_design:
   #-------------------------------------
   # STEP FUNCTION
   #-------------------------------------
-  def _step(self, weights=None, opt=None, lr_scale=1.0, **kwargs):
+  def _step(self, weights=None, opt=None, lr_scale=1.0,
+            extra_grad=None, extra_weight=1.0, **kwargs):
     '''do one step of gradient descent'''
 
     if opt is not None: self.opt.update(opt)
@@ -307,6 +308,8 @@ class _af_design:
 
     # normalize gradient
     g = self._grad["seq"]
+    if extra_grad is not None:
+      g = g + extra_weight * extra_grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
     self._grad["seq"] *= lr_scale * jnp.sqrt(self._len)/(gn+1e-7)
 
@@ -321,10 +324,10 @@ class _af_design:
   # DESIGN FUNCTIONS
   #-----------------------------------------------------------------------------
   def design(self, iters,
-              temp=1.0, e_temp=None,
-              soft=False, e_soft=None,
-              hard=False, dropout=True, gumbel=False, 
-              opt=None, weights=None, **kwargs):
+             temp=1.0, e_temp=None,
+             soft=False, e_soft=None,
+             hard=False, dropout=True, gumbel=False, 
+             opt=None, weights=None, extra_callback=None, **kwargs):
 
     if opt is not None: self.opt.update(opt)
     if weights is not None: self.opt["weights"].update(weights)
@@ -337,6 +340,10 @@ class _af_design:
       self.opt["soft"] = soft + (e_soft - soft) * i/(iters-1)
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
+      if extra_callback is not None:
+        extra = extra_callback(self)
+        if isinstance(extra,dict):
+          kwargs.update(extra)
       self._step(lr_scale=lr_scale, **kwargs)
 
   def design_logits(self, iters, **kwargs):

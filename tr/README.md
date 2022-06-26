@@ -1,5 +1,17 @@
 # TrDesign in JAX!
 More info to come! Currently only `fixbb` and `hallucination` protocols are supported.
+
+Download weights
+```bash
+if [ ! -d models ]; then
+  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
+  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
+  unzip -qqo models.zip
+  unzip -qqo bkgr_models.zip
+fi
+```
+
+Example
 ```python
 from af import mk_afdesign_model, clear_mem
 from tr import mk_trdesign_model

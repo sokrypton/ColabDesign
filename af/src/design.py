@@ -422,12 +422,12 @@ class _af_design:
       
       buff = []
       for _ in range(tries):
-        self.params["seq"] = mut(seq, plddt)
-        self.run(backprop=False)
-        buff.append({"aux":self._aux,"loss":self._loss})
+        self.run(seq=_seq, backprop=False)
+        _seq = self.params["seq"]
+        buff.append({"aux":self._aux,"loss":self._loss,"seq":_seq})
       
       # accept best
       buff = buff[np.argmin([x["loss"] for x in buff])]
-      self._aux, self._loss = buff["aux"], buff["loss"]
+      self._aux, self._loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)

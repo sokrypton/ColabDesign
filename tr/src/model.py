@@ -128,7 +128,7 @@ class mk_trdesign_model():
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
         self._key, key = jax.random.split(self._key)
-        self.bkg_feats.append(self.bkg_model(model_params,key,self._len))
+        self.bkg_feats.append(self.bkg_model(model_params, key, self._len))
       self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
 
     if self.params["seq"] is None:
@@ -142,15 +142,12 @@ class mk_trdesign_model():
     update_dict(self.opt, opt)
     update_dict(self.opt, {"weights":weights})
     
-    # update key
-    self._key, key = jax.random.split(self._key)
-
     # decide which model params to use
     m = self.opt["model"]["num"]
     ns = jnp.arange(5)
     if self.opt["model"]["sample"] and m != len(ns):
-      key, sub_key = jax.random.split(key)
-      model_num = jax.random.choice(sub_key,ns,(m,),replace=False)
+      self._key, key = jax.random.split(self._key)
+      model_num = jax.random.choice(key,ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()

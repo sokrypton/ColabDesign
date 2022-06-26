@@ -1,8 +1,9 @@
 # TrDesign in JAX!
-More info to come! Currently only `fixbb` and `hallucination` protocols are supported.
+Work in Progress... Currently only `fixbb` and `hallucination` protocols are supported as callbacks to AfDesign.
 
-Download weights
+### download weights
 ```bash
+%%bash
 if [ ! -d models ]; then
   wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
   wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
@@ -11,7 +12,8 @@ if [ ! -d models ]; then
 fi
 ```
 
-Example
+### example
+combine AfDesign and TrDesign for fixed backbone design 
 ```python
 from af import mk_afdesign_model, clear_mem
 from tr import mk_trdesign_model

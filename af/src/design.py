@@ -25,7 +25,6 @@ class _af_design:
       lr = 0.1 * lr_scale
     else:
       lr = lr_scale
-
     self._init_fun, self._update_fun, self._get_params = optimizer(lr)
     self._k = 0
 
@@ -189,8 +188,7 @@ class _af_design:
       
     for k,v in traj.items(): self._traj[k].append(np.array(v))
     
-  def _recycle(self, model_params, backprop=True):
-                
+  def _recycle(self, model_params, backprop=True):                
     # initialize previous (for recycle)
     L = self._inputs["residue_index"].shape[-1]
     
@@ -202,18 +200,13 @@ class _af_design:
       self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                               'prev_pair': np.zeros([L,L,128]),
                               'prev_dgram': np.zeros([L,L,64])}
-          
-    if self.args["recycle_mode"] in ["add_prev","backprop"]:
-      self.opt["recycles"] = self._runner.config.model.num_recycle
-    else:
-      self.opt["recycles"] = self._default_opt["recycles"]
-    
-    num_iters = self.opt["recycles"] + 1
+              
+    recycles = self.opt["recycles"]
     if self.args["recycle_mode"] == "average":
       # average gradient across recycles
       if backprop:
         grad = []
-      for r in range(num_iters):
+      for r in range(recycles+1):
         self._key, key = jax.random.split(self._key)
         if backprop:
           (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
@@ -226,13 +219,17 @@ class _af_design:
     else:
       if self.args["recycle_mode"] == "sample":
         self._key, key = jax.random.split(self._key)
-        self.opt["recycles"] = jax.random.randint(key, [], 0, num_iters)
+        self.opt["recycles"] = jax.random.randint(key, [], 0, recycles+1)
+      
+      self._key, key = jax.random.split(self._key)
       if backprop:
         (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
       else:
         loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
 
     aux["recycles"] = self.opt["recycles"]
+    self.opt["recycles"] = recycles
+    
     if backprop:
       return (loss, aux), grad
     else:

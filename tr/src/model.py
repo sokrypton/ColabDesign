@@ -177,8 +177,8 @@ class mk_trdesign_model():
     # average results
     if len(model_num) > 1:
       _loss = jnp.asarray(_loss).mean()
-      _aux = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_aux)
-      if backprop: _grad = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)
+      _aux = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_aux)
+      if backprop: _grad = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_grad)
     else:
       _loss,_aux = _loss[0],_aux[0]
       if backprop: _grad = _grad[0] 
@@ -202,5 +202,5 @@ class mk_trdesign_model():
       if backprop:
         af_model._grad["seq"] += weight * self._grad["seq"]
         af_model._loss += weight * self._loss
-      af_model._losses["TrDesign"] = self._loss
+      af_model._aux["losses"]["TrDesign"] = self._loss
     return callback

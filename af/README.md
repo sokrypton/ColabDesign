@@ -25,12 +25,12 @@ curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.
 ```python
 import numpy as np
 from IPython.display import HTML
-from af import *
+from af import mk_afdesign_model, clear_mem
 ```
 ### fixed backbone design
 For a given protein backbone, generate/design a new sequence that AlphaFold thinks folds into that conformation
 ```python
-model = mk_design_model(protocol="fixbb")
+model = mk_afdesign_model(protocol="fixbb")
 model.prep_inputs(pdb_filename="1TEN.pdb", chain="A")
 model.design_3stage()
 ```
@@ -38,7 +38,7 @@ model.design_3stage()
 For a given length, generate/hallucinate a protein sequence that AlphaFold thinks folds into a well structured 
 protein (high plddt, low pae, many contacts).
 ```python
-model = mk_design_model(protocol="hallucination")
+model = mk_afdesign_model(protocol="hallucination")
 model.prep_inputs(length=100)
 model.restart(seq_init="gumbel")
 model.design(50, soft=True)
@@ -50,7 +50,7 @@ For a given protein target and protein binder length, generate/hallucinate a pro
 thinks will bind to the target structure. To do this, we minimize PAE and maximize number of contacts at the 
 interface and within the binder, and we maximize pLDDT of the binder.
 ```python
-model = mk_design_model(protocol="binder")
+model = mk_afdesign_model(protocol="binder")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_len=19)
 model.design_3stage(100, 100, 10)
 ```
@@ -63,16 +63,16 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
 you can use partial hallucination.
 ```python
-model = mk_design_model(protocol="partial")
+model = mk_afdesign_model(protocol="partial")
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
 # TODO
 ```
 
 # FAQ
 #### How do I fixed the FileNotFoundError error?
-By default `mk_design_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
+By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
 ```python
-model = mk_design_model(..., data_dir="/location/of")
+model = mk_afdesign_model(..., data_dir="/location/of")
 ```
 
 #### Can I reuse the same model without needing to recompile?
@@ -86,7 +86,7 @@ model.set_weights(pae=0.0,plddt=1.0)
 WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
 #### How do I control number of recycles used during design?
 ```python 
-model = mk_design_model(num_recycles=1, recycle_mode="average")
+model = mk_afdesign_model(num_recycles=1, recycle_mode="average")
 # if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
 model.set_opt(recycles=1)
 ```
@@ -102,7 +102,7 @@ model.set_opt(recycles=1)
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_sample=False`.
 ```python
-model = mk_design_model(num_models=1, model_sample=True)
+model = mk_afdesign_model(num_models=1, model_sample=True)
 ```
 - `num_models` - number of model params to use at each iteration.
 - `model_sample`:
@@ -233,6 +233,6 @@ def design_custom(self):
   for _ in range(100): self._step()
   # etc...
   
-model = mk_design_model()
+model = mk_afdesign_model()
 design_custom(model)
 ```

@@ -32,22 +32,30 @@ pymol_cmap = matplotlib.colors.ListedColormap(pymol_color_list)
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################
 class _af_utils:
-  def get_seqs(self):
-    outs = self._outs if self._best_outs is None else self._best_outs
-    outs = jax.tree_map(lambda x:np.asarray(x), outs)
-    x = outs["seq"]["hard"].argmax(-1)
+  def get_seqs(self, get_best=True):
+    '''
+    get sequences as strings
+    - set get_best=False, to get the last sampled sequence
+    '''
+    if get_best:
+      aux = self._aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = jax.tree_map(lambda x:np.asarray(x), aux)
+    x = aux["seq"]["hard"].argmax(-1)
     return ["".join([order_restype[a] for a in s]) for s in x]
   
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''
-    return np.array([float(loss[x]) for loss in self.losses])
+    return np.array([float(loss[x]) for loss in self._traj["losses"]])
 
-  def save_pdb(self, filename=None):
-    '''save pdb coordinates'''
+  def save_pdb(self, filename=None, get_best=True):
+    '''
+    save pdb coordinates (if filename provided, otherwise return as string)
+    - set get_best=False, to get the last sampled sequence
+    '''
     if self.use_struct:
-      outs = self._outs if self._best_outs is None else self._best_outs
-      outs = jax.tree_map(lambda x:np.asarray(x), outs)
-      aatype = outs["seq"]["hard"].argmax(-1)[0]
+      aux = self._aux if (self._best_aux is None or not get_best) else self._best_aux
+      aux = jax.tree_map(lambda x:np.asarray(x), aux)
+      aatype = aux["seq"]["hard"].argmax(-1)[0]
       if self.protocol == "binder":
         aatype_target = self._batch["aatype"][:self._target_len]
         aatype = np.concatenate([aatype_target,aatype])
@@ -55,9 +63,9 @@ class _af_utils:
         aatype = np.concatenate([aatype] * self._copies)
       p = {"residue_index":self._inputs["residue_index"][0],
             "aatype":aatype,
-            "atom_positions":outs["final_atom_positions"],
-            "atom_mask":outs["final_atom_mask"]}
-      b_factors = 100.0 * outs["plddt"][:,None] * p["atom_mask"]
+            "atom_positions":aux["final_atom_positions"],
+            "atom_mask":aux["final_atom_mask"]}
+      b_factors = 100.0 * aux["plddt"][:,None] * p["atom_mask"]
       p = protein.Protein(**p,b_factors=b_factors)
       pdb_lines = protein.to_pdb(p)
       if filename is None:
@@ -69,7 +77,14 @@ class _af_utils:
   #-------------------------------------
   # plotting functions
   #-------------------------------------
-  def animate(self, s=0, e=None, dpi=100):
+  def animate(self, s=0, e=None, dpi=100, get_best=True):
+    '''
+    animate the trajectory
+    - use [s]tart and [e]nd to define range to be animated
+    - use dpi to specify the resolution of animation
+    '''
+    aux = self._aux if (self._best_aux is None or not get_best) else self._best_aux
+    
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
     length = None    
     if self.protocol == "binder":
@@ -86,13 +101,11 @@ class _af_utils:
         return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
       
       if self.protocol == "binder":
-        outs = self._outs if self._best_outs is None else self._best_outs
-        pos_ref = outs["final_atom_positions"][:,1,:]
+        pos_ref = aux["final_atom_positions"][:,1,:]
         return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
       
       if self.protocol in ["hallucination","partial"]:
-        outs = self._outs if self._best_outs is None else self._best_outs
-        pos_ref = outs["final_atom_positions"][:,1,:]
+        pos_ref = aux["final_atom_positions"][:,1,:]
         return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)      
       
     else:
@@ -102,7 +115,7 @@ class _af_utils:
                color="pLDDT", color_HP=False, size=(800,480)):
     '''
     use py3Dmol to plot pdb coordinates
-    color=["pLDDT","chain","rainbow"]
+    - color=["pLDDT","chain","rainbow"]
     '''
     if self.use_struct:
       Ls = None    
@@ -145,11 +158,11 @@ class _af_utils:
       ax1.set_ylim(0.25,64)
       ax1_.set_ylim(0,0.4)
       # extras
-      if "soft" in self.losses[0]:
+      if "soft" in self._traj["losses"][0]:
         ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
-      if "temp" in self.losses[0]:
+      if "temp" in self._traj["losses"][0]:
         ax2.plot(self.get_loss("temp"),color="orange",label="temp")
-      if "hard" in self.losses[0]:
+      if "hard" in self._traj["losses"][0]:
         ax2.plot(self.get_loss("hard"),color="red",label="hard")
       ax2.set_ylim(-0.1,1.1)
       ax2.set_xlabel("iterations")

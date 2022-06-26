@@ -131,7 +131,7 @@ class _af_utils:
       return make_animation(**sub_traj, length=length, dpi=dpi)
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
-               color="pLDDT", color_HP=False, size=(800,480)):
+               color="pLDDT", color_HP=False, size=(800,480), get_best=True):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
@@ -144,7 +144,7 @@ class _af_utils:
         Ls = [self._len]
       if self.protocol in ["hallucination","fixbb"]:
         Ls = [self._len] * self._copies
-      view = show_pdb(self.save_pdb(),
+      view = show_pdb(self.save_pdb(get_best=get_best),
                       show_sidechains=show_sidechains,
                       show_mainchains=show_mainchains,
                       color=color,
@@ -273,9 +273,9 @@ def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
     ax.yticks(ticks,alphabet_list[:len(ticks)])
   
 def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
-                   pos_ref=None, line_w=2.0,
+                   losses=None, pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
-                   length=None):
+                   length=None, **kwargs):
 
   def align(P, Q, P_trim=None):
     if P_trim is None: P_trim = P

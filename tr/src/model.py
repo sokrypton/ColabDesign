@@ -15,7 +15,7 @@ ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 class mk_trdesign_model():
   def __init__(self, protocol="fixbb", model_num=1, model_sample=True, data_dir="."):
     
-    assert protocol in ["fixbb","hallucination","partial"]
+    assert protocol in ["fixbb","hallucination"]
 
     self.protocol = protocol
     self._data_dir = data_dir
@@ -33,7 +33,7 @@ class mk_trdesign_model():
     self._model_params = [get_model_params(f"{data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
-    if protocol in ["partial","hallucination"]:
+    if protocol in ["hallucination"]:
       self.bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
@@ -51,10 +51,10 @@ class mk_trdesign_model():
       seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
       seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
 
-      if self.protocol in ["partial"]:
-        p = opt["pos"]
-        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-        seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
+      #if self.protocol in ["partial"]:
+      #  p = opt["pos"]
+      #  seq_ref = jax.nn.one_hot(self._wt_aatype,20)
+      #  seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
 
       return seq
     
@@ -63,13 +63,13 @@ class mk_trdesign_model():
 
       log_p = jax.tree_map(jax.nn.log_softmax, outputs)            
       # cce loss
-      if self.protocol in ["partial","fixbb"]:
+      if self.protocol in ["fixbb"]:
         q = self.feats
         for k in ["dist","omega","theta","phi"]:
           aux["losses"][k] = -(q[k]*log_p[k]).sum(-1).mean()
 
       # bkg loss
-      if self.protocol in ["partial","hallucination"]:
+      if self.protocol in ["hallucination"]:
         p = jax.tree_map(jax.nn.softmax, outputs)
         log_q = jax.tree_map(jax.nn.log_softmax, self.bkg_feats)
         for k in ["dist","omega","theta","phi"]:
@@ -95,7 +95,7 @@ class mk_trdesign_model():
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None, **kwargs):    
-    if self.protocol in ["partial","fixbb"]:
+    if self.protocol in ["fixbb"]:
       # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
       ref = _np_get_6D(pdb["batch"]["all_atom_positions"],
@@ -118,7 +118,7 @@ class mk_trdesign_model():
       self._wt_seq = pdb["batch"]["aatype"]
       self._len = len(self._wt_seq)
 
-    if self.protocol in ["partial","hallucination"]:
+    if self.protocol in ["hallucination"]:
       # compute background distribution
       if length is not None: self._len = length
       self.bkg_feats = []

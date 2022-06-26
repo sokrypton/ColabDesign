@@ -1,5 +1,5 @@
 # TrDesign in JAX!
-More info to come!
+More info to come! Currently only `fixbb` and `hallucination` protocols are supported.
 ```python
 from af import mk_afdesign_model, clear_mem
 from tr import mk_trdesign_model
@@ -14,3 +14,4 @@ tr_model.prep_inputs(get_pdb("1TEN"))
 af_model.restart()
 af_model.design_3stage(callback=tr_model.af_callback(weight=1.0))
 ```
+

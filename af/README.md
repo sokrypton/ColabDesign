@@ -1,4 +1,4 @@
-# AfDesign (v1.0.1) - beta branch
+# AfDesign (v1.0.1)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -17,7 +17,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
 ```bash
 pip install git+https://github.com/sokrypton/af_backprop.git
-pip install git+https://github.com/sokrypton/ColabDesign.git@beta
+pip install git+https://github.com/sokrypton/ColabDesign.git
 
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params

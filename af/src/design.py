@@ -159,7 +159,7 @@ class _af_design:
                    "loss":float(self._loss),
                    "hard":self.opt["hard"],
                    "soft":self.opt["soft"],
-                   "temp":self.opt["temp"]}
+                   "temp":self.opt["temp"]})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery

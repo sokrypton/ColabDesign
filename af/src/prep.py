@@ -91,7 +91,7 @@ class _af_prep:
     if self._redesign:      
       self._batch = pdb["batch"]
       self._wt_aatype = self._batch["aatype"][target_len:]
-      self._default_weights.update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
+      self._default_opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
                                     "con":0.0, "i_pae":0.01, "i_con":0.0})      
     else: # binder hallucination            
       # pad inputs
@@ -103,7 +103,7 @@ class _af_prep:
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
       self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_weights.update({"con":0.5, "i_pae":0.01, "i_con":0.5})
+      self._default_opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
@@ -129,7 +129,7 @@ class _af_prep:
     self.args.update({"repeat":repeat,"block_diag":block_diag})
     
     # set weights
-    self._default_weights.update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
+    self._default_opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
 
     # update residue index from pdb
     if copies > 1:
@@ -145,7 +145,7 @@ class _af_prep:
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        self._default_weights.update({"i_pae":0.01, "i_con":0.0})
+        self._default_opt["weights"].update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -167,13 +167,13 @@ class _af_prep:
     self.args.update({"block_diag":block_diag, "repeat":repeat})
     
     # set weights
-    self._default_weights.update({"con":1.0})
+    self._default_opt["weights"].update({"con":1.0})
     if copies > 1:
       if repeat:
         offset = 1
       else:
         offset = 50
-        self._default_weights.update({"i_pae":0.01, "i_con":0.1})
+        self._default_opt["weights"].update({"i_pae":0.01, "i_con":0.1})
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
 
     self.restart(set_defaults=True, **kwargs)
@@ -209,7 +209,7 @@ class _af_prep:
     if use_sidechains:
       weights.update({"sc_rmsd":0.0,"sc_fape":0.0})
       
-    self._default_weights.update(weights)
+    self._default_opt["weights"].update(weights)
     self.restart(set_defaults=True, **kwargs)
 
 #######################

@@ -177,8 +177,8 @@ class mk_trdesign_model():
     # average results
     if len(model_num) > 1:
       _loss = jnp.asarray(_loss).mean()
-      _aux = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_aux)
-      if backprop: _grad = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)
+      _aux = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_aux)
+      if backprop: _grad = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_grad)
     else:
       _loss,_aux = _loss[0],_aux[0]
       if backprop: _grad = _grad[0] 
@@ -193,7 +193,15 @@ class mk_trdesign_model():
     self._grad = _grad
   
   def af_callback(self, weight=1.0):
+    
     backprop = weight > 0
+    if self.protocol == "fixbb":
+      loss_name = "TrD_cce"
+    elif self.protocol == "hallucination":
+      loss_name = "TrD_bkg"
+    else:
+      loss_name = "TrD_total"
+      
     def callback(af_model):
       for k in ["soft","temp","hard"]:
         self.opt[k] = af_model.opt[k]  
@@ -201,6 +209,7 @@ class mk_trdesign_model():
       self.run(seq=seq, backprop=backprop)
       if backprop:
         af_model._grad["seq"] += weight * self._grad["seq"]
-        af_model._loss += weight * self._loss
-      af_model._losses["TrDesign"] = self._loss
+        af_model._loss += weight * self._loss        
+      af_model._aux["losses"][loss_name] = self._loss
+      
     return callback

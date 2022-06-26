@@ -4,7 +4,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from alphafold.common import residue_constants
-from af.src.utils import update_dict
+
+# borrowing update_dict function from TrDesign
+from tr.src.utils import update_dict
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -95,6 +97,12 @@ class _af_design:
     self.params = {"seq":x}
     self._state = self._init_fun(self.params)
 
+  def update_weights(self, *args, **kwargs):
+    update_dict(self.opt["weights"], *args, **kwargs)
+
+  def update_opt(self, *args, **kwargs):
+    update_dict(self.opt, *args, **kwargs)
+
   def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False, **kwargs):
     
     # set weights and options
@@ -114,8 +122,8 @@ class _af_design:
       self.opt = copy.deepcopy(self._default_opt)
       self.opt["weights"] = self._default_weights.copy()
 
-    update_dict(self.opt, opt)
-    update_dict(self.opt, {"weights":weights})
+    self.update_weights(weights)
+    self.update_opt(opt)
 
     # setup optimizer
     self._setup_optimizer(**kwargs)
@@ -247,10 +255,10 @@ class _af_design:
     '''run model to get outputs, losses and gradients'''
     
     # override settings if defined
-    update_dict(self.params, {"seq":seq})
+    update_dict(self.params, seq=seq)
     update_dict(self.params, params)
-    update_dict(self.opt, opt)
-    update_dict(self.opt, {"weights":weights})
+    self.update_opt(opt)
+    self.update_weights(weights)
 
     # decide which model params to use
     m = self.opt["models"]

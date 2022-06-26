@@ -39,7 +39,7 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
                          "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
                          "bias":0.0, "template_aatype":21, "template_dropout":0.15,
                          # default weights
-                         "weights:{"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}
+                         "weights":{"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}
                         }
 
     # setup which model configs to use

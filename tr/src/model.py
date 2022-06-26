@@ -192,7 +192,7 @@ class mk_trdesign_model():
     self._aux["model_num"] = model_num
     self._grad = _grad
 
-def TrDesign_callback(weight=1.0):
+def trdesign_callback(weight=1.0):
   backprop = weight > 0
   def callback(self):
     for k in ["soft","temp","hard"]:

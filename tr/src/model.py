@@ -135,18 +135,22 @@ class mk_trdesign_model():
       self.params["seq"] = np.zeros((self._len,20))
     
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
+
     # update settings if defined
     update_dict(self.params, {"seq":seq})
     update_dict(self.params, params)
     update_dict(self.opt, opt)
     update_dict(self.opt, {"weights":weights})
+    
+    # update key
+    self._key, key = jax.random.split(self._key)
 
     # decide which model params to use
     m = self.opt["model"]["num"]
     ns = jnp.arange(5)
     if self.opt["model"]["sample"] and m != len(ns):
-      self._key, key = jax.random.split(self._key)
-      model_num = jax.random.choice(key,ns,(m,),replace=False)
+      key, sub_key = jax.random.split(key)
+      model_num = jax.random.choice(sub_key,ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()
@@ -167,13 +171,16 @@ class mk_trdesign_model():
     if len(model_num) > 1:
       _loss = jnp.asarray(_loss).mean()
       _aux = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_aux)
-      if backprop:
-        _grad = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)
-      else:
-        _grad = None
+      if backprop: _grad = jax.tree_map(lambda *v: jnp.asarray(v).mean(0), *_grad)
     else:
       _loss,_aux = _loss[0],_aux[0]
-      _grad = _grad[0] if backprop else None
-    
-    return {"loss":_loss,"grad":_grad,
-            "aux":_aux,"model_num":model_num}
+      if backprop: _grad = _grad[0] 
+
+    if not backprop:
+      _grad = jax.tree_map(jnp.zeros_like, self.params)
+
+    # update
+    self._loss = _loss
+    self._aux = _aux
+    self._aux["model_num"] = model_num
+    self._grad = _grad

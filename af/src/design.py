@@ -94,33 +94,32 @@ class _af_design:
     self.params = {"seq":x}
     self._state = self._init_fun(self.params)
 
-  def set_weights(self, *args, **kwargs):
-    update_dict(self.opt["weights"], *args, **kwargs)
 
   def set_opt(self, *args, **kwargs):
-    update_dict(self.opt, *args, **kwargs)
+    update_dict(self.opt, *args, **kwargs)   
+  def set_weights(self, *args, **kwargs):
+    update_dict(self.opt["weights"], *args, **kwargs)
 
   def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False, **kwargs):
     
     # set weights and options
     if set_defaults:
-      update_dict(self._default_weights, weights)
       update_dict(self._default_opt, opt)
+      update_dict(self._default_opt["weights"], weights)
         
       if not self.use_struct:
         # remove structure module specific weights
         struct_list = ["rmsd","fape","plddt","pae"]
-        keys = list(self._default_weights.keys())
+        keys = list(self._default_opt["weights"].keys())
         for k in keys:
           if k.split("_")[-1] in struct_list:
-            self._default_weights.pop(k)
+            self._default_opt["weights"].pop(k)
     
     if not keep_history:
       self.opt = copy.deepcopy(self._default_opt)
-      self.opt["weights"] = self._default_weights.copy()
 
-    self.set_weights(weights)
     self.set_opt(opt)
+    self.set_weights(weights)
 
     # setup optimizer
     self._setup_optimizer(**kwargs)
@@ -137,9 +136,11 @@ class _af_design:
       else:
         self._traj = {"losses":[],"seq":[],"con":[]}
       self._best_loss, self._best_aux = np.inf, None
+      self._best_outs = self._best_aux
   
   def clear_best(self):
     self._best_loss, self._best_aux = p.inf, None
+    self._best_outs = self._best_aux
   
   def _save_results(self, save_best=False, verbose=True):
     '''save the results and update trajectory'''

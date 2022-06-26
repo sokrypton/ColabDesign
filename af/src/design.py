@@ -97,10 +97,10 @@ class _af_design:
     self.params = {"seq":x}
     self._state = self._init_fun(self.params)
 
-  def update_weights(self, *args, **kwargs):
+  def set_weights(self, *args, **kwargs):
     update_dict(self.opt["weights"], *args, **kwargs)
 
-  def update_opt(self, *args, **kwargs):
+  def set_opt(self, *args, **kwargs):
     update_dict(self.opt, *args, **kwargs)
 
   def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False, **kwargs):
@@ -122,8 +122,8 @@ class _af_design:
       self.opt = copy.deepcopy(self._default_opt)
       self.opt["weights"] = self._default_weights.copy()
 
-    self.update_weights(weights)
-    self.update_opt(opt)
+    self.set_weights(weights)
+    self.set_opt(opt)
 
     # setup optimizer
     self._setup_optimizer(**kwargs)
@@ -257,8 +257,8 @@ class _af_design:
     # override settings if defined
     update_dict(self.params, seq=seq)
     update_dict(self.params, params)
-    self.update_opt(opt)
-    self.update_weights(weights)
+    self.set_opt(opt)
+    self.set_weights(weights)
 
     # decide which model params to use
     m = self.opt["models"]
@@ -328,7 +328,7 @@ class _af_design:
     if opt is not None: self.opt.update(opt)
     if weights is not None: self.opt["weights"].update(weights)
       
-    self.opt.update({"hard":float(hard),"dropout":dropout,"gumbel":gumbel})
+    self.set_opt(hard=hard, dropout=dropout, gumbel=gumbel)
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
@@ -366,8 +366,7 @@ class _af_design:
     
   def template_predesign(self, iters=100, soft=True, hard=False, dropout=True, temp=1.0, **kwargs):
     '''use template for predesign stage, then increase template dropout until gone'''
-    self.opt.update({"hard":float(hard), "soft":float(soft),
-                     "dropout":dropout, "temp":temp})
+    self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp)
     for i in range(iters):
       self.opt["template_dropout"] = i/(iters-1)
       self._step(**kwargs)
@@ -375,7 +374,7 @@ class _af_design:
   def design_semigreedy(self, iters=100, tries=20, dropout=False,
                         use_plddt=True, save_best=True, verbose=True):
     '''semigreedy search'''
-    self.opt.update({"hard":1.0, "soft":1.0, "temp":1.0, "dropout":dropout})    
+    self.set_opt(hard=True, soft=True, temp=1.0, dropout=dropout)
 
     if self._k == 0:
       self.run(backprop=False)

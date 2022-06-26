@@ -158,21 +158,28 @@ class _af_design:
 
     # print losses  
     if verbose:
+      SEEN = []
       def to_str(ks, f=2):
         out = []
         for k in ks:
+          SEEN.append(k)
           if k in self._losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
             out.append(f"{k}")
             if f is None: out.append(f"{self._losses[k]}")
             else: out.append(f"{self._losses[k]:.{f}f}")
         return out
+      
       out = [to_str(["models","recycles"],None),
+             to_str(["hard"],0),
              to_str(["soft","temp","seqid","loss"]),
              to_str(["msa_ent","plddt","pae","helix","con",
                      "i_pae","i_con",
                      "sc_fape","sc_rmsd",
                      "dgram_cce","fape","6D","rmsd"])]
-            
+
+      for k in self._losses.keys():
+        if k not in SEEN: out.append(to_str([k]))
+
       print_str = " ".join(sum(out,[]))
       print(f"{self._k}\t{print_str}")
 

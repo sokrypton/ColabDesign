@@ -13,9 +13,9 @@ from af.src.design import _af_design
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
+class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
-               num_models=1, model_sample=True, model_parallel=False,
+               num_models=1, model_sample=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, use_pssm=False, data_dir=".",
                debug=False, use_struct=True):
@@ -27,11 +27,11 @@ class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
     self.use_struct = use_struct
     self.args = {"num_seq":num_seq, "use_templates":use_templates,
                  "recycle_mode": recycle_mode,
-                 "model_sample":model_sample, "model_parallel": model_parallel,
+                 "model_sample":model_sample,
                  "use_pssm":use_pssm, "debug":debug,
                  "repeat": False}
     
-    self._default_opt = {"temp":1.0, "soft":0.0, "hard":0.0,"gumbel":False,
+    self._default_opt = {"temp":1.0, "soft":1.0, "hard":1.0, "gumbel":False,
                          "dropout":True, "dropout_scale":1.0,
                          "recycles":num_recycles, "models":num_models,
                          "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
@@ -92,13 +92,7 @@ class mk_design_model(_af_prep, _af_loss, _af_design, _af_utils):
       self._model_params.append({k: params[k] for k in self._runner.params.keys()})
 
     # define gradient function
-    if self.args["model_parallel"]:
-      self._sample_params = jax.jit(lambda y,n:jax.tree_map(lambda x:x[n],y))
-      in_axes = (None,0,None,None,None)
-      self._model_params = jax.tree_util.tree_map(lambda *x:jnp.stack(x),*self._model_params)
-      self._grad_fn, self._fn = [jax.jit(jax.vmap(x,in_axes)) for x in self._get_fn()]
-    else:        
-      self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]
+    self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]
 
     # define input function
     if protocol == "fixbb":           self.prep_inputs = self._prep_fixbb

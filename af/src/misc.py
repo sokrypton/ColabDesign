@@ -309,7 +309,7 @@ def _np_get_cb(N,CA,C, use_jax=True):
   '''compute CB placement from N, CA, C'''
   return _np_extend(C, N, CA, 1.522, 1.927, -2.143, use_jax=use_jax)
   
-def _np_get_6D(all_atom_positions, all_atom_mask=None, use_jax=True):
+def _np_get_6D(all_atom_positions, all_atom_mask=None, use_jax=True, for_trrosetta=False):
   '''get 6D features (see TrRosetta paper)'''
 
   # get CB coordinate
@@ -323,12 +323,20 @@ def _np_get_6D(all_atom_positions, all_atom_mask=None, use_jax=True):
 
   # get pairwise features
   N,A,B = (out[k] for k in ["N","CA","CB"])
-  j = {"use_jax":use_jax}
-  out.update({"dist":  _np_len_pw(B,**j),
-              "phi":   _np_ang(A[...,:,None,:],B[...,:,None,:],B[...,None,:,:],**j),
-              "omega": _np_dih(A[...,:,None,:],B[...,:,None,:],B[...,None,:,:],A[...,None,:,:],**j),
-              "theta": _np_dih(N[...,:,None,:],A[...,:,None,:],B[...,:,None,:],B[...,None,:,:],**j),
-              })
+  n0 = N[...,:,None,:]
+  a0,a1 = A[...,:,None,:],A[...,None,:,:]
+  b0,b1 = B[...,:,None,:],B[...,None,:,:]
+  
+  if for_trrosetta:
+    out.update({"dist":  _np_len(b0,b1,       use_jax=use_jax),
+                "phi":   _np_ang(a0,b0,b1,    use_jax=use_jax, use_acos=True),
+                "omega": _np_dih(a0,b0,b1,a1, use_jax=use_jax, use_atan2=True),
+                "theta": _np_dih(n0,a0,b0,b1, use_jax=use_jax, use_atan2=True)})  
+  else:
+    out.update({"dist":  _np_len(b0,b1,       use_jax=use_jax),
+                "phi":   _np_ang(a0,b0,b1,    use_jax=use_jax, use_acos=False),
+                "omega": _np_dih(a0,b0,b1,a1, use_jax=use_jax, use_atan2=False),
+                "theta": _np_dih(n0,a0,b0,b1, use_jax=use_jax, use_atan2=False)})  
   return out
 
 ####################

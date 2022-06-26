@@ -100,8 +100,8 @@ class _af_design:
     
     # set weights and options
     if set_defaults:
-      if weights is not None: self._default_weights.update(weights)
-      if opt is not None: self._default_opt.update(opt)
+      update_dict(self._default_weights, weights)
+      update_dict(self._default_opt, opt)
         
       if not self.use_struct:
         # remove structure module specific weights
@@ -115,8 +115,8 @@ class _af_design:
       self.opt = copy.deepcopy(self._default_opt)
       self.opt["weights"] = self._default_weights.copy()
 
-    if weights is not None: self.opt["weights"].update(weights)
-    if opt is not None: self.opt.update(opt)
+    update_dict(self.opt, opt)
+    update_dict(self.opt, {"weights":weights})
 
     # setup optimizer
     self._setup_optimizer(**kwargs)
@@ -204,34 +204,35 @@ class _af_design:
                               'prev_dgram': np.zeros([L,L,64])}
           
     if self.args["recycle_mode"] in ["add_prev","backprop"]:
-      opt["recycles"] = self._runner.config.model.num_recycle    
+      self.opt["recycles"] = self._runner.config.model.num_recycle
+    else:
+      self.opt["recycles"] = self._default_opt["recycles"]
     
-    recycles = opt["recycles"]
+    num_iters = self.opt["recycles"] + 1
     if self.args["recycle_mode"] == "average":
       # average gradient across recycles
       if backprop:
         grad = []
-      for r in range(recycles+1):
+      for r in range(num_iters):
         self._key, key = jax.random.split(self._key)
         if backprop:
-          (loss, aux), _grad = self._grad_fn(params, model_params, self._inputs, key, opt)
+          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
           grad.append(_grad)
         else:
-          loss, aux = self._fn(params, model_params, self._inputs, key, opt)
+          loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
         self._inputs["prev"] = aux["prev"]
       if backprop:
         grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
     else:
-      _opt = copy.deepcopy(opt)
       if self.args["recycle_mode"] == "sample":
         self._key, key = jax.random.split(self._key)
-        recycles = _opt["recycle"] = jax.random.randint(key, [], 0, recycles+1)
+        self.opt["recycles"] = jax.random.randint(key, [], 0, num_iters)
       if backprop:
-        (loss, aux), grad = self._grad_fn(params, model_params, self._inputs, key, _opt)
+        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
       else:
-        loss, aux = self._fn(params, model_params, self._inputs, key, _opt)
+        loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
 
-    aux["recycles"] = recycles
+    aux["recycles"] = self.opt["recycles"]
     if backprop:
       return (loss, aux), grad
     else:

@@ -103,9 +103,9 @@ model.opt["recycles"] = 1
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_sample=False`.
 ```python
-model = mk_design_model(num_models=1, model_sample=True, model_parallel=False)
+model = mk_design_model(num_models=1, model_sample=True)
 ```
-- `num_models` - number of model params to use at each iteration. Set `model_parallel=True` to run model params in parallel, instead of serial. Running in parallel won't change the results, but may speedup runtime, if you have high-end GPUs.
+- `num_models` - number of model params to use at each iteration.
 - `model_sample`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.

@@ -193,7 +193,15 @@ class mk_trdesign_model():
     self._grad = _grad
   
   def af_callback(self, weight=1.0):
+    
     backprop = weight > 0
+    if self.protocol == "fixbb":
+      loss_name = "TrD_cce"
+    elif self.protocol == "hallucination":
+      loss_name = "TrD_bkg"
+    else:
+      loss_name = "TrD_total"
+      
     def callback(af_model):
       for k in ["soft","temp","hard"]:
         self.opt[k] = af_model.opt[k]  
@@ -201,6 +209,7 @@ class mk_trdesign_model():
       self.run(seq=seq, backprop=backprop)
       if backprop:
         af_model._grad["seq"] += weight * self._grad["seq"]
-        af_model._loss += weight * self._loss
-      af_model._aux["losses"]["TrDesign"] = self._loss
+        af_model._loss += weight * self._loss        
+      af_model._aux["losses"][loss_name] = self._loss
+      
     return callback

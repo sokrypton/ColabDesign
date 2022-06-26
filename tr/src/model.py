@@ -135,7 +135,7 @@ class mk_trdesign_model():
       self.params["seq"] = np.zeros((self._len,20))
     
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
-
+    '''run model to get outputs, losses and gradients'''
     # update settings if defined
     update_dict(self.params, {"seq":seq})
     update_dict(self.params, params)

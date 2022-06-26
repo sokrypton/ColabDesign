@@ -16,6 +16,8 @@ class mk_trdesign_model():
   def __init__(self, protocol="fixbb", model_num=1, model_sample=True,
                seed=None, data_dir="."):
     
+    assert protocol in ["fixbb","hallucination","partial"]
+
     self.protocol = protocol
     self._data_dir = data_dir
 
@@ -61,11 +63,20 @@ class mk_trdesign_model():
     
     def _get_loss(outputs, opt):
       aux = {"outputs":outputs, "losses":{}}
-      if self.protocol in ["fixbb"]:
-        log_p = jax.tree_map(jax.nn.log_softmax, outputs)
+
+      log_p = jax.tree_map(jax.nn.log_softmax, outputs)            
+      # cce loss
+      if self.protocol in ["partial","fixbb"]:
+        q = self.feats
         for k in ["dist","omega","theta","phi"]:
-          q = self.feats[k]
-          aux["losses"][k] = -(q*log_p[k]).sum(-1).mean()
+          aux["losses"][k] = -(q[k]*log_p[k]).sum(-1).mean()
+
+      # bkg loss
+      if self.protocol in ["partial","hallucination"]:
+        p = jax.tree_map(jax.nn.softmax, outputs)
+        log_q = jax.tree_map(jax.nn.log_softmax, self.bkg_feats)
+        for k in ["dist","omega","theta","phi"]:
+          aux["losses"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
 
       # weighted loss
       loss = []

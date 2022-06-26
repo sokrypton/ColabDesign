@@ -153,13 +153,13 @@ class _af_design:
       self._best_outs = self._best_aux
 
     # save losses
-    losses = {**self._aux["losses"],
-              "models":self._model_num,
-              "recycles":self._aux["recycles"],
-              "loss":self._loss,
-              "hard":self.opt["hard"],
-              "soft":self.opt["soft"],
-              "temp":self.opt["temp"]}
+    losses = jax.tree_map(float, self._aux["losses"])
+    losses.update({"models":self._model_num,
+                   "recycles":self._aux["recycles"],
+                   "loss":float(self._loss),
+                   "hard":self.opt["hard"],
+                   "soft":self.opt["soft"],
+                   "temp":self.opt["temp"]}
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
@@ -199,16 +199,14 @@ class _af_design:
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    traj = {"losses":losses, "seq":self._aux["seq"]["pseudo"]}
+    traj = {"losses":losses, "seq":np.asarray(self._aux["seq"]["pseudo"])}
     if self.use_struct:
-      traj["xyz"] = self._aux["final_atom_positions"][:,1,:]
-      traj["plddt"] = self._aux["plddt"]
-      if "pae" in self._aux:
-        traj["pae"] = self._aux["pae"]    
+      traj["xyz"] = np.asarray(self._aux["final_atom_positions"][:,1,:])
+      traj["plddt"] = np.asarray(self._aux["plddt"])
+      if "pae" in self._aux: traj["pae"] = np.asarray(self._aux["pae"])
     else:
-      traj["con"] = self._aux["contact_map"]          
-    for k,v in traj.items():
-      self._traj[k].append(np.array(v))
+      traj["con"] = np.asarray(self._aux["contact_map"])
+    for k,v in traj.items(): self._traj[k].append(v)
     
   def _recycle(self, model_params, backprop=True):                
     # initialize previous (for recycle)

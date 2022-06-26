@@ -251,7 +251,7 @@ class _af_design:
       return loss, aux
     
   def run(self, seq=None, params=None, opt=None, weights=None,
-          backprop=True, extra_callback=None):
+          backprop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
     
     # override settings if defined
@@ -291,17 +291,17 @@ class _af_design:
     self._losses = jax.tree_map(lambda *v: jnp.asarray(v).mean(), *_losses)
     self._outs = _outs[0]
     
-    if extra_callback is not None: extra_callback(self)
+    if callback is not None: callback(self)
 
   #-------------------------------------
   # STEP FUNCTION
   #-------------------------------------
   def _step(self, weights=None, opt=None,
-            lr_scale=1.0, extra_callback=None, **kwargs):
+            lr_scale=1.0, callback=None, **kwargs):
     '''do one step of gradient descent'''
     
     # update
-    self.run(weights=weights, opt=opt, extra_callback=extra_callback)
+    self.run(weights=weights, opt=opt, callback=callback)
 
     # normalize gradient
     g = self._grad["seq"]
@@ -323,7 +323,7 @@ class _af_design:
              temp=1.0, e_temp=None,
              soft=False, e_soft=None,
              hard=False, dropout=True, gumbel=False, 
-             opt=None, weights=None, extra_callback=None, **kwargs):
+             opt=None, weights=None, callback=None, **kwargs):
 
     if opt is not None: self.opt.update(opt)
     if weights is not None: self.opt["weights"].update(weights)
@@ -336,7 +336,7 @@ class _af_design:
       self.opt["soft"] = soft + (e_soft - soft) * i/(iters-1)
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
-      self._step(lr_scale=lr_scale, extra_callback=extra_callback, **kwargs)
+      self._step(lr_scale=lr_scale, callback=callback, **kwargs)
 
   def design_logits(self, iters, **kwargs):
     '''optimize logits'''

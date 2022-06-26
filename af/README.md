@@ -81,15 +81,14 @@ model.restart()
 ```
 #### How do I change the loss weights?
 ```python
-model.opt["weights"].update({"pae":0.0,"plddt":1.0})
-model.opt["weights"]["pae"] = 0.0
+model.set_weights(pae=0.0,plddt=1.0)
 ```
 WARNING: When setting weights be careful to use floats (instead of `1`, use `1.0`), otherwise this triggers recompile.
 #### How do I control number of recycles used during design?
 ```python 
 model = mk_design_model(num_recycles=1, recycle_mode="average")
 # if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
-model.opt["recycles"] = 1
+model.set_opt(recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
@@ -112,11 +111,11 @@ model = mk_design_model(num_models=1, model_sample=True)
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
 ```python
-model.opt["con"].update({"cutoff":8.0,"seqsep":5,"num":1})
+model.set_opt(con=dict(cutoff=8, seqsep=5, num=1))
 ```
 For interface:
 ```python
-model.opt["i_con"].update(...)
+model.set_opt(i_con=dict(...))
 ```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python
@@ -130,7 +129,7 @@ model.prep_inputs(..., chain="A,B")
 ```python
 model.prep_inputs(..., copies=2)
 # specify interface specific contact and/or pae loss
-model.opt["weights"].update({"i_con":0.0, "i_pae":0.0})
+model.set_weights(i_con=1, i_pae=0)
 ```
 #### For fixed backbone design, how do I force the sequence to be the same for homo-dimer optimization?
 ```python
@@ -187,7 +186,8 @@ Instead, one can try (`tries`) a few random mutations and accept one with lowest
 ```python
 model.design_3stage(hard_iters=0)
 # set number of model params to evaluate at each iteration
-model.opt["models"] = 2 if model.args["use_templates"] else 5
+num_models = 2 if model.args["use_templates"] else 5
+model.set_opt(models=num_models)
 model.design_semigreedy(iters=10, tries=20, use_plddt=True)
 ```
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
@@ -196,39 +196,39 @@ Please send us a note if you find something better! To revert back to old settin
 - fixbb:
 ```python
 model.restart()
-model.opt["weights"].update({"dgram_cce":1.0,"pae":0.1,"plddt":0.1})
+model.set_weights(dgram_cce=1,pae=0.1,plddt=0.1)
 model.design_3stage()
 ```
 - hallucination:
 ```python
 model.restart(mode="gumbel")
-model.opt["weights"].update({"pae":1.0,"plddt":1.0,"con":0.5})
-model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._len, "seqsep":0})
+model.set_weights(pae=1,plddt=1,con=0.5)
+model.set_opt(con=dict(binary=True, cutoff=21.6875, num=model._len, seqsep=0))
 model.design_2stage(100,100,10)
 ```
 - binder hallucination:
 ```python
 model.restart()
-model.opt["weights"].update({"plddt":0.1, "pae":0.1, "i_pae":1.0, "con":0.1, "i_con":0.5})
-model.opt["con"].update({"binary":True, "cutoff":21.6875, "num":model._binder_len, "seqsep":0})
-model.opt["i_con"].update({"binary":True, "cutoff":21.6875, "num":model._binder_len})
+model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, i_con=0.5)
+model.set_opt(con=dict(binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0))
+model.set_opt(i_con=dict(binary=True, cutoff=21.6875, num=model._binder_len))
 model.design_3stage(100,100,10)
 ```
 #### I don't like your design_??? function, can I write my own with more detailed control?
 ```python
 def design_custom(self):
   # set options
-  self.opt.update({"dropout":True, "soft":0.0, "hard":False"})
+  self.set_opt(dropout=True, soft=0, hard=False)
   # set number of recycles
-  self.opt["recycles"] = 0
+  self.set_opt(recycles=0)
   # take 100 steps
   for _ in range(100): self._step()
   # increase weight for plddt
-  self.opt["weights"].update({"plddt":2.0})
+  self.set_weights(plddt=2.0)
   # take another 100 steps
   for _ in range(100): self._step()
   # increase number of recycles
-  self.opt["recycles"] = 1
+  self.set_opt(recycles=1)
   # take another 100 steps
   for _ in range(100): self._step()
   # etc...

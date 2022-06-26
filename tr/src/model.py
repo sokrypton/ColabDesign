@@ -13,8 +13,7 @@ from alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 class mk_trdesign_model():
-  def __init__(self, protocol="fixbb", model_num=1, model_sample=True,
-               seed=None, data_dir="."):
+  def __init__(self, protocol="fixbb", model_num=1, model_sample=True, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","partial"]
 
@@ -28,8 +27,6 @@ class mk_trdesign_model():
                 "model":{"num":model_num,"sample":model_sample}}
                 
     self.params = {"seq":None}
-    self._seed = random.randint(0,2147483647) if seed is None else seed
-    self._key = jax.random.PRNGKey(self._seed)
 
     # setup model
     self._runner = TrRosetta()
@@ -131,8 +128,12 @@ class mk_trdesign_model():
         self.bkg_feats.append(self.bkg_model(model_params, key, self._len))
       self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
 
-    if self.params["seq"] is None:
-      self.params["seq"] = np.zeros((self._len,20))
+    self.restart()
+  
+  def restart(self, seed=None):
+    self._seed = random.randint(0,2147483647) if seed is None else seed
+    self._key = jax.random.PRNGKey(self._seed)
+    self.params["seq"] = np.zeros((self._len,20))
     
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
     '''run model to get outputs, losses and gradients'''

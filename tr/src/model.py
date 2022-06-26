@@ -130,18 +130,18 @@ class mk_trdesign_model():
 
     self.restart(**kwargs)
   
-  def update_weights(self, *args, **kwargs):
+  def set_weights(self, *args, **kwargs):
     update_dict(self.opt["weights"], *args, **kwargs)
 
-  def update_opt(self, *args, **kwargs):
+  def set_opt(self, *args, **kwargs):
     update_dict(self.opt, *args, **kwargs)
 
   def restart(self, seed=None, opt=None, weights=None):
     self._seed = random.randint(0,2147483647) if seed is None else seed
     self._key = jax.random.PRNGKey(self._seed)
     self.params["seq"] = np.zeros((self._len,20))
-    self.update_opt(opt)
-    self.update_weights(weights)
+    self.set_opt(opt)
+    self.set_weights(weights)
     
   def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -149,8 +149,8 @@ class mk_trdesign_model():
     # override settings if defined
     update_dict(self.params, seq=seq)
     update_dict(self.params, params)
-    self.update_opt(opt)
-    self.update_weights(weights)
+    self.set_opt(opt)
+    self.set_weights(weights)
     
     # decide which model params to use
     m = self.opt["model"]["num"]

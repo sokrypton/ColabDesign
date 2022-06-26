@@ -1,4 +1,4 @@
-# AfDesign (v1.0.0) - beta branch
+# AfDesign (v1.0.1) - beta branch
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -11,6 +11,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
 - **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
 - **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
+- **29June2022** - refactoring some of the code to add support for callbacks. First experimental callback added: TrRosetta!
 
 ### setup
 - **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.

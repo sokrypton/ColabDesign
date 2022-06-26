@@ -13,8 +13,10 @@ def update_dict(D, *args, **kwargs):
           set_dict(d[k], x[k])
         elif isinstance(d[k],dict):
           print(f"ERROR: '{k}' is a dictionary")
-        else:
+        elif type(d[k]) in [int,float,bool,str]:
           d[k] = type(d[k])(v)
+        else:
+          d[k] = v
       else:
         print(f"ERROR: '{k}' not found in {list(d.keys())}")
   

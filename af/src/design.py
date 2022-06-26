@@ -216,7 +216,11 @@ class _af_design:
                               'prev_pair': np.zeros([L,L,128]),
                               'prev_dgram': np.zeros([L,L,64])}
               
+    if self.args["recycle_mode"] in ["backprop","add_prev"]:
+      self.opt["recycles"] = self._runner.config.model.num_recycle
+
     recycles = self.opt["recycles"]
+
     if self.args["recycle_mode"] == "average":
       # average gradient across recycles
       if backprop:

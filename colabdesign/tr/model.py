@@ -138,14 +138,8 @@ class mk_trdesign_model():
     self.set_opt(opt)
     self.set_weights(weights)
     
-  def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
+  def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
-
-    # override settings if defined
-    update_dict(self.params, seq=seq)
-    update_dict(self.params, params)
-    self.set_opt(opt)
-    self.set_weights(weights)
     
     # decide which model params to use
     m = self.opt["model"]["num"]
@@ -186,10 +180,22 @@ class mk_trdesign_model():
     self.aux = _aux
     self.aux["model_num"] = model_num
     self.grad = _grad
-  
+
+  def step(self, backprop=True, callback=None):
+    # TODO
+    self.run(backprop=backprop)
+    if callback is not None: callback(self)
+
+  def design(self, iters=100, opt=None, weights=None, **kwargs):
+    # TODO
+    self.set_opt(opt)
+    self.set_weights(weights)
+    for _ in range(iters):
+      self.step(**kwargs)
+
   def af_callback(self, weight=1.0, add_loss=True):
     def get_loss(k):
-      losses = self._aux["losses"][k]
+      losses = self.aux["losses"][k]
       weights = self.opt["weights"][k]
       weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
       return sum(jax.tree_leaves(weighted_losses))
@@ -199,18 +205,20 @@ class mk_trdesign_model():
       # copy [opt]ions from afdesign
       for k in ["soft","temp","hard","pos"]:
         if k in self.opt and k in af_model.opt:
-          self.opt[k] = af_model.opt[k]          
+          self.opt[k] = af_model.opt[k]
+
+      # update sequence input
       self.params["seq"] = af_model.params["seq"][0]
       
       # run trdesign
       self.run(backprop = weight > 0)
       
       # add gradients
-      af_model.grad["seq"] += weight * self._grad["seq"]
+      af_model.grad["seq"] += weight * self.grad["seq"]
       
       # add loss
       if add_loss:
-        af_model.loss += weight * self._loss
+        af_model.loss += weight * self.loss
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:

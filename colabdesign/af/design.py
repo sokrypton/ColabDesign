@@ -156,7 +156,7 @@ class _af_design:
 
     # save losses
     losses = jax.tree_map(float, self.aux["losses"])
-    losses.update({"models":model_num,
+    losses.update({"models":self.aux["model_num"],
                    "recycles":int(self.aux["recycles"]),
                    "loss":float(self.loss),
                    "hard":int(self.opt["hard"]),

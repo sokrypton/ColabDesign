@@ -5,7 +5,7 @@ import numpy as np
 from alphafold.model import data, config, model
 
 from colabdesign.af.prep import _af_prep
-from colabdesign.afloss import _af_loss
+from colabdesign.af.loss import _af_loss
 from colabdesign.af.utils import _af_utils
 from colabdesign.af.design import _af_design
 

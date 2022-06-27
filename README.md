@@ -1,8 +1,8 @@
 # ColabDesign
 ### Making Protein Design accessible to all via Google Colab! 
 
-- [TrDesign](https://github.com/gjoni/trDesign/tree/master/02-GD) - using TrRosetta for design (support for TrMRF coming soon)
-- [AfDesign](https://github.com/sokrypton/ColabDesign/tree/beta/af) - using AlphaFold for design
+- [TrDesign](/tr) - using TrRosetta for design (support for TrMRF coming soon)
+- [AfDesign](/af) - using AlphaFold for design
 - [RfDesign](https://github.com/RosettaCommons/RFDesign) - using RoseTTAFold for design
 
 ### Presentations

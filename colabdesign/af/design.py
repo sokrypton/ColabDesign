@@ -341,8 +341,8 @@ class _af_design:
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
-      self.opt["temp"] = e_temp + (temp - e_temp) * (1-i/(iters-1)) ** 2
-      self.opt["soft"] = soft + (e_soft - soft) * i/(iters-1)
+      self.opt["temp"] = e_temp + (temp - e_temp) * (1 - (i+1)/iters) ** 2
+      self.opt["soft"] = soft + (e_soft - soft) * ((i+1)/iters)
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
       self.step(lr_scale=lr_scale, callback=callback, **kwargs)

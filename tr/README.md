@@ -1,6 +1,9 @@
 # TrDesign in JAX!
 Work in Progress...
-Currently only `fixbb` and `hallucination` protocols are supported as callbacks to AfDesign. Experimental support for `partial` added.
+Currently only `fixbb` and `hallucination` protocols are supported as callbacks to AfDesign.
+Experimental support for `partial` added.
+
+For original version implemented in keras see: https://github.com/gjoni/trDesign/tree/master/02-GD
 
 ### download weights
 ```bash

@@ -22,8 +22,7 @@ class mk_trdesign_model():
 
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                "weights":{"dist":0.25,"omega":0.25,
-                           "theta":0.25,"phi":0.25},
+                "weights":{},
                 "model":{"num":model_num,"sample":model_sample}}
                 
     self.params = {"seq":None}
@@ -65,24 +64,21 @@ class mk_trdesign_model():
       # cce loss
       if self.protocol in ["fixbb"]:
         q = self.feats
+        aux["losses"]["cce"] = {}
         for k in ["dist","omega","theta","phi"]:
-          aux["losses"][k] = -(q[k]*log_p[k]).sum(-1).mean()
+          aux["losses"]["cce"][k] = -(q[k]*log_p[k]).sum(-1).mean()
 
       # bkg loss
       if self.protocol in ["hallucination"]:
         p = jax.tree_map(jax.nn.softmax, outputs)
         log_q = jax.tree_map(jax.nn.log_softmax, self.bkg_feats)
+        aux["losses"]["bkg"] = {}
         for k in ["dist","omega","theta","phi"]:
-          aux["losses"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
+          aux["losses"]["bkg"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
 
       # weighted loss
-      loss = []
-      losses_keys = list(aux["losses"].keys())
-      for k in losses_keys:
-        if k in opt["weights"]:
-          loss.append(aux["losses"][k] * opt["weights"][k])
-        else:
-          aux["losses"].pop(k)
+      weighted_losses = jax.tree_map(lambda l, w: l * w, aux["losses"],opt["weights"])
+      loss = jax.tree_leaves(weighted_losses)
       return sum(loss), aux
 
     def _model(params, model_params, opt):
@@ -95,30 +91,16 @@ class mk_trdesign_model():
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None, **kwargs):    
-    if self.protocol in ["fixbb"]:
+    if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
-      pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
-      ref = _np_get_6D(pdb["batch"]["all_atom_positions"],
-                      pdb["batch"]["all_atom_mask"],
-                      use_jax=False, for_trrosetta=True)
-      ref = jax.tree_map(jnp.squeeze,ref)
-
-      def mtx2bins(x_ref, start, end, nbins, mask):
-        bins = np.linspace(start, end, nbins)
-        x_true = np.digitize(x_ref, bins).astype(np.uint8)
-        x_true[mask] = 0
-        return np.eye(nbins+1)[x_true][...,:-1]
-
-      mask = (ref["dist"] > 20) | (np.eye(ref["dist"].shape[0]) == 1)
-      self.feats = {"dist":mtx2bins(ref["dist"],     2.0,  20.0,  37, mask=mask),
-                    "omega":mtx2bins(ref["omega"], -np.pi, np.pi, 25,  mask=mask),
-                    "theta":mtx2bins(ref["theta"], -np.pi, np.pi, 25,  mask=mask),
-                    "phi":  mtx2bins(ref["phi"],      0.0, np.pi, 13,  mask=mask)}
-      
+      pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)      
+      self.feats = _np_get_6D_binned(pdb["batch"]["all_atom_positions"],
+                                     pdb["batch"]["all_atom_mask"])      
       self._wt_seq = pdb["batch"]["aatype"]
       self._len = len(self._wt_seq)
+      self.opt["weights"]["cce"] = {"dist":0.25,"omega":0.25,"theta":0.25,"phi":0.25}
 
-    if self.protocol in ["hallucination"]:
+    if self.protocol in ["hallucination", "partial"]:
       # compute background distribution
       if length is not None: self._len = length
       self.bkg_feats = []
@@ -127,6 +109,7 @@ class mk_trdesign_model():
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
         self.bkg_feats.append(self.bkg_model(model_params, key, self._len))
       self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
+      self.opt["weights"]["bkg"] = {"dist":0.25,"omega":0.25,"theta":0.25,"phi":0.25}
 
     self.restart(**kwargs)
   
@@ -213,3 +196,22 @@ class mk_trdesign_model():
       af_model._aux["losses"][loss_name] = self._loss
       
     return callback
+
+def _np_get_6D_binned(all_atom_positions, all_atom_mask):
+  # TODO: make differentiable, add use_jax option
+  ref = _np_get_6D(all_atom_positions,
+                   all_atom_mask,
+                   use_jax=False, for_trrosetta=True)
+  ref = jax.tree_map(jnp.squeeze,ref)
+
+  def mtx2bins(x_ref, start, end, nbins, mask):
+    bins = np.linspace(start, end, nbins)
+    x_true = np.digitize(x_ref, bins).astype(np.uint8)
+    x_true[mask] = 0
+    return np.eye(nbins+1)[x_true][...,:-1]
+
+  mask = (ref["dist"] > 20) | (np.eye(ref["dist"].shape[0]) == 1)
+  return {"dist":mtx2bins(ref["dist"],     2.0,  20.0,  37,  mask=mask),
+          "omega":mtx2bins(ref["omega"], -np.pi, np.pi, 25,  mask=mask),
+          "theta":mtx2bins(ref["theta"], -np.pi, np.pi, 25,  mask=mask),
+          "phi":  mtx2bins(ref["phi"],      0.0, np.pi, 13,  mask=mask)}

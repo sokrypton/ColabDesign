@@ -188,24 +188,25 @@ class mk_trdesign_model():
     self._grad = _grad
   
   def af_callback(self, weight=1.0):
-    
-    backprop = weight > 0
-    if self.protocol == "fixbb":
-      loss_name = "TrD_cce"
-    elif self.protocol == "hallucination":
-      loss_name = "TrD_bkg"
-    else:
-      loss_name = "TrD_total"
-      
+    backprop = weight > 0      
+    def get_loss(k):
+      losses = self._aux["losses"][k]
+      weights = self.opt["weights"][k]
+      weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
+      return sum(jax.tree_leaves(weighted_losses))
     def callback(af_model):
-      for k in ["soft","temp","hard"]:
-        self.opt[k] = af_model.opt[k]  
+      for k in ["soft","temp","hard","pos"]:
+        if k in self.opt and k in af_model.opt:
+          self.opt[k] = af_model.opt[k]
       seq = af_model.params["seq"][0]
       self.run(seq=seq, backprop=backprop)
       if backprop:
         af_model._grad["seq"] += weight * self._grad["seq"]
         af_model._loss += weight * self._loss        
-      af_model._aux["losses"][loss_name] = self._loss
+      if self.protocol in ["hallucination","partial"]:
+        af_model._aux["losses"]["TrD_bkg"] = get_loss("bkg")
+      if self.protocol in ["fixbb","partial"]:
+        af_model._aux["losses"]["TrD_cce"] = get_loss("cce")
       
     return callback
 

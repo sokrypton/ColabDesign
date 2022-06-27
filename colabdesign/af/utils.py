@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from af.src.misc import jalview_color_list, _np_kabsch, order_restype
+from colabdesign.af.misc import jalview_color_list, _np_kabsch, order_restype
 from alphafold.common import protein
 
 # import matplotlib
@@ -57,7 +57,7 @@ class _af_utils:
     get sequences as strings
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self._aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     aux = jax.tree_map(lambda x:np.asarray(x), aux)
     x = aux["seq"]["hard"].argmax(-1)
     return ["".join([order_restype[a] for a in s]) for s in x]
@@ -72,7 +72,7 @@ class _af_utils:
     - set get_best=False, to get the last sampled sequence
     '''
     if self.use_struct:
-      aux = self._aux if (self._best_aux is None or not get_best) else self._best_aux
+      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
       aux = jax.tree_map(lambda x:np.asarray(x), aux)
       aatype = aux["seq"]["hard"].argmax(-1)[0]
       if self.protocol == "binder":
@@ -102,7 +102,7 @@ class _af_utils:
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
     '''
-    aux = self._aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}
     length = None    

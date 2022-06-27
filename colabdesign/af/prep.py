@@ -9,7 +9,7 @@ from alphafold.common import protein, residue_constants
 from alphafold.model import all_atom
 from alphafold.model.tf import shape_placeholders
 
-from af.src.misc import _np_get_cb
+from colabdesign.af.misc import _np_get_cb
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 #################################################

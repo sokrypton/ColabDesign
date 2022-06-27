@@ -26,7 +26,7 @@ curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.
 ```python
 import numpy as np
 from IPython.display import HTML
-from af import mk_afdesign_model, clear_mem
+from colabdesign.af import mk_afdesign_model, clear_mem
 ```
 ### fixed backbone design
 For a given protein backbone, generate/design a new sequence that AlphaFold thinks folds into that conformation

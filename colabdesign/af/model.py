@@ -4,10 +4,10 @@ import numpy as np
 
 from alphafold.model import data, config, model
 
-from af.src.prep import _af_prep
-from af.src.loss import _af_loss
-from af.src.utils import _af_utils
-from af.src.design import _af_design
+from colabdesign.af.prep import _af_prep
+from colabdesign.afloss import _af_loss
+from colabdesign.af.utils import _af_utils
+from colabdesign.af.design import _af_design
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together

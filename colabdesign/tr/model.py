@@ -3,12 +3,12 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from tr.src.utils import update_dict
-from tr.src.trrosetta import TrRosetta, get_model_params
+from colabdesign.tr.utils import update_dict
+from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
-from af.src.misc import _np_get_6D
-from af.src.prep import prep_pdb, prep_pos
+from colabdesign.af.misc import _np_get_6D
+from colabdesign.af.prep import prep_pdb, prep_pos
 from alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 

@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from alphafold.common import residue_constants
-from af.src.utils import update_dict
+from colabdesign.af.utils import update_dict
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -234,7 +234,7 @@ class _af_design:
       for r in range(recycles+1):
         self._key, key = jax.random.split(self._key)
         if backprop:
-          (loss, aux), _grad = self.grad_fn(self.params, model_params, self._inputs, key, self.opt)
+          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
           grad.append(_grad)
         else:
           loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
@@ -248,7 +248,7 @@ class _af_design:
       
       self._key, key = jax.random.split(self._key)
       if backprop:
-        (loss, aux), grad = self.grad_fn(self.params, model_params, self._inputs, key, self.opt)
+        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
       else:
         loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
 

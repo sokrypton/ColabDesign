@@ -259,7 +259,7 @@ class _af_design:
       return loss, aux
     
   def run(self, seq=None, params=None, opt=None, weights=None,
-          backprop=True, callback=None):
+          backprop=True):
     '''run model to get outputs, losses and gradients'''
     
     # override settings if defined
@@ -302,9 +302,7 @@ class _af_design:
     self._aux["losses"] = jax.tree_map(lambda v: v.mean(0), _aux["losses"])
     
     # backward compatibility
-    self._outs = self._aux
-        
-    if callback is not None: callback(self)
+    self._outs = self._aux    
 
   #-------------------------------------
   # STEP FUNCTION
@@ -314,7 +312,8 @@ class _af_design:
     '''do one step of gradient descent'''
     
     # update
-    self.run(weights=weights, opt=opt, callback=callback, backprop=backprop)
+    self.run(weights=weights, opt=opt, backprop=backprop)
+    if callback is not None: callback(self)
 
     # normalize gradient
     g = self._grad["seq"]

@@ -310,11 +310,11 @@ class _af_design:
   # STEP FUNCTION
   #-------------------------------------
   def _step(self, weights=None, opt=None,
-            lr_scale=1.0, callback=None, **kwargs):
+            lr_scale=1.0, callback=None, backprop=True, **kwargs):
     '''do one step of gradient descent'''
     
     # update
-    self.run(weights=weights, opt=opt, callback=callback)
+    self.run(weights=weights, opt=opt, callback=callback, backprop=backprop)
 
     # normalize gradient
     g = self._grad["seq"]

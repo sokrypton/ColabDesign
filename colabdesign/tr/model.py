@@ -3,12 +3,12 @@ import numpy as np
 import jax
 import jax.numpy as jnp
 
-from tr.src.utils import update_dict
-from tr.src.trrosetta import TrRosetta, get_model_params
+from colabdesign.tr.utils import update_dict
+from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
-from af.src.misc import _np_get_6D
-from af.src.prep import prep_pdb, prep_pos
+from colabdesign.af.misc import _np_get_6D
+from colabdesign.af.prep import prep_pdb, prep_pos
 from alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
@@ -138,14 +138,8 @@ class mk_trdesign_model():
     self.set_opt(opt)
     self.set_weights(weights)
     
-  def run(self, seq=None, params=None, opt=None, weights=None, backprop=True):
+  def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
-
-    # override settings if defined
-    update_dict(self.params, seq=seq)
-    update_dict(self.params, params)
-    self.set_opt(opt)
-    self.set_weights(weights)
     
     # decide which model params to use
     m = self.opt["model"]["num"]
@@ -182,32 +176,55 @@ class mk_trdesign_model():
       _grad = jax.tree_map(jnp.zeros_like, self.params)
 
     # update
-    self._loss = _loss
-    self._aux = _aux
-    self._aux["model_num"] = model_num
-    self._grad = _grad
-  
+    self.loss = _loss
+    self.aux = _aux
+    self.aux["model_num"] = model_num
+    self.grad = _grad
+
+  def step(self, backprop=True, callback=None):
+    # TODO
+    self.run(backprop=backprop)
+    if callback is not None: callback(self)
+
+  def design(self, iters=100, opt=None, weights=None, **kwargs):
+    # TODO
+    self.set_opt(opt)
+    self.set_weights(weights)
+    for _ in range(iters):
+      self.step(**kwargs)
+
   def af_callback(self, weight=1.0, add_loss=True):
-    backprop = weight > 0      
     def get_loss(k):
-      losses = self._aux["losses"][k]
+      losses = self.aux["losses"][k]
       weights = self.opt["weights"][k]
       weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
       return sum(jax.tree_leaves(weighted_losses))
+    
     def callback(af_model):
+      
+      # copy [opt]ions from afdesign
       for k in ["soft","temp","hard","pos"]:
         if k in self.opt and k in af_model.opt:
           self.opt[k] = af_model.opt[k]
-      seq = af_model.params["seq"][0]
-      self.run(seq=seq, backprop=backprop)
-      if backprop:
-        af_model._grad["seq"] += weight * self._grad["seq"]
+
+      # update sequence input
+      self.params["seq"] = af_model.params["seq"][0]
+      
+      # run trdesign
+      self.run(backprop = weight > 0)
+      
+      # add gradients
+      af_model.grad["seq"] += weight * self.grad["seq"]
+      
+      # add loss
       if add_loss:
-        af_model._loss += weight * self._loss
+        af_model.loss += weight * self.loss
+        
+      # for verbose printout
       if self.protocol in ["hallucination","partial"]:
-        af_model._aux["losses"]["TrD_bkg"] = get_loss("bkg")
+        af_model.aux["losses"]["TrD_bkg"] = get_loss("bkg")
       if self.protocol in ["fixbb","partial"]:
-        af_model._aux["losses"]["TrD_cce"] = get_loss("cce")
+        af_model.aux["losses"]["TrD_cce"] = get_loss("cce")
       
     return callback
 

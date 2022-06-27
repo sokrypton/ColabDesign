@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from alphafold.common import residue_constants
-from af.src.utils import update_dict
+from colabdesign.af.utils import update_dict
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -24,6 +24,7 @@ class _af_design:
       lr = 0.1 * lr_scale
     else:
       lr = lr_scale
+      
     self._init_fun, self._update_fun, self._get_params = optimizer(lr)
     self._k = 0
 
@@ -96,7 +97,8 @@ class _af_design:
 
 
   def set_opt(self, *args, **kwargs):
-    update_dict(self.opt, *args, **kwargs)   
+    update_dict(self.opt, *args, **kwargs)
+    
   def set_weights(self, *args, **kwargs):
     update_dict(self.opt["weights"], *args, **kwargs)
 
@@ -146,24 +148,24 @@ class _af_design:
     '''save the results and update trajectory'''
 
     # save best result
-    if save_best and self._loss < self._best_loss:
-      self._best_loss = self._loss
-      self._best_aux = self._aux
+    if save_best and self.loss < self._best_loss:
+      self._best_loss = self.loss
+      self._best_aux = self.aux
       # backward compatibility
       self._best_outs = self._best_aux
 
     # save losses
-    losses = jax.tree_map(float, self._aux["losses"])
-    losses.update({"models":self._model_num,
-                   "recycles":int(self._aux["recycles"]),
-                   "loss":float(self._loss),
+    losses = jax.tree_map(float, self.aux["losses"])
+    losses.update({"models":self.aux["model_num"],
+                   "recycles":int(self.aux["recycles"]),
+                   "loss":float(self.loss),
                    "hard":int(self.opt["hard"]),
                    "soft":float(self.opt["soft"]),
                    "temp":float(self.opt["temp"])})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
-      _aatype = self._aux["seq"]["hard"].argmax(-1)
+      _aatype = self.aux["seq"]["hard"].argmax(-1)
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
       losses["seqid"] = float((_aatype[...,:L] == self._wt_aatype[...,:L]).mean())
 
@@ -198,13 +200,13 @@ class _af_design:
       print(f"{self._k}\t{print_str}")
 
     # save trajectory
-    traj = {"losses":losses, "seq":np.asarray(self._aux["seq"]["pseudo"])}
+    traj = {"losses":losses, "seq":np.asarray(self.aux["seq"]["pseudo"])}
     if self.use_struct:
-      traj["xyz"] = np.asarray(self._aux["final_atom_positions"][:,1,:])
-      traj["plddt"] = np.asarray(self._aux["plddt"])
-      if "pae" in self._aux: traj["pae"] = np.asarray(self._aux["pae"])
+      traj["xyz"] = np.asarray(self.aux["final_atom_positions"][:,1,:])
+      traj["plddt"] = np.asarray(self.aux["plddt"])
+      if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     else:
-      traj["con"] = np.asarray(self._aux["contact_map"])
+      traj["con"] = np.asarray(self.aux["contact_map"])
     for k,v in traj.items(): self._traj[k].append(v)
     
   def _recycle(self, model_params, backprop=True):                
@@ -258,28 +260,22 @@ class _af_design:
     else:
       return loss, aux
     
-  def run(self, seq=None, params=None, opt=None, weights=None,
-          backprop=True, callback=None):
+  def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
     
-    # override settings if defined
-    update_dict(self.params, seq=seq)
-    update_dict(self.params, params)
-    self.set_opt(opt)
-    self.set_weights(weights)
-
     # decide which model params to use
     m = self.opt["models"]
     ns = jnp.arange(2) if self.args["use_templates"] else jnp.arange(5)
     if self.args["model_sample"] and m != len(ns):
       self._key, key = jax.random.split(self._key)
-      self._model_num = jax.random.choice(key,ns,(m,),replace=False)
+      model_num = jax.random.choice(key,ns,(m,),replace=False)
     else:
-      self._model_num = ns[:m]
+      model_num = ns[:m]
+    model_num = np.array(model_num).tolist()    
     
-    self._model_num = np.array(self._model_num).tolist()    
+    # loop through model params
     _loss, _aux, _grad = [],[],[]
-    for n in self._model_num:
+    for n in model_num:
       p = self._model_params[n]
       if backprop:
         (l,a),g = self._recycle(p)
@@ -288,41 +284,40 @@ class _af_design:
         l,a = self._recycle(p, backprop=False)
       _loss.append(l); _aux.append(a)
 
-    # update
+    # update gradients
     if backprop:
-      self._grad = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_grad)
+      self.grad = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_grad)
     else:
-      self._grad = jax.tree_map(jnp.zeros_like, self.params)
+      self.grad = jax.tree_map(jnp.zeros_like, self.params)
 
-    # take mean of losses
-    self._loss = jnp.stack(_loss).mean()
+    # update loss (take mean across models)
+    self.loss = jnp.stack(_loss).mean()
     
+    # update aux
     _aux = jax.tree_map(lambda *v: jnp.stack(v), *_aux)    
-    self._aux = jax.tree_map(lambda x:x[0], _aux) # pick one example
-    self._aux["losses"] = jax.tree_map(lambda v: v.mean(0), _aux["losses"])
+    self.aux = jax.tree_map(lambda x:x[0], _aux) # pick one example
+    self.aux["losses"] = jax.tree_map(lambda v: v.mean(0), _aux["losses"])
+    self.aux["model_num"] = model_num    
+    self._outs = self.aux # backward compatibility
     
-    # backward compatibility
-    self._outs = self._aux
-        
-    if callback is not None: callback(self)
-
   #-------------------------------------
   # STEP FUNCTION
   #-------------------------------------
-  def _step(self, weights=None, opt=None,
-            lr_scale=1.0, callback=None, backprop=True, **kwargs):
+  def step(self, lr_scale=1.0, backprop=True, callback=None, **kwargs):
     '''do one step of gradient descent'''
     
-    # update
-    self.run(weights=weights, opt=opt, callback=callback, backprop=backprop)
+    # run
+    self.run(backprop=backprop)
+    if callback is not None: callback(self)
 
     # normalize gradient
-    g = self._grad["seq"]
+    g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self._grad["seq"] *= lr_scale * jnp.sqrt(self._len)/(gn+1e-7)
+    _len = self._len # TODO (we might need to change this for partial design)
+    self.grad["seq"] *= lr_scale * jnp.sqrt(_len)/(gn+1e-7)
 
     # apply gradient
-    self._state = self._update_fun(self._k, self._grad, self._state)
+    self._state = self._update_fun(self._k, self.grad, self._state)
     self.params = self._get_params(self._state)
 
     self._k += 1
@@ -337,9 +332,10 @@ class _af_design:
              soft=False, e_soft=None,
              hard=False, dropout=True, gumbel=False, 
              opt=None, weights=None, callback=None, **kwargs):
-
-    if opt is not None: self.opt.update(opt)
-    if weights is not None: self.opt["weights"].update(weights)
+      
+    # override settings if defined
+    self.set_opt(opt)
+    self.set_weights(weights)
       
     self.set_opt(hard=hard, dropout=dropout, gumbel=gumbel)
     if e_soft is None: e_soft = soft
@@ -349,7 +345,7 @@ class _af_design:
       self.opt["soft"] = soft + (e_soft - soft) * i/(iters-1)
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
-      self._step(lr_scale=lr_scale, callback=callback, **kwargs)
+      self.step(lr_scale=lr_scale, callback=callback, **kwargs)
 
   def design_logits(self, iters, **kwargs):
     '''optimize logits'''
@@ -382,7 +378,7 @@ class _af_design:
     self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp)
     for i in range(iters):
       self.opt["template_dropout"] = i/(iters-1)
-      self._step(**kwargs)
+      self.step(**kwargs)
   
   def design_semigreedy(self, iters=100, tries=20, dropout=False,
                         use_plddt=True, save_best=True, verbose=True):
@@ -418,7 +414,7 @@ class _af_design:
       seq = get_seq()
       plddt = None
       if use_plddt:
-        plddt = np.asarray(self._aux["plddt"])
+        plddt = np.asarray(self.aux["plddt"])
         if self.protocol == "binder":
           plddt = plddt[self._target_len:]
         else:
@@ -426,12 +422,12 @@ class _af_design:
       
       buff = []
       for _ in range(tries):
-        _seq = mut(seq, plddt)
-        self.run(seq=_seq, backprop=False)
-        buff.append({"aux":self._aux,"loss":self._loss,"seq":_seq})
+        self.params["seq"] = mut(seq, plddt)
+        self.run(backprop=False)
+        buff.append({"aux":self.aux, "loss":self.loss, "seq":self.params["seq"]})
       
       # accept best      
       buff = buff[np.argmin([x["loss"] for x in buff])]
-      self._aux, self._loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
+      self.aux, self.loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)

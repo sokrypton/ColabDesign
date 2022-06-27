@@ -187,7 +187,7 @@ class mk_trdesign_model():
     self._aux["model_num"] = model_num
     self._grad = _grad
   
-  def af_callback(self, weight=1.0):
+  def af_callback(self, weight=1.0, add_loss=True):
     backprop = weight > 0      
     def get_loss(k):
       losses = self._aux["losses"][k]
@@ -202,7 +202,8 @@ class mk_trdesign_model():
       self.run(seq=seq, backprop=backprop)
       if backprop:
         af_model._grad["seq"] += weight * self._grad["seq"]
-        af_model._loss += weight * self._loss        
+      if add_loss:
+        af_model._loss += weight * self._loss
       if self.protocol in ["hallucination","partial"]:
         af_model._aux["losses"]["TrD_bkg"] = get_loss("bkg")
       if self.protocol in ["fixbb","partial"]:

@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from colabdesign.af.misc import jalview_color_list, _np_kabsch, order_restype
-from alphafold.common import protein
+from colabdesign.alphafold.common import protein
 
 # import matplotlib
 import matplotlib

@@ -9,7 +9,7 @@ from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 # borrow some stuff from AfDesign
 from colabdesign.af.misc import _np_get_6D
 from colabdesign.af.prep import prep_pdb, prep_pos
-from alphafold.common import protein, residue_constants
+from colabdesign.alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 class mk_trdesign_model():

@@ -2,7 +2,7 @@ import random, copy, os
 import jax
 import jax.numpy as jnp
 import numpy as np
-from alphafold.common import residue_constants
+from colabdesign.alphafold.common import residue_constants
 from colabdesign.af.utils import update_dict
 
 try:

@@ -14,11 +14,8 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **29June2022** - refactoring some of the code to add support for callbacks. First experimental callback added: TrRosetta!
 
 ### setup
-- **WARNING**: `af_backprop` installs a custom version of `alphafold`, so if already have `alphafold` installed, you may want to install within a new python/conda environment to avoid breaking existing projects.
 ```bash
-pip install git+https://github.com/sokrypton/af_backprop.git
 pip install git+https://github.com/sokrypton/ColabDesign.git
-
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
 ```

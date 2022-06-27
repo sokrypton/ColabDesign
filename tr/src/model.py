@@ -78,7 +78,6 @@ class mk_trdesign_model():
         aux["losses"]["cce"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["cce"][k] = -(q[k]*log_p[k]).sum(-1).mean()
-          print(k,log_p[k].shape)
 
       # weighted loss
       weighted_losses = jax.tree_map(lambda l, w: l * w, aux["losses"],opt["weights"])

@@ -102,11 +102,10 @@ class mk_trdesign_model():
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
       self._batch = pdb["batch"]
 
-      if self.protocol == "partial":
-        if pos is not None:
-          p = prep_pos(pos, **pdb["idx"])
-          self._batch = jax.tree_map(lambda x:x[p], self._batch)
-          self.opt["pos"] = np.arange(len(p))
+      if self.protocol in ["partial"] and pos is not None:
+        p = prep_pos(pos, **pdb["idx"])
+        self._batch = jax.tree_map(lambda x:x[p], self._batch)
+        self.opt["pos"] = np.arange(len(p))
 
       self.feats = _np_get_6D_binned(self._batch["all_atom_positions"],
                                      self._batch["all_atom_mask"])

@@ -31,8 +31,8 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
                  "use_pssm":use_pssm, "debug":debug,
                  "repeat": False}
     
-    self._opt = {"temp":1.0, "soft":1.0, "hard":1.0, "gumbel":False,
-                 "dropout":True, "dropout_scale":1.0,
+    self._opt = {"temp":0.5, "soft":1.0, "hard":1.0, "gumbel":False,
+                 "dropout":True, "dropout_scale":1.0, "lr":1.0,
                  "recycles":num_recycles, "models":num_models,
                  "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
                  "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},

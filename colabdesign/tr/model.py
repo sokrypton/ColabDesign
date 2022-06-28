@@ -28,8 +28,8 @@ class mk_trdesign_model():
 
     # set default options
     self._opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                 "model":{"num":model_num,"sample":model_sample},
-                 "weights":{}, "lr":1.0}
+                 "model_num":model_num,"model_sample":model_sample,
+                 "weights":{}, "lr":1.0, "bias":0.0}
                 
     self.params = {"seq":None}
 
@@ -42,11 +42,12 @@ class mk_trdesign_model():
       self.bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
+
     def _get_seq(params, opt):
       seq = {"input":params["seq"]}
 
       # straight-through/reparameterization
-      seq["logits"] = seq["input"]
+      seq["logits"] = seq["input"] + opt["bias"]
       seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
       seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
       seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
@@ -92,7 +93,6 @@ class mk_trdesign_model():
     def _model(params, model_params, opt):
       seq = _get_seq(params, opt)
       outputs = self._runner(seq["pseudo"], model_params)
-
       loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
@@ -139,19 +139,17 @@ class mk_trdesign_model():
 
   def set_weights(self, *args, **kwargs):
     update_dict(self.opt["weights"], *args, **kwargs)
-
-  def set_seq(self, seq):
-    if isinstance(seq, str):
-      seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
-      seq = np.eye(20)[seq]
-    assert seq.shape[-2] == self._len
-    update_dict(self.params, {"seq":seq})
   
   def _init_seq(self, seq=None):
     if seq is None:
       self._key, key = jax.random.split(self._key)
       seq = 0.01 * jax.random.normal(key, (self._len,20))
-    self.set_seq(seq)
+    else:
+      if isinstance(seq, str):
+        seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
+        seq = np.eye(20)[seq]
+      assert seq.shape[-2] == self._len
+    update_dict(self.params, {"seq":seq})
 
   def _init_optimizer(self):
     '''setup which optimizer to use'''      
@@ -175,9 +173,9 @@ class mk_trdesign_model():
     '''run model to get outputs, losses and gradients'''
     
     # decide which model params to use
-    m = self.opt["model"]["num"]
+    m = self.opt["model_num"]
     ns = jnp.arange(5)
-    if self.opt["model"]["sample"] and m != len(ns):
+    if self.opt["model_sample"] and m != len(ns):
       self._key, key = jax.random.split(self._key)
       model_num = jax.random.choice(key,ns,(m,),replace=False)
     else:
@@ -229,6 +227,8 @@ class mk_trdesign_model():
     # apply gradient
     self._state = self._update_fun(self._k, self.grad, self._state)
     self.params = self._get_params(self._state)    
+
+    # increment
     self._k += 1
 
   def design(self, iters=100, opt=None, weights=None,
@@ -243,8 +243,22 @@ class mk_trdesign_model():
       if verbose and (self._k % verbose) == 0:
         print(self._k, self.aux["model_num"], self.get_loss(get_best=False))
 
-  def _plot(self, x, dpi=100):
+  def predict(self):
+    '''make prediction'''
+    self.run(backprop=False)
+  
+  def plot(self, mode="preds", get_best=True, dpi=100):
+    '''plot predictions'''
+
+    assert mode in ["preds","feats","bkg_feats"]
+    if mode == "preds":
+      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+      x = aux["outputs"]
+    elif mode == "feats": x = self._feats
+    elif mode == "bkg_feats": x = self._bkg_feats
+
     x = jax.tree_map(np.asarray, x)
+
     plt.figure(figsize=(4*4,4), dpi=dpi)
     for n,k in enumerate(["theta","phi","dist","omega"]):
       v = x[k]
@@ -252,21 +266,6 @@ class mk_trdesign_model():
       plt.title(k)
       plt.imshow(v.argmax(-1),cmap="binary")
     plt.show()
-
-  def predict(self, seq=None):
-    '''make prediction'''
-    if seq is not None: self.set_seq(seq)
-    self.run(backprop=False)
-  
-  def plot(self, mode="preds", get_best=True, dpi=100):
-    '''plot predictions'''
-    assert mode in ["preds","feats","bkg_feats"]
-    if mode == "preds":
-      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-      x = aux["outputs"]
-    if mode == "feats": x = self._feats
-    if mode == "bkg_feats": x = self._bkg_feats
-    self._plot(x, dpi=dpi)
     
   def get_loss(self, k=None, get_best=True):
     aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
@@ -282,12 +281,12 @@ class mk_trdesign_model():
     x = np.array(aux["seq"]["pseudo"].argmax(-1))
     return "".join([ORDER_RESTYPE[a] for a in x])
     
-  def af_callback(self, weight=1.0, add_loss=True):
+  def af_callback(self, weight=1.0, seed=None):
     
     def callback(af_model):
       
       # copy [opt]ions from afdesign
-      for k in ["soft","temp","hard","pos"]:
+      for k in ["soft","temp","hard","pos","fix_seq","bias"]:
         if k in self.opt and k in af_model.opt:
           self.opt[k] = af_model.opt[k]
 
@@ -301,8 +300,7 @@ class mk_trdesign_model():
       af_model.grad["seq"] += weight * self.grad["seq"]
       
       # add loss
-      if add_loss:
-        af_model.loss += weight * self.loss
+      af_model.loss += weight * self.loss
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:
@@ -310,7 +308,7 @@ class mk_trdesign_model():
       if self.protocol in ["fixbb","partial"]:
         af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce")
       
-    self.restart()
+    self.restart(seed=seed)
     return callback
 
 def _np_get_6D_binned(all_atom_positions, all_atom_mask):

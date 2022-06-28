@@ -51,7 +51,13 @@ def update_dict(D, *args, **kwargs):
 ####################################################
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################
-class _af_utils:
+class _af_utils:  
+  def set_opt(self, *args, **kwargs):
+    update_dict(self.opt, *args, **kwargs)
+    
+  def set_weights(self, *args, **kwargs):
+    update_dict(self.opt["weights"], *args, **kwargs)
+
   def get_seqs(self, get_best=True):
     '''
     get sequences as strings

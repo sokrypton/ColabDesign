@@ -12,9 +12,9 @@ from colabdesign.af.alphafold.model import model, folding, all_atom
 # AF_LOSS - setup loss function
 ####################################################
 class _af_loss:
-  def _get_fn(self):
+  def _get_model(self):
     # setup function to get gradients
-    def mod(params, model_params, inputs, key, opt):
+    def _model(params, model_params, inputs, key, opt):
 
       # get sequence
       key, key_ = jax.random.split(key)
@@ -56,8 +56,13 @@ class _af_loss:
       # scale dropout rate
       inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
       
+      # decide number of recycles to do
+      if self.args["recycle_mode"] in ["last","sample"]:
+        inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
+
       # get outputs
-      outputs = self._get_out(inputs, model_params, opt, key)
+      outputs = self._runner.apply(model_params, key, inputs)
+
       aux["prev"] = outputs["prev"]
       values = {"aux":aux,"outputs":outputs,"opt":opt}
       
@@ -102,14 +107,8 @@ class _af_loss:
       if self.args["debug"]: aux.update({"outputs":outputs, "inputs":inputs})
       return loss, aux
     
-    return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
+    return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
 
-  def _get_out(self, inputs, model_params, opt, key):
-    '''get outputs'''
-    mode = self.args["recycle_mode"]
-    if mode in ["last","sample"]:
-      inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
-    return self._runner.apply(model_params, key, inputs)
 
   def _get_seq(self, params, opt, key):
     '''get sequence features'''
@@ -122,7 +121,7 @@ class _af_loss:
       seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
     # straight-through/reparameterization
-    seq["logits"] = 2.0 * seq["input"] + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_shape), 0.0)
+    seq["logits"] = seq["input"] + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_shape), 0.0)
     seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
     seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
     seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
@@ -135,13 +134,10 @@ class _af_loss:
     if self.protocol == "partial" and (self.args["fix_seq"] or self.args["use_sidechains"]):
       p = opt["pos"]
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      if jnp.issubdtype(p.dtype, jnp.integer):
-        seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
-      else:
-        # TODO confirm this is correct
-        seq_ref = p.T @ seq_ref
-        w = 1 - seq_ref.sum(-1, keepdims=True)
-        seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
+      seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
+      # seq_ref = p.T @ seq_ref
+      # w = 1 - seq_ref.sum(-1, keepdims=True)
+      # seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
     return seq
   
   def _get_fixbb_loss(self, aux, outputs, opt, aatype=None):
@@ -175,10 +171,8 @@ class _af_loss:
     '''compute loss for partial hallucination protocol'''
 
     def sub(x, p, axis=0):
-      if jnp.issubdtype(p.dtype, jnp.integer):
-        fn = lambda y:jnp.take(y,p,axis)
-      else:
-        fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
+      fn = lambda y:jnp.take(y,p,axis)
+      # fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
       return jax.tree_map(fn, x)
 
     pos = opt["pos"]
@@ -194,7 +188,7 @@ class _af_loss:
       true = self._batch["all_atom_positions"]
       pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
 
-      # TODO: 6D loss
+      # 6D loss
       # aux["losses"]["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
 
       # rmsd
@@ -387,11 +381,9 @@ class _af_loss:
       if self.protocol == "partial":
         p = opt["pos"]
         for k,v in template_feats.items():
-          if jnp.issubdtype(p.dtype, jnp.integer):
-            inputs[k] = inputs[k].at[:,0,p].set(v)
-          else:
-            if k == "template_aatype": v = jax.nn.one_hot(v,22)
-            inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
+          inputs[k] = inputs[k].at[:,0,p].set(v)
+          # if k == "template_aatype": v = jax.nn.one_hot(v,22)
+          # inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
           if k == "template_all_atom_masks":
             inputs[k] = inputs[k].at[:,0,:,5:].set(0)
 
@@ -403,11 +395,8 @@ class _af_loss:
     inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
 
 def expand_copies(x, copies, block_diag=True):
-  '''given msa (N,L,20) expand to 
-  if block_diag:
-    (N*(1+copies),L*copies,22)
-  else:
-    (N,L*copies,22)
+  '''
+  given msa (N,L,20) expand to (N*(1+copies),L*copies,22) if block_diag else (N,L*copies,22)
   '''
   if x.shape[-1] < 22:
     x = jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])

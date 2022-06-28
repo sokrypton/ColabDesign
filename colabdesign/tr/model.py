@@ -94,6 +94,7 @@ class mk_trdesign_model():
       outputs = self._runner(seq["pseudo"], model_params)
 
       loss, aux = _get_loss(outputs, opt)
+      aux.update({"seq":seq,"opt":opt})
       return loss, aux
 
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
@@ -166,6 +167,9 @@ class mk_trdesign_model():
     self.set_weights(weights)
     self._init_seq(seq)
     self._init_optimizer()
+
+    self._best_loss = np.inf
+    self._best_aux = None
     
   def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -210,7 +214,7 @@ class mk_trdesign_model():
     self.aux["model_num"] = model_num
     self.grad = _grad
 
-  def step(self, backprop=True, callback=None, verbose=True):
+  def step(self, backprop=True, callback=None):
     self.run(backprop=backprop)
     if callback is not None: callback(self)
 
@@ -227,14 +231,17 @@ class mk_trdesign_model():
     self.params = self._get_params(self._state)    
     self._k += 1
 
-    if verbose:
-      print(self._k, self.aux["model_num"], self.get_loss())
-
-  def design(self, iters=100, opt=None, weights=None, **kwargs):
+  def design(self, iters=100, opt=None, weights=None,
+             save_best=True, verbose=1):
     self.set_opt(opt)
     self.set_weights(weights)
     for _ in range(iters):
-      self.step(**kwargs)
+      self.step()
+      if save_best and self.loss < self._best_loss:
+        self._best_loss = self.loss
+        self._best_aux = self.aux
+      if verbose and (self._k % verbose) == 0:
+        print(self._k, self.aux["model_num"], self.get_loss(get_best=False))
 
   def _plot(self, x, dpi=100):
     x = jax.tree_map(np.asarray, x)
@@ -251,21 +258,29 @@ class mk_trdesign_model():
     if seq is not None: self.set_seq(seq)
     self.run(backprop=False)
   
-  def plot(self, mode="preds", dpi=100):
+  def plot(self, mode="preds", get_best=True, dpi=100):
     '''plot predictions'''
     assert mode in ["preds","feats","bkg_feats"]
-    if mode == "preds": x = self.aux["outputs"]
+    if mode == "preds":
+      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+      x = aux["outputs"]
     if mode == "feats": x = self._feats
     if mode == "bkg_feats": x = self._bkg_feats
     self._plot(x, dpi=dpi)
     
-  def get_loss(self, k=None):
+  def get_loss(self, k=None, get_best=True):
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     if k is None:
-      return {k:self.get_loss(k) for k in self.aux["losses"].keys()}
-    losses = self.aux["losses"][k]
-    weights = self.opt["weights"][k]
+      return {k:self.get_loss(k,get_best=get_best) for k in aux["losses"].keys()}
+    losses = aux["losses"][k]
+    weights = aux["opt"]["weights"][k]
     weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
     return float(sum(jax.tree_leaves(weighted_losses)))
+
+  def get_seq(self, get_best=True):
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+    x = np.array(aux["seq"]["pseudo"].argmax(-1))
+    return "".join([ORDER_RESTYPE[a] for a in x])
     
   def af_callback(self, weight=1.0, add_loss=True):    
     def callback(af_model):
@@ -290,9 +305,9 @@ class mk_trdesign_model():
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:
-        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg")
+        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg", get_best=False)
       if self.protocol in ["fixbb","partial"]:
-        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce")
+        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce", get_best=False)
       
     return callback
 

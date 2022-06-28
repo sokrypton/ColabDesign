@@ -4,8 +4,8 @@ import tensorflow as tf
 tf.config.set_visible_devices([], 'GPU')
 
 import numpy as np
-from alphafold.common import protein, residue_constants
-from alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.common import protein, residue_constants
+from colabdesign.af.alphafold.model import model, folding, all_atom
 
 #########################
 # rmsd

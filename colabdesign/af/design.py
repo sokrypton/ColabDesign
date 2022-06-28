@@ -133,7 +133,7 @@ class _af_design:
       self.opt["bias"] = bias
     self.params = {"seq":x}
 
-  def _setup_optimizer(self, optimizer="sgd", lr=1.0):
+  def _setup_optimizer(self, optimizer="sgd", **kwargs):
     '''setup which optimizer to use'''
     
     if optimizer == "adam":
@@ -149,7 +149,7 @@ class _af_design:
     self._k = 0
   
   def design(self, iters,
-             temp=0.5, e_temp=None,
+             temp=1.0, e_temp=None,
              soft=False, e_soft=None,
              hard=False, dropout=True, gumbel=False, 
              opt=None, weights=None, callback=None,
@@ -166,12 +166,12 @@ class _af_design:
       self.opt["temp"] = e_temp + (temp - e_temp) * (1 - (i+1)/iters) ** 2
       self.opt["soft"] = soft + (e_soft - soft) * ((i+1)/iters)
       # decay learning rate based on temperature
-      lr_scale = (1 - self.opt["soft"]) + self.opt["soft"] * self.opt["temp"]
-      self.opt["lr"] = self._opt["lr"] * lr_scale
-      self.step(callback=callback)
+      s = self.opt["soft"]
+      lr_scale = (1 - s) + s * self.opt["temp"]
+      self.step(lr_scale=lr_scale, callback=callback)
       self._save_results(save_best=save_best, verbose=verbose)
 
-  def step(self, backprop=True, callback=None):
+  def step(self, lr_scale=1.0, backprop=True, callback=None):
     '''do one step of gradient descent'''
     
     # run
@@ -181,7 +181,11 @@ class _af_design:
     # normalize gradient
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.grad["seq"] *= self.opt["lr"] * jnp.sqrt(self._len)/(gn+1e-7)
+    self.grad["seq"] *= jnp.sqrt(self._len)/(gn+1e-7)
+
+    # set learning rate
+    lr = self.opt["lr"] * lr_scale
+    self.grad = jax.tree_map(lambda x:x*lr, self.grad)
 
     # apply gradient
     self._state = self._update_fun(self._k, self.grad, self._state)
@@ -287,9 +291,7 @@ class _af_design:
     # save best result
     if save_best and self.loss < self._best_loss:
       self._best_loss = self.loss
-      self._best_aux = self.aux
-      # backward compatibility
-      self._best_outs = self._best_aux
+      self._best_aux = self._best_outs = self.aux
 
     # save losses
     losses = jax.tree_map(float, self.aux["losses"])
@@ -311,13 +313,13 @@ class _af_design:
       print_list = ["models","recycles","hard","soft","temp","seqid","loss",
                     "msa_ent","plddt","pae","helix","con","i_pae","i_con",
                     "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
-      for k in losses.items():
+      for k in losses.keys():
         if k not in print_list: print_list.append(k)
-      print_str = f"{self._k} "
-      for k in print_list
+      print_str = f"{self._k}"
+      for k in print_list:
         if k in losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
           v = losses[k]
-          print_str += f" {k} {v:.{f}2}" if isinstance(v,float) else f"{k} {v}"
+          print_str += f" {k} {v:.2f}" if isinstance(v,float) else f" {k} {v}"
       print(print_str)
 
     # save trajectory
@@ -347,21 +349,21 @@ class _af_design:
     self.design(iters, soft=True, hard=True, **kwargs)
 
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
-                    temp=0.5, dropout=True, gumbel=False, **kwargs):
+                    temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
     self.design(temp_iters, soft=True, temp=temp, dropout=dropout, gumbel=False,  e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False,   gumbel=False,  hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, 
-                    temp=0.5, dropout=True, gumbel=False, **kwargs):
+                    temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
     self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, gumbel=False, e_temp=1e-2,**kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False,   gumbel=False, hard=True, save_best=True, **kwargs)  
     
   def template_predesign(self, iters=100, soft=True, hard=False, 
-                         temp=0.5, dropout=True, gumbel=False, **kwargs):
+                         temp=1.0, dropout=True, gumbel=False, **kwargs):
     '''use template for predesign stage, then increase template dropout until gone'''
     self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp, gumbel=False)
     for i in range(iters):

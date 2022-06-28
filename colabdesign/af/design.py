@@ -31,7 +31,9 @@ except:
 
 class _af_design:
 
-  def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False, **kwargs):    
+  def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False,
+              seq_init=None, mode=None, seq=None, rm_aa=None, add_seq=False,
+              optimizer="sgd", **kwargs):    
     # set weights and options
     if set_defaults:
       update_dict(self._opt, opt)
@@ -54,10 +56,10 @@ class _af_design:
     # initialize sequence
     self._seed = random.randint(0,2147483647) if seed is None else seed
     self._key = jax.random.PRNGKey(self._seed)
-    self._init_seq(**kwargs)
+    self._init_seq(mode, seq, rm_aa, add_seq, seq_init)
 
     # setup optimizer
-    self._setup_optimizer(**kwargs)    
+    self._setup_optimizer(optimizer, **kwargs)
 
     # initialize trajectory
     if not keep_history:
@@ -67,12 +69,13 @@ class _af_design:
         self._traj = {"losses":[],"seq":[],"con":[]}
       self.clear_best()
 
-  def _init_seq(self, mode=None, seq=None, rm_aa=None, add_seq=False, **kwargs):
+  def _init_seq(self, mode=None, seq=None, rm_aa=None, add_seq=False, seq_init=None):
     '''initialize sequence'''
 
     # backward compatibility
-    if "seq_init" in kwargs:
-      x = kwargs["seq_init"]
+    if seq_init is not None:
+      print("WARNING: 'seq_init' is being deprecated, use options: 'mode' and 'seq'")
+      x = seq_init
       if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray): seq = x
       elif isinstance(x, str):
         # TODO this could result in some issues...

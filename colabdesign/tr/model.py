@@ -282,7 +282,8 @@ class mk_trdesign_model():
     x = np.array(aux["seq"]["pseudo"].argmax(-1))
     return "".join([ORDER_RESTYPE[a] for a in x])
     
-  def af_callback(self, weight=1.0, add_loss=True):    
+  def af_callback(self, weight=1.0, add_loss=True):
+    
     def callback(af_model):
       
       # copy [opt]ions from afdesign
@@ -305,10 +306,11 @@ class mk_trdesign_model():
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:
-        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg", get_best=False)
+        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg")
       if self.protocol in ["fixbb","partial"]:
-        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce", get_best=False)
+        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce")
       
+    self.restart()
     return callback
 
 def _np_get_6D_binned(all_atom_positions, all_atom_mask):

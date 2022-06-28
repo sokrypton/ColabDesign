@@ -1,21 +1,38 @@
 # TrDesign in JAX!
 Work in Progress...
-Currently only `fixbb` and `hallucination` protocols are supported as callbacks to AfDesign.
-Experimental support for `partial` added.
-
 For original version implemented in keras see: https://github.com/gjoni/trDesign/tree/master/02-GD
 
-### download weights
+### Google Colab
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
+  <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
+</a>
+
+### install
 ```bash
-%%bash
-if [ ! -d models ]; then
-  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
-  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
-  unzip -qqo models.zip
-  unzip -qqo bkgr_models.zip
+pip install git+https://github.com/sokrypton/ColabDesign.git
+
+# download weights
+if [ ! -d params/tr ]; then
+  mkdir -p params/tr
+  wget https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
+  wget https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
+  unzip models.zip -d params/tr/
+  unzip bkgr_models.zip -d params/tr/
 fi
 ```
 
+### example
+```python
+from colabdesign import clear_mem, mk_trdesign_model
+
+clear_mem()
+tr_model = mk_trdesign_model(protocol="fixbb")
+tr_model.prep_inputs(get_pdb("6MRR"), chain="A")
+tr_model.design(100, verbose=10)
+tr_model.plot()
+print(tr_model.get_loss())
+print(tr_model.get_seq())
+```
 ### example
 combine AfDesign and TrDesign for fixed backbone design 
 ```python

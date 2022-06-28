@@ -11,7 +11,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
 - **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
 - **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
-- **29June2022** - refactoring some of the code to add support for callbacks. First experimental callback added: TrRosetta!
+- **28June2022** - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`)
 
 ### setup
 ```bash

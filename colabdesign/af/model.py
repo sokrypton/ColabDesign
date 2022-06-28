@@ -31,21 +31,19 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
                  "use_pssm":use_pssm, "debug":debug,
                  "repeat": False}
     
-    self._default_opt = {
-                         "temp":1.0, "soft":1.0, "hard":1.0, "gumbel":False,
-                         "dropout":True, "dropout_scale":1.0,
-                         "recycles":num_recycles, "models":num_models,
-                         "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
-                         "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
-                         "bias":0.0, "template_aatype":21, "template_dropout":0.15,
-                         # default weights
-                         "weights":{"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}
-                        }
+    self._opt = {"temp":1.0, "soft":1.0, "hard":1.0, "gumbel":False,
+                 "dropout":True, "dropout_scale":1.0,
+                 "recycles":num_recycles, "models":num_models,
+                 "con":  {"num":2, "cutoff":14.0, "seqsep":9, "binary":False, "entropy":True},
+                 "i_con":{"num":1, "cutoff":20.0,             "binary":False, "entropy":True},
+                 "bias":0.0, "template_aatype":21, "template_dropout":0.15,
+                 # default weights
+                 "weights":{"msa_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01}}
 
     # setup which model configs to use
     if use_templates:
       model_name = "model_1_ptm"
-      self._default_opt["models"] = min(num_models, 2)
+      self._opt["models"] = min(num_models, 2)
     else:
       model_name = "model_3_ptm"
     
@@ -94,7 +92,7 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
       self._model_params.append({k: params[k] for k in self._runner.params.keys()})
 
     # define gradient function
-    self._grad_fn, self._fn = [jax.jit(x) for x in self._get_fn()]
+    self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
     # define input function
     if protocol == "fixbb":           self.prep_inputs = self._prep_fixbb

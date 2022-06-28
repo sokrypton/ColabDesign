@@ -36,7 +36,6 @@ class mk_trdesign_model():
       self.bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
-
     def _get_seq(params, opt):
       seq = {"input":params["seq"]}
 
@@ -53,7 +52,7 @@ class mk_trdesign_model():
       if self.protocol in ["partial"] and "pos" in opt:
         pos = opt["pos"]
         seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
-        seq = jax.tree_map(lambda x:x.at[pos,:].set(seq_ref), seq)
+        seq = jax.tree_map(lambda x: jnp.where(opt["fix_seq"],x.at[pos,:].set(seq_ref),x), seq)
       return seq
     
     def _get_loss(outputs, opt):
@@ -93,9 +92,11 @@ class mk_trdesign_model():
 
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
-  def prep_inputs(self, pdb_filename=None, chain=None, length=None, pos=None,
-                  **kwargs):
-    
+  def prep_inputs(self, pdb_filename=None, chain=None, length=None,
+                  pos=None, fix_seq=False, **kwargs):
+    '''
+    prep inputs for TrDesign
+    '''    
     if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
@@ -105,6 +106,7 @@ class mk_trdesign_model():
         p = prep_pos(pos, **pdb["idx"])
         self._batch = jax.tree_map(lambda x:x[p], self._batch)
         self.opt["pos"] = np.arange(len(p))
+        self.opt["fix_seq"] = fix_seq
 
       self.feats = _np_get_6D_binned(self._batch["all_atom_positions"],
                                      self._batch["all_atom_mask"])

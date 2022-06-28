@@ -1,7 +1,8 @@
-import random
+import random, os
 import numpy as np
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 
 from colabdesign.tr.utils import update_dict
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
@@ -12,24 +13,29 @@ from colabdesign.af.prep import prep_pdb, prep_pos
 from colabdesign.af.alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
+try:
+  from jax.example_libraries.optimizers import sgd, adam
+except:
+  from jax.experimental.optimizers import sgd, adam
+
 class mk_trdesign_model():
-  def __init__(self, protocol="fixbb", model_num=1, model_sample=True, data_dir="."):
+  def __init__(self, protocol="fixbb", model_num=1, model_sample=True, data_dir="params/tr"):
     
     assert protocol in ["fixbb","hallucination","partial"]
 
     self.protocol = protocol
-    self._data_dir = data_dir
+    self._data_dir = "." if os.path.isfile("models/model_xaa.npy") else data_dir
 
     # set default options
-    self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                "model":{"num":model_num,"sample":model_sample},
-                "weights":{}}
+    self._opt = {"temp":1.0, "soft":1.0, "hard":1.0,
+                 "model":{"num":model_num,"sample":model_sample},
+                 "weights":{}, "lr":1.0}
                 
     self.params = {"seq":None}
 
     # setup model
     self._runner = TrRosetta()
-    self._model_params = [get_model_params(f"{data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
+    self._model_params = [get_model_params(f"{self._data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
     if protocol in ["hallucination","partial"]:
@@ -40,7 +46,7 @@ class mk_trdesign_model():
       seq = {"input":params["seq"]}
 
       # straight-through/reparameterization
-      seq["logits"] = 2.0 * seq["input"]
+      seq["logits"] = seq["input"]
       seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
       seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
       seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
@@ -62,7 +68,7 @@ class mk_trdesign_model():
       # bkg loss
       if self.protocol in ["hallucination","partial"]:
         p = jax.tree_map(jax.nn.softmax, outputs)
-        log_q = jax.tree_map(jax.nn.log_softmax, self.bkg_feats)
+        log_q = jax.tree_map(jax.nn.log_softmax, self._bkg_feats)
         aux["losses"]["bkg"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["bkg"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
@@ -73,7 +79,7 @@ class mk_trdesign_model():
           pos = opt["pos"]
           log_p = jax.tree_map(lambda x:x[:,pos][pos,:], log_p)
 
-        q = self.feats
+        q = self._feats
         aux["losses"]["cce"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["cce"][k] = -(q[k]*log_p[k]).sum(-1).mean()
@@ -105,40 +111,61 @@ class mk_trdesign_model():
       if self.protocol in ["partial"] and pos is not None:
         p = prep_pos(pos, **pdb["idx"])
         self._batch = jax.tree_map(lambda x:x[p], self._batch)
-        self.opt["pos"] = np.arange(len(p))
-        self.opt["fix_seq"] = fix_seq
+        self._opt["pos"] = np.arange(len(p))
+        self._opt["fix_seq"] = fix_seq
 
-      self.feats = _np_get_6D_binned(self._batch["all_atom_positions"],
-                                     self._batch["all_atom_mask"])
+      self._feats = _np_get_6D_binned(self._batch["all_atom_positions"],
+                                      self._batch["all_atom_mask"])
 
       self._len = len(self._batch["aatype"])
-      self.opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
+      self._opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
     if self.protocol in ["hallucination", "partial"]:
       # compute background distribution
       if length is not None: self._len = length
-      self.bkg_feats = []
+      self._bkg_feats = []
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
-        self.bkg_feats.append(self.bkg_model(model_params, key, self._len))
-      self.bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self.bkg_feats)
-      self.opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
+        self._bkg_feats.append(self.bkg_model(model_params, key, self._len))
+      self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
+      self._opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
     self.restart(**kwargs)
-  
-  def set_weights(self, *args, **kwargs):
-    update_dict(self.opt["weights"], *args, **kwargs)
 
   def set_opt(self, *args, **kwargs):
     update_dict(self.opt, *args, **kwargs)
 
-  def restart(self, seed=None, opt=None, weights=None):
+  def set_weights(self, *args, **kwargs):
+    update_dict(self.opt["weights"], *args, **kwargs)
+
+  def set_seq(self, seq):
+    if isinstance(seq, str):
+      seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
+      seq = np.eye(20)[seq]
+    assert seq.shape[-2] == self._len
+    update_dict(self.params, {"seq":seq})
+  
+  def _init_seq(self, seq=None):
+    if seq is None:
+      self._key, key = jax.random.split(self._key)
+      seq = 0.01 * jax.random.normal(key, (self._len,20))
+    self.set_seq(seq)
+
+  def _init_optimizer(self):
+    '''setup which optimizer to use'''      
+    self._init_fun, self._update_fun, self._get_params = sgd(1.0)
+    self._k = 0
+    self._state = self._init_fun(self.params)
+
+  def restart(self, seed=None, opt=None, weights=None, seq=None):
     self._seed = random.randint(0,2147483647) if seed is None else seed
     self._key = jax.random.PRNGKey(self._seed)
-    self.params["seq"] = np.zeros((self._len,20))
+    self.opt = jax.tree_map(lambda x:x, self._opt) # copy
     self.set_opt(opt)
     self.set_weights(weights)
+    self._init_seq(seq)
+    self._init_optimizer()
     
   def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -183,25 +210,64 @@ class mk_trdesign_model():
     self.aux["model_num"] = model_num
     self.grad = _grad
 
-  def step(self, backprop=True, callback=None):
-    # TODO
+  def step(self, backprop=True, callback=None, verbose=True):
     self.run(backprop=backprop)
     if callback is not None: callback(self)
 
+    # normalize gradient
+    g = self.grad["seq"]
+    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    self.grad["seq"] *= jnp.sqrt(self._len)/(gn+1e-7)
+
+    # set learning rate
+    self.grad = jax.tree_map(lambda x:x*self.opt["lr"], self.grad)
+
+    # apply gradient
+    self._state = self._update_fun(self._k, self.grad, self._state)
+    self.params = self._get_params(self._state)    
+    self._k += 1
+
+    if verbose:
+      print(self._k, self.aux["model_num"], self.get_loss())
+
   def design(self, iters=100, opt=None, weights=None, **kwargs):
-    # TODO
     self.set_opt(opt)
     self.set_weights(weights)
     for _ in range(iters):
       self.step(**kwargs)
 
-  def af_callback(self, weight=1.0, add_loss=True):
-    def get_loss(k):
-      losses = self.aux["losses"][k]
-      weights = self.opt["weights"][k]
-      weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
-      return sum(jax.tree_leaves(weighted_losses))
+  def _plot(self, x, dpi=100):
+    x = jax.tree_map(np.asarray, x)
+    plt.figure(figsize=(4*4,4), dpi=dpi)
+    for n,k in enumerate(["theta","phi","dist","omega"]):
+      v = x[k]
+      plt.subplot(1,4,n+1)
+      plt.title(k)
+      plt.imshow(v.argmax(-1),cmap="binary")
+    plt.show()
+
+  def predict(self, seq=None):
+    '''make prediction'''
+    if seq is not None: self.set_seq(seq)
+    self.run(backprop=False)
+  
+  def plot(self, mode="preds", dpi=100):
+    '''plot predictions'''
+    assert mode in ["preds","feats","bkg_feats"]
+    if mode == "preds": x = self.aux["outputs"]
+    if mode == "feats": x = self._feats
+    if mode == "bkg_feats": x = self._bkg_feats
+    self._plot(x, dpi=dpi)
     
+  def get_loss(self, k=None):
+    if k is None:
+      return {k:self.get_loss(k) for k in self.aux["losses"].keys()}
+    losses = self.aux["losses"][k]
+    weights = self.opt["weights"][k]
+    weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
+    return float(sum(jax.tree_leaves(weighted_losses)))
+    
+  def af_callback(self, weight=1.0, add_loss=True):    
     def callback(af_model):
       
       # copy [opt]ions from afdesign
@@ -224,9 +290,9 @@ class mk_trdesign_model():
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:
-        af_model.aux["losses"]["TrD_bkg"] = get_loss("bkg")
+        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg")
       if self.protocol in ["fixbb","partial"]:
-        af_model.aux["losses"]["TrD_cce"] = get_loss("cce")
+        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce")
       
     return callback
 

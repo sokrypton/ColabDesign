@@ -23,7 +23,7 @@ fi
 
 ### example
 ```python
-from colabdesign import clear_mem, mk_trdesign_model
+from colabdesign import *
 
 clear_mem()
 tr_model = mk_trdesign_model(protocol="fixbb")
@@ -36,7 +36,7 @@ print(tr_model.get_seq())
 ### example
 combine AfDesign and TrDesign for fixed backbone design 
 ```python
-from colabdesign import clear_mem, mk_afdesign_model, mk_trdesign_model
+from colabdesign import *
 
 clear_mem()
 af_model = mk_afdesign_model(protocol="fixbb")

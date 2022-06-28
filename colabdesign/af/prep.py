@@ -4,10 +4,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.alphafold.data import pipeline, prep_inputs
-from colabdesign.alphafold.common import protein, residue_constants
-from colabdesign.alphafold.model import all_atom
-from colabdesign.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.data import pipeline, prep_inputs
+from colabdesign.af.alphafold.common import protein, residue_constants
+from colabdesign.af.alphafold.model import all_atom
+from colabdesign.af.alphafold.model.tf import shape_placeholders
 
 from colabdesign.af.misc import _np_get_cb
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}

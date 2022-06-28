@@ -14,10 +14,10 @@
 
 """Data for AlphaFold."""
 
-from colabdesign.alphafold.common import residue_constants
-from colabdesign.alphafold.model.tf import shape_helpers
-from colabdesign.alphafold.model.tf import shape_placeholders
-from colabdesign.alphafold.model.tf import utils
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.model.tf import shape_helpers
+from colabdesign.af.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.model.tf import utils
 import numpy as np
 import tensorflow.compat.v1 as tf
 

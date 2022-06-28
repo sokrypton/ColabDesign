@@ -16,13 +16,13 @@
 
 import functools
 from typing import Dict
-from colabdesign.alphafold.common import residue_constants
-from colabdesign.alphafold.model import all_atom
-from colabdesign.alphafold.model import common_modules
-from colabdesign.alphafold.model import prng
-from colabdesign.alphafold.model import quat_affine
-from colabdesign.alphafold.model import r3
-from colabdesign.alphafold.model import utils
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.model import all_atom
+from colabdesign.af.alphafold.model import common_modules
+from colabdesign.af.alphafold.model import prng
+from colabdesign.af.alphafold.model import quat_affine
+from colabdesign.af.alphafold.model import r3
+from colabdesign.af.alphafold.model import utils
 import haiku as hk
 import jax
 import jax.numpy as jnp

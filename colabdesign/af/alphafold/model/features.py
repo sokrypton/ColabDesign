@@ -15,8 +15,8 @@
 """Code to generate processed features."""
 import copy
 from typing import List, Mapping, Tuple
-from colabdesign.alphafold.model.tf import input_pipeline
-from colabdesign.alphafold.model.tf import proteins_dataset
+from colabdesign.af.alphafold.model.tf import input_pipeline
+from colabdesign.af.alphafold.model.tf import proteins_dataset
 import ml_collections
 import numpy as np
 import tensorflow.compat.v1 as tf

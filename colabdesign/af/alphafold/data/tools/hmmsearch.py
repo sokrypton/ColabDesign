@@ -19,7 +19,7 @@ import subprocess
 from typing import Optional, Sequence
 
 from absl import logging
-from colabdesign.alphafold.data.tools import utils
+from colabdesign.af.alphafold.data.tools import utils
 # Internal import (7716).
 
 

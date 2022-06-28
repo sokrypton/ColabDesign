@@ -17,21 +17,21 @@
 The structure generation code is in 'folding.py'.
 """
 import functools
-from colabdesign.alphafold.common import residue_constants
-from colabdesign.alphafold.model import all_atom
-from colabdesign.alphafold.model import common_modules
-from colabdesign.alphafold.model import folding
-from colabdesign.alphafold.model import layer_stack
-from colabdesign.alphafold.model import lddt
-from colabdesign.alphafold.model import mapping
-from colabdesign.alphafold.model import prng
-from colabdesign.alphafold.model import quat_affine
-from colabdesign.alphafold.model import utils
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.model import all_atom
+from colabdesign.af.alphafold.model import common_modules
+from colabdesign.af.alphafold.model import folding
+from colabdesign.af.alphafold.model import layer_stack
+from colabdesign.af.alphafold.model import lddt
+from colabdesign.af.alphafold.model import mapping
+from colabdesign.af.alphafold.model import prng
+from colabdesign.af.alphafold.model import quat_affine
+from colabdesign.af.alphafold.model import utils
 import haiku as hk
 import jax
 import jax.numpy as jnp
 
-from colabdesign.alphafold.model.r3 import Rigids, Rots, Vecs
+from colabdesign.af.alphafold.model.r3 import Rigids, Rots, Vecs
 
 
 def softmax_cross_entropy(logits, labels):

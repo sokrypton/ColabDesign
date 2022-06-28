@@ -14,7 +14,7 @@
 """Model config."""
 
 import copy
-from colabdesign.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.model.tf import shape_placeholders
 import ml_collections
 
 

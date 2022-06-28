@@ -17,7 +17,7 @@
 import io
 import os
 from typing import List
-from colabdesign.alphafold.model import utils
+from colabdesign.af.alphafold.model import utils
 import haiku as hk
 import numpy as np
 # Internal import (7716).

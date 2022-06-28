@@ -16,9 +16,9 @@
 from typing import Any, Mapping, Optional, Union
 
 from absl import logging
-from colabdesign.alphafold.common import confidence
-from colabdesign.alphafold.model import features
-from colabdesign.alphafold.model import modules
+from colabdesign.af.alphafold.common import confidence
+from colabdesign.af.alphafold.model import features
+from colabdesign.af.alphafold.model import modules
 import haiku as hk
 import jax
 import ml_collections

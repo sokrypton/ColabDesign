@@ -34,10 +34,10 @@ the network to facilitate easier conversion to existing protein datastructures.
 """
 
 from typing import Dict, Optional
-from colabdesign.alphafold.common import residue_constants
+from colabdesign.af.alphafold.common import residue_constants
 
-from colabdesign.alphafold.model import r3
-from colabdesign.alphafold.model import utils
+from colabdesign.af.alphafold.model import r3
+from colabdesign.af.alphafold.model import utils
 import jax
 import jax.numpy as jnp
 import numpy as np

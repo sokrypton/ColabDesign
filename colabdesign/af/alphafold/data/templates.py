@@ -21,10 +21,10 @@ import re
 from typing import Any, Dict, Mapping, Optional, Sequence, Tuple
 
 from absl import logging
-from colabdesign.alphafold.common import residue_constants
-from colabdesign.alphafold.data import mmcif_parsing
-from colabdesign.alphafold.data import parsers
-from colabdesign.alphafold.data.tools import kalign
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.data import mmcif_parsing
+from colabdesign.af.alphafold.data import parsers
+from colabdesign.af.alphafold.data.tools import kalign
 import numpy as np
 
 # Internal import (7716).

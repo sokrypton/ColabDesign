@@ -14,7 +14,7 @@
 
 """Datasets consisting of proteins."""
 from typing import Dict, Mapping, Optional, Sequence
-from colabdesign.alphafold.model.tf import protein_features
+from colabdesign.af.alphafold.model.tf import protein_features
 import numpy as np
 import tensorflow.compat.v1 as tf
 

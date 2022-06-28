@@ -15,7 +15,7 @@
 """Contains descriptions of various protein features."""
 import enum
 from typing import Dict, Optional, Sequence, Tuple, Union
-from colabdesign.alphafold.common import residue_constants
+from colabdesign.af.alphafold.common import residue_constants
 import tensorflow.compat.v1 as tf
 
 # Type aliases.

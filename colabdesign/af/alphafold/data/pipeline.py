@@ -17,12 +17,12 @@
 import os
 from typing import Mapping, Optional, Sequence
 from absl import logging
-from colabdesign.alphafold.common import residue_constants
-from colabdesign.alphafold.data import parsers
-from colabdesign.alphafold.data import templates
-from colabdesign.alphafold.data.tools import hhblits
-from colabdesign.alphafold.data.tools import hhsearch
-from colabdesign.alphafold.data.tools import jackhmmer
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.data import parsers
+from colabdesign.af.alphafold.data import templates
+from colabdesign.af.alphafold.data.tools import hhblits
+from colabdesign.af.alphafold.data.tools import hhsearch
+from colabdesign.af.alphafold.data.tools import jackhmmer
 import numpy as np
 
 # Internal import (7716).

@@ -14,8 +14,8 @@
 
 """Feature pre-processing input pipeline for AlphaFold."""
 
-from colabdesign.alphafold.model.tf import data_transforms
-from colabdesign.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.model.tf import data_transforms
+from colabdesign.af.alphafold.model.tf import shape_placeholders
 import tensorflow.compat.v1 as tf
 import tree
 

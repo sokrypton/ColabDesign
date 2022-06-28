@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.alphafold.model import data, config, model
+from colabdesign.af.alphafold.model import data, config, model
 
 from colabdesign.af.prep import _af_prep
 from colabdesign.af.loss import _af_loss

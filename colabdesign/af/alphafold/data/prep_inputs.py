@@ -1,5 +1,5 @@
 import numpy as np
-from colabdesign.alphafold.common import residue_constants
+from colabdesign.af.alphafold.common import residue_constants
 
 def make_atom14_positions(prot):
   """Constructs denser atom positions (14 dimensions instead of 37)."""

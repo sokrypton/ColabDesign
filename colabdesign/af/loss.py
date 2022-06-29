@@ -19,13 +19,14 @@ class _af_loss:
     def _model(params, model_params, inputs, key, opt):
 
       aux = {}
-      key = Key(key=key)
+      key = Key(key=key).get
+
       #######################################################################
       # INPUTS
       #######################################################################
 
       # get sequence
-      seq = self._get_seq(params, opt, aux, key.get())
+      seq = self._get_seq(params, opt, aux, key())
             
       # update sequence features
       update_seq(seq["pseudo"], inputs)
@@ -37,7 +38,7 @@ class _af_loss:
       
       # update template features
       if self._args["use_templates"]:
-        self._update_template(inputs, opt, key.get())
+        self._update_template(inputs, opt, key())
       
       # set dropout
       inputs["dropout_rate"] = jnp.array([opt["dropout"]]).astype(float)
@@ -49,7 +50,7 @@ class _af_loss:
       #######################################################################
       # OUTPUTS
       #######################################################################
-      outputs = self._runner.apply(model_params, key.get(), inputs)
+      outputs = self._runner.apply(model_params, key(), inputs)
 
       # add aux outputs
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
@@ -87,7 +88,7 @@ class _af_loss:
       seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
     # straight-through/reparameterization
-    seq["logits"] = 2.0 * seq["input"] + opt["bias"]
+    seq["logits"] = seq["input"] * opt["lambda"] + opt["bias"]
     seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
     seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
     seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]

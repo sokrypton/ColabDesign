@@ -47,7 +47,7 @@ class _af_design:
     self.set_weights(weights)
 
     # initialize sequence
-    self.key = Key(seed=seed)
+    self.key = Key(seed=seed).get
     self._init_seq(mode, seq, rm_aa, add_seq, seq_init)
 
     # setup optimizer
@@ -74,14 +74,11 @@ class _af_design:
     
     # initialize sequence
     shape = (self._num, self._len, 20)
-    x = 0.01 * jax.random.normal(self.key.get(), shape)
+    x = 0.01 * jax.random.normal(self.key(), shape)
 
     # initialize bias
     bias = jnp.zeros(shape[1:])
     use_bias = False
-
-    if "gumbel" in mode: x = jax.random.gumbel(self.key.get(), shape) / 2.0
-    if "soft" in mode:   x = jax.nn.softmax(x * 2.0)
 
     # initialize with input sequence
     if "wildtype" in mode or "wt" in mode:
@@ -98,6 +95,9 @@ class _af_design:
       if add_seq:
         bias = bias + seq * 1e8
         use_bias = True 
+
+    if "gumbel" in mode: x += jax.random.gumbel(self.key(), shape) / self.opt["lambda"]
+    if "soft" in mode:   x = jax.nn.softmax(x * self.opt["lambda"])
 
     # disable certain amino acids
     if rm_aa is not None:
@@ -179,7 +179,7 @@ class _af_design:
     m = self.opt["models"]
     ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
     if self._args["model_sample"] and m != len(ns):
-      model_num = jax.random.choice(self.key.get(),ns,(m,),replace=False)
+      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()    
@@ -228,22 +228,22 @@ class _af_design:
       grad = []
       for r in range(recycles+1):
         if backprop:
-          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
+          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, self.key(), self.opt)
           grad.append(_grad)
         else:
-          loss, aux = self._fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
+          loss, aux = self._fn(self.params, model_params, self._inputs, self.key(), self.opt)
         self._inputs["prev"] = aux["prev"]
       if backprop:
         grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
 
     else:
       if self._args["recycle_mode"] == "sample":
-        self.opt["recycles"] = jax.random.randint(self.key.get(), [], 0, recycles+1)
+        self.opt["recycles"] = jax.random.randint(self.key(), [], 0, recycles+1)
       
       if backprop:
-        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
+        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, self.key(), self.opt)
       else:
-        loss, aux = self._fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
+        loss, aux = self._fn(self.params, model_params, self._inputs, self.key(), self.opt)
 
     aux["recycles"] = self.opt["recycles"]
     self.opt["recycles"] = recycles
@@ -347,14 +347,14 @@ class _af_design:
       L,A = seq.shape[-2:]
       while True:
         if plddt is None:
-          i = jax.random.randint(self.key.get(),[],0,L)
+          i = jax.random.randint(self.key(),[],0,L)
         else:
           p = (1-plddt)/(1-plddt).sum(-1,keepdims=True)
           # bias mutations towards positions with low pLDDT
           # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-          i = jax.random.choice(self.key.get(),jnp.arange(L),[],p=p)
+          i = jax.random.choice(self.key(),jnp.arange(L),[],p=p)
 
-        a = jax.random.randint(self.key.get(),[],0,A)
+        a = jax.random.randint(self.key(),[],0,A)
         if seq[0,i,a] == 0: break      
       return seq.at[:,i,:].set(jnp.eye(A)[a])
 

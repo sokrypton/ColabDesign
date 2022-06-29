@@ -142,7 +142,7 @@ class mk_trdesign_model():
   
   def _init_seq(self, seq=None):
     if seq is None:
-      seq = 0.01 * jax.random.normal(self.key.get(), (self._len,20))
+      seq = 0.01 * jax.random.normal(self.key(), (self._len,20))
     else:
       if isinstance(seq, str):
         seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
@@ -157,7 +157,7 @@ class mk_trdesign_model():
     self._state = self._init_fun(self.params)
 
   def restart(self, seed=None, opt=None, weights=None, seq=None):
-    self.key = Key(seed=seed)
+    self.key = Key(seed=seed).get
     self.opt = jax.tree_map(lambda x:x, self._opt) # copy
     self.set_opt(opt)
     self.set_weights(weights)
@@ -174,7 +174,7 @@ class mk_trdesign_model():
     m = self.opt["model_num"]
     ns = jnp.arange(5)
     if self.opt["model_sample"] and m != len(ns):
-      model_num = jax.random.choice(self.key.get(),ns,(m,),replace=False)
+      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()

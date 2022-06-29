@@ -178,10 +178,11 @@ class _af_prep:
     self.restart(set_defaults=True, **kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, use_sidechains=False, use_6D=False, **kwargs):
+                    fix_seq=False, use_sidechains=False, use_6D=False, **kwargs):
     '''prep input for partial hallucination'''
     
-    if "sidechain" in kwargs: use_sidechains = kwargs["sidechain"]
+    if "sidechain" in kwargs:
+      use_sidechains = kwargs.pop("sidechain")
     self.args["use_sidechains"] = use_sidechains
     if use_sidechains: fix_seq = True
 
@@ -189,13 +190,9 @@ class _af_prep:
     
     # get [pos]itions of interests
     pdb = prep_pdb(pdb_filename, chain=chain)
-    if pos is None:
-      pos = np.arange(pdb["residue_index"].shape[0])
-    else:
-      pos = prep_pos(pos, **pdb["idx"])
-    
-    self._opt["pos"] = pos
-    self._opt["fix_seq"] = fix_seq
+    pos = np.arange(pdb["residue_index"].shape[0]) if pos is None else prep_pos(pos, **pdb["idx"])
+        
+    self._opt.update({"pos":pos, "fix_seq":fix_seq})
     self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
     self._wt_aatype = self._batch["aatype"]
 
@@ -206,10 +203,8 @@ class _af_prep:
     self._inputs = self._prep_features(self._len)
     
     weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
-    if use_6D:
-      weights["6D"] = 1.0
     if use_sidechains:
-      weights.update({"sc_rmsd":0.0,"sc_fape":0.0})
+      weights.update({"sc_rmsd":0.0, "sc_fape":0.0})
       
     self._opt["weights"].update(weights)
     self.restart(set_defaults=True, **kwargs)

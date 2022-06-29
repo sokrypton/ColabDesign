@@ -13,19 +13,19 @@ except:
 ####################################################
 # AF_DESIGN - design functions
 ####################################################
-#
 #\
 # \_af_design
-# |\_restart
-# | \_init_seq
+# |\
+# | \_restart
+# | |\_init_seq
 # |  \_setup_optimizer
 # |
-#  \_design
-#   \_step
-#   |\_run
-#   | \_recycle
-#   |
-#    \_save_results
+#  \
+#   \_design(step(run(recycle)))
+#    \_step
+#    |\_run
+#    | \_recycle
+#     \_save_results
 #
 ####################################################
 
@@ -38,15 +38,7 @@ class _af_design:
     if set_defaults:
       update_dict(self._opt, opt)
       update_dict(self._opt["weights"], weights)
-        
-      if not self.use_struct:
-        # remove structure module specific weights
-        struct_list = ["rmsd","fape","plddt","pae"]
-        keys = list(self._opt["weights"].keys())
-        for k in keys:
-          if k.split("_")[-1] in struct_list:
-            self._opt["weights"].pop(k)
-    
+            
     if not keep_history:
       self.opt = jax.tree_map(lambda x:x, self._opt) # copy
 
@@ -63,10 +55,7 @@ class _af_design:
 
     # initialize trajectory
     if not keep_history:
-      if self.use_struct:
-        self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      else:
-        self._traj = {"losses":[],"seq":[],"con":[]}
+      self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self.clear_best()
 
   def _init_seq(self, mode=None, seq=None, rm_aa=None, add_seq=False, seq_init=None):
@@ -76,16 +65,15 @@ class _af_design:
     if seq_init is not None:
       print("WARNING: 'seq_init' is being deprecated, use options: 'mode' and 'seq'")
       x = seq_init
-      if isinstance(x, np.ndarray) or isinstance(x, jnp.ndarray): seq = x
+      if isinstance(x, (np.ndarray, jnp.ndarray)): seq = x
       elif isinstance(x, str):
-        # TODO this could result in some issues...
         if len(x) == self._len: seq = x
         else: mode = x
 
-    if mode is None: mode = ""
+    if mode is None: mode = []
     
     # initialize sequence
-    shape = (self.args["num_seq"], self._len, 20)
+    shape = (self._num, self._len, 20)
 
     self._key, key = jax.random.split(self._key)
     x = 0.01 * jax.random.normal(key, shape)
@@ -117,23 +105,19 @@ class _af_design:
           use_bias = True
 
     if seq is not None:
-      if isinstance(seq, np.ndarray) or isinstance(seq, jnp.ndarray):
-        x_ = seq
-      elif isinstance(seq, str):
-        x_ = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
-        x_ = jax.nn.one_hot(x_,20)
-      x = x + x_
+      if isinstance(seq, str):
+        seq = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
+        seq = jax.nn.one_hot(seq,20)
+      x = x + seq
       if add_seq:
-        bias = bias + x_ * 1e8
+        bias = bias + seq * 1e8
         use_bias = True 
 
     if rm_aa is not None:
       for aa in rm_aa.split(","):
         bias = bias - 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
         use_bias = True
-
-    if use_bias:
-      self.opt["bias"] = bias
+    if use_bias: self.opt["bias"] = bias
     self.params = {"seq":x}
 
   def _setup_optimizer(self, optimizer="sgd", **kwargs):
@@ -154,14 +138,14 @@ class _af_design:
   def design(self, iters,
              temp=1.0, e_temp=None,
              soft=False, e_soft=None,
-             hard=False, dropout=True, gumbel=False, 
+             hard=False, dropout=True, 
              opt=None, weights=None, callback=None,
              save_best=False, verbose=1):
       
     # override settings if defined
     self.set_opt(opt)
     self.set_weights(weights)
-    self.set_opt(hard=hard, dropout=dropout, gumbel=gumbel)
+    self.set_opt(hard=hard, dropout=dropout)
 
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
@@ -223,7 +207,7 @@ class _af_design:
 
     # update gradients
     if backprop:
-      self.grad = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_grad)
+      self.grad = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *_grad)
     else:
       self.grad = jax.tree_map(jnp.zeros_like, self.params)
 
@@ -231,24 +215,18 @@ class _af_design:
     self.loss = jnp.stack(_loss).mean()
     
     # update aux
-    _aux = jax.tree_map(lambda *v: jnp.stack(v), *_aux)    
-    self.aux = jax.tree_map(lambda x:x[0], _aux) # pick one example
-    self.aux["losses"] = jax.tree_map(lambda v: v.mean(0), _aux["losses"])
+    _aux = jax.tree_map(lambda *x: jnp.stack(x), *_aux)    
+    self.aux = jax.tree_map(lambda x:x[0], _aux)
+    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), _aux["losses"])
     self.aux["model_num"] = model_num    
     self._outs = self.aux # backward compatibility
       
   def _recycle(self, model_params, backprop=True):                
     # initialize previous (for recycle)
     L = self._inputs["residue_index"].shape[-1]
-    
-    if self.use_struct:
-      self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                              'prev_pair': np.zeros([L,L,128]),
-                              'prev_pos': np.zeros([L,37,3])}
-    else:
-      self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                              'prev_pair': np.zeros([L,L,128]),
-                              'prev_dgram': np.zeros([L,L,64])}
+    self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
+                            'prev_pair': np.zeros([L,L,128]),
+                            'prev_pos': np.zeros([L,37,3])}
               
     if self.args["recycle_mode"] in ["backprop","add_prev"]:
       self.opt["recycles"] = self._runner.config.model.num_recycle
@@ -257,8 +235,7 @@ class _af_design:
 
     if self.args["recycle_mode"] == "average":
       # average gradient across recycles
-      if backprop:
-        grad = []
+      grad = []
       for r in range(recycles+1):
         self._key, key = jax.random.split(self._key)
         if backprop:
@@ -269,6 +246,7 @@ class _af_design:
         self._inputs["prev"] = aux["prev"]
       if backprop:
         grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
+
     else:
       if self.args["recycle_mode"] == "sample":
         self._key, key = jax.random.split(self._key)
@@ -318,6 +296,7 @@ class _af_design:
                     "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
       for k in losses.keys():
         if k not in print_list: print_list.append(k)
+
       print_str = f"{self._k}"
       for k in print_list:
         if k in losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
@@ -327,12 +306,9 @@ class _af_design:
 
     # save trajectory
     traj = {"losses":losses, "seq":np.asarray(self.aux["seq"]["pseudo"])}
-    if self.use_struct:
-      traj["xyz"] = np.asarray(self.aux["final_atom_positions"][:,1,:])
-      traj["plddt"] = np.asarray(self.aux["plddt"])
-      if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
-    else:
-      traj["con"] = np.asarray(self.aux["contact_map"])
+    traj["xyz"] = np.asarray(self.aux["final_atom_positions"][:,1,:])
+    traj["plddt"] = np.asarray(self.aux["plddt"])
+    if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     for k,v in traj.items(): self._traj[k].append(v)
 
   def clear_best(self):
@@ -352,25 +328,25 @@ class _af_design:
     self.design(iters, soft=True, hard=True, **kwargs)
 
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
-                    temp=1.0, dropout=True, gumbel=False, **kwargs):
+                    temp=1.0, dropout=True **kwargs):
     '''two stage design (soft→hard)'''
-    self.design(soft_iters, soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
-    self.design(temp_iters, soft=True, temp=temp, dropout=dropout, gumbel=False,  e_temp=1e-2, **kwargs)
-    self.design(hard_iters, soft=True, temp=1e-2, dropout=False,   gumbel=False,  hard=True, save_best=True, **kwargs)
+    self.design(soft_iters, soft=True, temp=temp, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True, temp=temp, dropout=dropout,  e_temp=1e-2, **kwargs)
+    self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, 
-                    temp=1.0, dropout=True, gumbel=False, **kwargs):
+                    temp=1.0, dropout=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, gumbel=gumbel, **kwargs)
-    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, gumbel=False, e_temp=1e-2,**kwargs)
-    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False,   gumbel=False, hard=True, save_best=True, **kwargs)  
+    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
+    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)  
     
   def template_predesign(self, iters=100, soft=True, hard=False, 
-                         temp=1.0, dropout=True, gumbel=False, **kwargs):
+                         temp=1.0, dropout=True, **kwargs):
     '''use template for predesign stage, then increase template dropout until gone'''
-    self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp, gumbel=False)
+    self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp)
     for i in range(iters):
-      self.opt["template_dropout"] = i/(iters-1)
+      self.opt["template"]["dropout"] = (i+1)/iters
       self.step(**kwargs)
   
   def design_semigreedy(self, iters=100, tries=20, dropout=False,

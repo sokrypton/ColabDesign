@@ -77,28 +77,25 @@ class _af_utils:
     save pdb coordinates (if filename provided, otherwise return as string)
     - set get_best=False, to get the last sampled sequence
     '''
-    if self.use_struct:
-      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-      aux = jax.tree_map(lambda x:np.asarray(x), aux)
-      aatype = aux["seq"]["hard"].argmax(-1)[0]
-      if self.protocol == "binder":
-        aatype_target = self._batch["aatype"][:self._target_len]
-        aatype = np.concatenate([aatype_target,aatype])
-      if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-        aatype = np.concatenate([aatype] * self._copies)
-      p = {"residue_index":self._inputs["residue_index"][0],
-            "aatype":aatype,
-            "atom_positions":aux["final_atom_positions"],
-            "atom_mask":aux["final_atom_mask"]}
-      b_factors = 100.0 * aux["plddt"][:,None] * p["atom_mask"]
-      p = protein.Protein(**p,b_factors=b_factors)
-      pdb_lines = protein.to_pdb(p)
-      if filename is None:
-        return pdb_lines
-      else:
-        with open(filename, 'w') as f: f.write(pdb_lines)
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = jax.tree_map(lambda x:np.asarray(x), aux)
+    aatype = aux["seq"]["hard"].argmax(-1)[0]
+    if self.protocol == "binder":
+      aatype_target = self._batch["aatype"][:self._target_len]
+      aatype = np.concatenate([aatype_target,aatype])
+    if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
+      aatype = np.concatenate([aatype] * self._copies)
+    p = {"residue_index":self._inputs["residue_index"][0],
+          "aatype":aatype,
+          "atom_positions":aux["final_atom_positions"],
+          "atom_mask":aux["final_atom_mask"]}
+    b_factors = 100.0 * aux["plddt"][:,None] * p["atom_mask"]
+    p = protein.Protein(**p,b_factors=b_factors)
+    pdb_lines = protein.to_pdb(p)
+    if filename is None:
+      return pdb_lines
     else:
-      print("ERROR: structure module disabled")
+      with open(filename, 'w') as f: f.write(pdb_lines)
   #-------------------------------------
   # plotting functions
   #-------------------------------------
@@ -119,22 +116,18 @@ class _af_utils:
     if self.protocol in ["hallucination","fixbb"]:
       length = [self._len] * self._copies
       
-    if self.use_struct:      
+    if self.protocol == "fixbb":
+      pos_ref = self._batch["all_atom_positions"][:,1,:]
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+    
+    if self.protocol == "binder":
+      pos_ref = aux["final_atom_positions"][:,1,:]
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+    
+    if self.protocol in ["hallucination","partial"]:
+      pos_ref = aux["final_atom_positions"][:,1,:]
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)      
       
-      if self.protocol == "fixbb":
-        pos_ref = self._batch["all_atom_positions"][:,1,:]
-        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
-      
-      if self.protocol == "binder":
-        pos_ref = aux["final_atom_positions"][:,1,:]
-        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
-      
-      if self.protocol in ["hallucination","partial"]:
-        pos_ref = aux["final_atom_positions"][:,1,:]
-        return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)      
-      
-    else:
-      return make_animation(**sub_traj, length=length, dpi=dpi)
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), get_best=True):
@@ -142,24 +135,21 @@ class _af_utils:
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    if self.use_struct:
-      Ls = None    
-      if self.protocol == "binder":
-        Ls = [self._target_len, self._binder_len]      
-      if self.protocol == "partial":
-        Ls = [self._len]
-      if self.protocol in ["hallucination","fixbb"]:
-        Ls = [self._len] * self._copies
-      view = show_pdb(self.save_pdb(get_best=get_best),
-                      show_sidechains=show_sidechains,
-                      show_mainchains=show_mainchains,
-                      color=color,
-                      Ls=Ls,
-                      color_HP=color_HP,
-                      size=size)
-      view.show()
-    else:
-      print("ERROR: structure module disabled")
+    Ls = None    
+    if self.protocol == "binder":
+      Ls = [self._target_len, self._binder_len]      
+    if self.protocol == "partial":
+      Ls = [self._len]
+    if self.protocol in ["hallucination","fixbb"]:
+      Ls = [self._len] * self._copies
+    view = show_pdb(self.save_pdb(get_best=get_best),
+                    show_sidechains=show_sidechains,
+                    show_mainchains=show_mainchains,
+                    color=color,
+                    Ls=Ls,
+                    color_HP=color_HP,
+                    size=size)
+    view.show()
   
   def plot_traj(self, dpi=100):
     fig = plt.figure(figsize=(5,5), dpi=dpi)

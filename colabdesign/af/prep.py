@@ -22,16 +22,15 @@ class _af_prep:
 
   def _prep_features(self, length, num_templates=1, template_features=None):
     '''process features'''
-    num_seq = self.args["num_seq"]
     sequence = "A" * length
     feature_dict = {
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
-        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
+        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[self._num*[[0]*length]])
     }
     if self.args["use_templates"]:
       # reconfigure model
       self._runner.config.data.eval.max_templates = num_templates
-      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] + num_templates
+      self._runner.config.data.eval.max_msa_clusters = self._num + num_templates
       if template_features is None:
         feature_dict.update({'template_aatype': np.zeros([num_templates,length,22]),
                              'template_all_atom_masks': np.zeros([num_templates,length,37]),
@@ -41,7 +40,7 @@ class _af_prep:
         feature_dict.update(template_features)
       
     inputs = self._runner.process_features(feature_dict, random_seed=0)
-    if num_seq > 1:
+    if self._num > 1:
       inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
       inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
     return inputs
@@ -64,7 +63,7 @@ class _af_prep:
     
     self._redesign = binder_chain is not None
     self._copies = 1
-    self._opt["template_dropout"] = 0.0 if use_binder_template else 1.0
+    self._opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
     # get pdb info
@@ -116,7 +115,7 @@ class _af_prep:
 
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
     else:
       block_diag = False
 
@@ -157,7 +156,7 @@ class _af_prep:
     
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
     else:
       block_diag = False
       

@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.utils import update_dict
+from colabdesign.utils import update_dict, Key
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -21,7 +21,7 @@ except:
 # |  \_setup_optimizer
 # |
 #  \
-#   \_design(step(run(recycle)))
+#   \_design
 #    \_step
 #    |\_run
 #    | \_recycle
@@ -34,6 +34,7 @@ class _af_design:
   def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False,
               seq_init=None, mode=None, seq=None, rm_aa=None, add_seq=False,
               optimizer="sgd", **kwargs):    
+
     # set weights and options
     if set_defaults:
       update_dict(self._opt, opt)
@@ -46,8 +47,7 @@ class _af_design:
     self.set_weights(weights)
 
     # initialize sequence
-    self._seed = random.randint(0,2147483647) if seed is None else seed
-    self._key = jax.random.PRNGKey(self._seed)
+    self.key = Key(seed=seed)
     self._init_seq(mode, seq, rm_aa, add_seq, seq_init)
 
     # setup optimizer
@@ -74,36 +74,22 @@ class _af_design:
     
     # initialize sequence
     shape = (self._num, self._len, 20)
-
-    self._key, key = jax.random.split(self._key)
-    x = 0.01 * jax.random.normal(key, shape)
+    x = 0.01 * jax.random.normal(self.key.get(), shape)
 
     # initialize bias
     bias = jnp.zeros(shape[1:])
     use_bias = False
 
-    if "gumbel" in mode:
-      self._key, key = jax.random.split(self._key)
-      x = jax.random.gumbel(key, shape) / 2.0
+    if "gumbel" in mode: x = jax.random.gumbel(self.key.get(), shape) / 2.0
+    if "soft" in mode:   x = jax.nn.softmax(x * 2.0)
 
-    if "soft" in mode:
-      x = jax.nn.softmax(x * 2.0)
-
+    # initialize with input sequence
     if "wildtype" in mode or "wt" in mode:
-      wt = jax.nn.one_hot(self._wt_aatype, 20)
-      if self.protocol == "fixbb":
-        wt = wt[...,:self._len]
+      seq = jax.nn.one_hot(self._wt_aatype, 20)
       if self.protocol == "partial":
-        x = x.at[...,self.opt["pos"],:].set(wt)
-        if add_seq:
-          bias = bias.at[self.opt["pos"],:].set(wt * 1e8)
-          use_bias = True
+        seq = jnp.zeros(shape).at[...,self.opt["pos"],:].set(seq)
       else:
-        x = x.at[...,:,:].set(wt)
-        if add_seq:
-          bias = bias.at[:,:].set(wt * 1e8)
-          use_bias = True
-
+        seq = seq[...,:self._len]
     if seq is not None:
       if isinstance(seq, str):
         seq = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
@@ -113,10 +99,13 @@ class _af_design:
         bias = bias + seq * 1e8
         use_bias = True 
 
+    # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
         bias = bias - 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
         use_bias = True
+
+    # set bias and params
     if use_bias: self.opt["bias"] = bias
     self.params = {"seq":x}
 
@@ -190,8 +179,7 @@ class _af_design:
     m = self.opt["models"]
     ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
     if self._args["model_sample"] and m != len(ns):
-      self._key, key = jax.random.split(self._key)
-      model_num = jax.random.choice(key,ns,(m,),replace=False)
+      model_num = jax.random.choice(self.key.get(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()    
@@ -239,26 +227,23 @@ class _af_design:
       # average gradient across recycles
       grad = []
       for r in range(recycles+1):
-        self._key, key = jax.random.split(self._key)
         if backprop:
-          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
+          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
           grad.append(_grad)
         else:
-          loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
+          loss, aux = self._fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
         self._inputs["prev"] = aux["prev"]
       if backprop:
         grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
 
     else:
       if self._args["recycle_mode"] == "sample":
-        self._key, key = jax.random.split(self._key)
-        self.opt["recycles"] = jax.random.randint(key, [], 0, recycles+1)
+        self.opt["recycles"] = jax.random.randint(self.key.get(), [], 0, recycles+1)
       
-      self._key, key = jax.random.split(self._key)
       if backprop:
-        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, key, self.opt)
+        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
       else:
-        loss, aux = self._fn(self.params, model_params, self._inputs, key, self.opt)
+        loss, aux = self._fn(self.params, model_params, self._inputs, self.key.get(), self.opt)
 
     aux["recycles"] = self.opt["recycles"]
     self.opt["recycles"] = recycles
@@ -277,13 +262,14 @@ class _af_design:
       self._best_aux = self._best_outs = self.aux
 
     # save losses
-    losses = jax.tree_map(float, self.aux["losses"])
-    losses.update({"models":self.aux["model_num"],
-                   "recycles":int(self.aux["recycles"]),
-                   "loss":float(self.loss),
-                   "hard":int(self.opt["hard"]),
-                   "soft":float(self.opt["soft"]),
-                   "temp":float(self.opt["temp"])})
+    losses = jax.tree_map(float,self.aux["losses"])
+
+    losses.update({"models":         self.aux["model_num"],
+                   "recycles":   int(self.aux["recycles"]),
+                   "hard":       int(self.opt["hard"]),
+                   "soft":     float(self.opt["soft"]),
+                   "temp":     float(self.opt["temp"]),
+                   "loss":     float(self.loss)})
     
     if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
       # compute sequence recovery
@@ -342,15 +328,12 @@ class _af_design:
     self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
     self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)  
-    
-  def template_predesign(self, iters=100, soft=True, hard=False, 
-                         temp=1.0, dropout=True, **kwargs):
-    '''use template for predesign stage, then increase template dropout until gone'''
-    self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp)
-    for i in range(iters):
-      self.opt["template"]["dropout"] = (i+1)/iters
-      self.step(**kwargs)
   
+
+  ######################################################################################################
+  # EXPERIMENTAL STUFF BELOW
+  ######################################################################################################
+
   def design_semigreedy(self, iters=100, tries=20, dropout=False,
                         use_plddt=True, save_best=True, verbose=True):
     '''semigreedy search'''
@@ -363,17 +346,15 @@ class _af_design:
       '''mutate random position'''
       L,A = seq.shape[-2:]
       while True:
-        self._key, key_L, key_A = jax.random.split(self._key,3)
-
         if plddt is None:
-          i = jax.random.randint(key_L,[],0,L)
+          i = jax.random.randint(self.key.get(),[],0,L)
         else:
           p = (1-plddt)/(1-plddt).sum(-1,keepdims=True)
           # bias mutations towards positions with low pLDDT
           # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-          i = jax.random.choice(key_L,jnp.arange(L),[],p=p)
+          i = jax.random.choice(self.key.get(),jnp.arange(L),[],p=p)
 
-        a = jax.random.randint(key_A,[],0,A)
+        a = jax.random.randint(self.key.get(),[],0,A)
         if seq[0,i,a] == 0: break      
       return seq.at[:,i,:].set(jnp.eye(A)[a])
 
@@ -402,3 +383,11 @@ class _af_design:
       self.aux, self.loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)
+
+  def template_predesign(self, iters=100, soft=True, hard=False, 
+                         temp=1.0, dropout=True, **kwargs):
+    '''use template for predesign stage, then increase template dropout until gone'''
+    self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp)
+    for i in range(iters):
+      self.opt["template"]["dropout"] = (i+1)/iters
+      self.step(**kwargs)

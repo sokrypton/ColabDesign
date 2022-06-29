@@ -5,8 +5,9 @@ import numpy as np
 from colabdesign.af.misc import _np_get_6D_loss, _np_rmsd, _np_kabsch
 from colabdesign.af.misc import update_seq, update_aatype 
 from colabdesign.af.misc import get_plddt, get_pae, get_fape_loss, get_dgram_loss, get_rmsd_loss_w, get_sc_rmsd
-
 from colabdesign.af.alphafold.model import model, folding, all_atom
+
+from colabdesign.utils import Key
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -18,12 +19,13 @@ class _af_loss:
     def _model(params, model_params, inputs, key, opt):
 
       aux = {}
+      key = Key(key=key)
       #######################################################################
       # INPUTS
       #######################################################################
 
       # get sequence
-      seq = self._get_seq(params, opt, aux)
+      seq = self._get_seq(params, opt, aux, key.get())
             
       # update sequence features
       update_seq(seq["pseudo"], inputs)
@@ -35,8 +37,7 @@ class _af_loss:
       
       # update template features
       if self._args["use_templates"]:
-        key, sub_key = jax.random.split(key)
-        self._update_template(inputs, opt, sub_key)
+        self._update_template(inputs, opt, key.get())
       
       # set dropout
       inputs["dropout_rate"] = jnp.array([opt["dropout"]]).astype(float)
@@ -48,7 +49,7 @@ class _af_loss:
       #######################################################################
       # OUTPUTS
       #######################################################################
-      outputs = self._runner.apply(model_params, key, inputs)
+      outputs = self._runner.apply(model_params, key.get(), inputs)
 
       # add aux outputs
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
@@ -62,8 +63,9 @@ class _af_loss:
       #######################################################################
       # LOSS
       #######################################################################
+      aux["losses"] = {}
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
-      
+
       if self._loss_callback is not None:
         aux["losses"].update(self._loss_callback(inputs, outputs))
 
@@ -74,7 +76,7 @@ class _af_loss:
     
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
 
-  def _get_seq(self, params, opt, aux):
+  def _get_seq(self, params, opt, aux, key):
     '''get sequence features'''
     seq = {"input":params["seq"]}
     seq_shape = params["seq"].shape
@@ -118,13 +120,13 @@ class _af_loss:
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss.mean()
-    self._get_pairwise_loss(inputs, outputs, opt, aux):
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
 
   def _loss_fixbb(self, inputs, outputs, opt, aux):
     '''get losses'''
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
-    self._get_pairwise_loss(inputs, outputs, opt, aux):
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
 
     copies = 1 if self._args["repeat"] else self._copies
     aatype = inputs["aatype"][0]
@@ -138,7 +140,7 @@ class _af_loss:
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()        
-    self._get_pairwise_loss(inputs, outputs, opt, aux):
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
 
     if self._redesign:
       aatype = inputs["aatype"][0]
@@ -157,11 +159,11 @@ class _af_loss:
       aux["losses"]["dgram_cce"] = errors["errors"][L:,:].mean()       
 
   def _loss_partial(self, inputs, outputs, opt, aux):
-    
+    '''get losses'''    
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss.mean()
-    self._get_pairwise_loss(inputs, outputs, opt, aux):
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
 
     def sub(x, p, axis=0):
       fn = lambda y:jnp.take(y,p,axis)

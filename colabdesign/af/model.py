@@ -40,7 +40,10 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
                  "template": {"aatype":21, "dropout":0.15},
                  "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
 
-    # setup which model configs to use
+    #############################
+    # CONFIG
+    #############################
+    # decide which condig to use configs to use
     if use_templates:
       model_name = "model_1_ptm"
       self._opt["models"] = min(num_models, 2)
@@ -48,37 +51,30 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
       model_name = "model_3_ptm"
     
     cfg = config.model_config(model_name)
-
-    # enable checkpointing
     cfg.model.global_config.use_remat = True  
-
-    # subbatch_size / chunking
-    cfg.model.global_config.subbatch_size = None
-    
+    cfg.model.global_config.subbatch_size = None    
     # number of sequences
     if use_templates:
       cfg.data.eval.max_templates = 1
       cfg.data.eval.max_msa_clusters = num_seq + 1
     else:
       cfg.data.eval.max_msa_clusters = num_seq
-
     cfg.data.common.max_extra_msa = 1
     cfg.data.eval.masked_msa_replace_fraction = 0
 
     # number of recycles (recycles are now managed in AfDesign)
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
     if recycle_mode == "average": num_recycles = 0
-    
     cfg.data.common.num_recycle = 0      # for feature processing
     cfg.model.num_recycle = num_recycles # for model configuration
-
     self._config = cfg
 
-    # setup model
+    ##################################
+    # MODEL
+    ##################################
     self._model_params = [data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)]
     self._runner = model.RunModel(self._config, self._model_params[0],
                                   is_training=True, recycle_mode=recycle_mode)
-
     # load the other model_params
     if use_templates:
       model_names = ["model_2_ptm"]
@@ -91,9 +87,11 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
     # define gradient function
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
+    #####################################
     # set protocol specific functions
+    #####################################
     protocols = ["fixbb","hallucination","binder","partial"]
     prep_fns = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial]
-    loss_fns = [self._loss_fixbb, self._loss_hallucination, self,_loss_binder, self._loss_partial]
-    self.prep_inputs = dict(protocols, prep_fns)[self.protocol]
-    self._get_loss = dict(protocols, loss_fns)[self.protocol]
+    loss_fns = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial]
+    self.prep_inputs = dict(zip(protocols, prep_fns))[self.protocol]
+    self._get_loss = dict(zip(protocols, loss_fns))[self.protocol]

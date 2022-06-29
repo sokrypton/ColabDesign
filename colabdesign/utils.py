@@ -1,5 +1,6 @@
+import random
 import jax
-import numpy as jnp
+import numpy as np
 import jax.numpy as jnp
 
 def clear_mem():
@@ -25,3 +26,19 @@ def update_dict(D, *args, **kwargs):
   for a in args:
     if isinstance(a, dict): set_dict(D, a)
   set_dict(D, kwargs)
+
+class Key():
+  '''random key generator'''
+  def __init__(self, key=None, seed=None):
+    if key is None:
+      self.seed = random.randint(0,2147483647) if seed is None else seed
+      self.key = jax.random.PRNGKey(self.seed) 
+    else:
+      self.key = key
+  def get(self, num=1):
+    if num > 1:
+      self.key, *sub_keys = jax.random.split(self.key, num=(num+1))
+      return sub_keys
+    else:
+      self.key, sub_key = jax.random.split(self.key)
+      return sub_key

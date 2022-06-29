@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from colabdesign.utils import update_dict
+from colabdesign.utils import update_dict, Key
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -142,8 +142,7 @@ class mk_trdesign_model():
   
   def _init_seq(self, seq=None):
     if seq is None:
-      self._key, key = jax.random.split(self._key)
-      seq = 0.01 * jax.random.normal(key, (self._len,20))
+      seq = 0.01 * jax.random.normal(self.key.get(), (self._len,20))
     else:
       if isinstance(seq, str):
         seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
@@ -158,8 +157,7 @@ class mk_trdesign_model():
     self._state = self._init_fun(self.params)
 
   def restart(self, seed=None, opt=None, weights=None, seq=None):
-    self._seed = random.randint(0,2147483647) if seed is None else seed
-    self._key = jax.random.PRNGKey(self._seed)
+    self.key = Key(seed=seed)
     self.opt = jax.tree_map(lambda x:x, self._opt) # copy
     self.set_opt(opt)
     self.set_weights(weights)
@@ -176,8 +174,7 @@ class mk_trdesign_model():
     m = self.opt["model_num"]
     ns = jnp.arange(5)
     if self.opt["model_sample"] and m != len(ns):
-      self._key, key = jax.random.split(self._key)
-      model_num = jax.random.choice(key,ns,(m,),replace=False)
+      model_num = jax.random.choice(self.key.get(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()

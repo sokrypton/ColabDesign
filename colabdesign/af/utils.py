@@ -4,6 +4,7 @@ import numpy as np
 
 from colabdesign.af.misc import jalview_color_list, _np_kabsch, order_restype
 from colabdesign.af.alphafold.common import protein
+from colabdesign.utils import update_dict
 
 # import matplotlib
 import matplotlib
@@ -27,26 +28,6 @@ pymol_color_list = ["#33ff33","#00ffff","#ff33cc","#ffff00","#ff9999","#e5e5e5",
                     "#00ff7f","#337fcc","#d8337f","#bfff3f","#ff7fff","#d8d8ff","#3fffbf","#b78c4c",
                     "#339933","#66b2b2","#ba8c84","#84bf00","#b24c66","#7f7f7f","#3f3fa5","#a5512b"]
 pymol_cmap = matplotlib.colors.ListedColormap(pymol_color_list)
-
-# robust function for updating dictionary
-def update_dict(D, *args, **kwargs):
-  def set_dict(d, x):
-    for k,v in x.items():
-      if v is not None:
-        if k in d:
-          if isinstance(v,dict):
-            set_dict(d[k], x[k])
-          elif isinstance(d[k],dict):
-            print(f"ERROR: '{k}' is a dictionary")
-          elif isinstance(d[k],(int,float,bool,str)):
-            d[k] = type(d[k])(v)
-          else:
-            d[k] = v
-        else:
-          print(f"ERROR: '{k}' not found in {list(d.keys())}")  
-  for a in args:
-    if isinstance(a, dict): set_dict(D, a)    
-  set_dict(D, kwargs)
 
 ####################################################
 # AF_UTILS - various utils (save, plot, etc)
@@ -386,10 +367,6 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)
   plt.close()
   return ani.to_html5_video()
-
-def clear_mem():
-  backend = jax.lib.xla_bridge.get_backend()
-  for buf in backend.live_buffers(): buf.delete()
 
 def renum_pdb_str(pdb_str, Ls=None):
   if Ls is not None:

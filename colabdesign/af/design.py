@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.af.utils import update_dict
+from colabdesign.utils import update_dict
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -84,10 +84,10 @@ class _af_design:
 
     if "gumbel" in mode:
       self._key, key = jax.random.split(self._key)
-      x = jax.random.gumbel(key, shape)
+      x = jax.random.gumbel(key, shape) / 2.0
 
     if "soft" in mode:
-      x = jax.nn.softmax(x)
+      x = jax.nn.softmax(x * 2.0)
 
     if "wildtype" in mode or "wt" in mode:
       wt = jax.nn.one_hot(self._wt_aatype, 20)
@@ -145,13 +145,15 @@ class _af_design:
     # override settings if defined
     self.set_opt(opt)
     self.set_weights(weights)
-    self.set_opt(hard=hard, dropout=dropout)
+    self.set_opt(dropout=dropout, hard=hard)
 
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
-      self.opt["temp"] = e_temp + (temp - e_temp) * (1 - (i+1)/iters) ** 2
-      self.opt["soft"] = soft + (e_soft - soft) * ((i+1)/iters)
+      temp_ = e_temp + (temp - e_temp) * (1 - (i+1)/iters) ** 2
+      soft_ = soft + (e_soft - soft) * ((i+1)/iters)
+      self.set_opt(temp=temp_, soft=soft_)
+      
       # decay learning rate based on temperature
       s = self.opt["soft"]
       lr_scale = (1 - s) + s * self.opt["temp"]
@@ -186,8 +188,8 @@ class _af_design:
     
     # decide which model params to use
     m = self.opt["models"]
-    ns = jnp.arange(2) if self.args["use_templates"] else jnp.arange(5)
-    if self.args["model_sample"] and m != len(ns):
+    ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
+    if self._args["model_sample"] and m != len(ns):
       self._key, key = jax.random.split(self._key)
       model_num = jax.random.choice(key,ns,(m,),replace=False)
     else:
@@ -228,12 +230,12 @@ class _af_design:
                             'prev_pair': np.zeros([L,L,128]),
                             'prev_pos': np.zeros([L,37,3])}
               
-    if self.args["recycle_mode"] in ["backprop","add_prev"]:
+    if self._args["recycle_mode"] in ["backprop","add_prev"]:
       self.opt["recycles"] = self._runner.config.model.num_recycle
 
     recycles = self.opt["recycles"]
 
-    if self.args["recycle_mode"] == "average":
+    if self._args["recycle_mode"] == "average":
       # average gradient across recycles
       grad = []
       for r in range(recycles+1):
@@ -248,7 +250,7 @@ class _af_design:
         grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
 
     else:
-      if self.args["recycle_mode"] == "sample":
+      if self._args["recycle_mode"] == "sample":
         self._key, key = jax.random.split(self._key)
         self.opt["recycles"] = jax.random.randint(key, [], 0, recycles+1)
       

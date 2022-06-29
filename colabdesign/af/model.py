@@ -24,22 +24,21 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self.loss_callback = loss_callback
 
-    self._num = num_seq
+    self._loss_callback = loss_callback
+    self._num = num_seq    
+    self._args = {"use_templates":use_templates,
+                  "recycle_mode": recycle_mode,
+                  "model_sample": model_sample,
+                  "debug":debug, "repeat": False}
     
-    self.args = {"use_templates":use_templates,
-                 "recycle_mode": recycle_mode,
-                 "model_sample": model_sample,
-                 "debug":debug, "repeat": False}
-    
-    self._opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                 "dropout":True, "lr":1.0, "bias":0.0,
+    self._opt = {"dropout":True, "lr":1.0,
                  "recycles":num_recycles, "models":num_models,
-                 "con":  {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
-                 "i_con":{"num":1, "cutoff":20.0, "binary":False},                 
-                 "template":{"aatype":21, "dropout":0.15},
-                 "weights":{"helix":0.0, "plddt":0.01, "pae":0.01}}
+                 "temp":1.0, "soft":1.0, "hard":1.0, "bias":0.0,
+                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
+                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
+                 "template": {"aatype":21, "dropout":0.15},
+                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
 
     # setup which model configs to use
     if use_templates:
@@ -92,8 +91,9 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
     # define gradient function
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
-    # define input function
-    if protocol == "fixbb":           self.prep_inputs = self._prep_fixbb
-    if protocol == "hallucination":   self.prep_inputs = self._prep_hallucination
-    if protocol == "binder":          self.prep_inputs = self._prep_binder
-    if protocol == "partial":         self.prep_inputs = self._prep_partial
+    # set protocol specific functions
+    protocols = ["fixbb","hallucination","binder","partial"]
+    prep_fns = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial]
+    loss_fns = [self._loss_fixbb, self._loss_hallucination, self,_loss_binder, self._loss_partial]
+    self.prep_inputs = dict(protocols, prep_fns)[self.protocol]
+    self._get_loss = dict(protocols, loss_fns)[self.protocol]

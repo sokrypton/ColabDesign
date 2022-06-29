@@ -304,7 +304,7 @@ class FoldIteration(hk.Module):
                safe_key=None,
                static_feat_2d=None,
                aatype=None,
-               scale_rate=1.0):
+               dropout_rate=1.0):
     c = self.config
 
     if safe_key is None:
@@ -314,7 +314,7 @@ class FoldIteration(hk.Module):
       return prng.safe_dropout(
           tensor=tensor,
           safe_key=safe_key,
-          rate=c.dropout * scale_rate,
+          rate=c.dropout * dropout_rate,
           is_deterministic=self.global_config.deterministic,
           is_training=is_training)
 
@@ -451,7 +451,7 @@ def generate_affines(representations, batch, config, global_config,
         update_affine=True,
         is_training=is_training,
         aatype=batch['aatype'],
-        scale_rate=batch["scale_rate"])
+        dropout_rate=batch["dropout_rate"])
     return act, out  
   keys = jax.random.split(safe_key.get(), c.num_layer)
   activations, output = hk.scan(fold_iter, activations, keys)

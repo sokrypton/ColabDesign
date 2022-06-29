@@ -10,6 +10,7 @@ from colabdesign.af.alphafold.model import all_atom
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 
 from colabdesign.af.misc import _np_get_cb
+
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
 #################################################
@@ -27,7 +28,7 @@ class _af_prep:
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
         **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[self._num*[[0]*length]])
     }
-    if self.args["use_templates"]:
+    if self._args["use_templates"]:
       # reconfigure model
       self._runner.config.data.eval.max_templates = num_templates
       self._runner.config.data.eval.max_msa_clusters = self._num + num_templates
@@ -125,7 +126,7 @@ class _af_prep:
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self.args.update({"repeat":repeat,"block_diag":block_diag})
+    self._args.update({"repeat":repeat,"block_diag":block_diag})
     
     # set weights
     self._opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
@@ -163,7 +164,7 @@ class _af_prep:
     self._len = length
     self._copies = copies
     self._inputs = self._prep_features(length * copies)
-    self.args.update({"block_diag":block_diag, "repeat":repeat})
+    self._args.update({"block_diag":block_diag, "repeat":repeat})
     
     # set weights
     self._opt["weights"].update({"con":1.0})
@@ -183,7 +184,7 @@ class _af_prep:
     
     if "sidechain" in kwargs:
       use_sidechains = kwargs.pop("sidechain")
-    self.args["use_sidechains"] = use_sidechains
+    self._args["use_sidechains"] = use_sidechains
     if use_sidechains: fix_seq = True
 
     self._copies = 1

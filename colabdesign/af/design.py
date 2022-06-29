@@ -84,10 +84,10 @@ class _af_design:
 
     if "gumbel" in mode:
       self._key, key = jax.random.split(self._key)
-      x = jax.random.gumbel(key, shape) / 2.0
+      x = jax.random.gumbel(key, shape)
 
     if "soft" in mode:
-      x = jax.nn.softmax(x * 2.0)
+      x = jax.nn.softmax(x)
 
     if "wildtype" in mode or "wt" in mode:
       wt = jax.nn.one_hot(self._wt_aatype, 20)

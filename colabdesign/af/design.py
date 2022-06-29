@@ -328,7 +328,7 @@ class _af_design:
     self.design(iters, soft=True, hard=True, **kwargs)
 
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
-                    temp=1.0, dropout=True **kwargs):
+                    temp=1.0, dropout=True, **kwargs):
     '''two stage design (soft→hard)'''
     self.design(soft_iters, soft=True, temp=temp, dropout=dropout, **kwargs)
     self.design(temp_iters, soft=True, temp=temp, dropout=dropout,  e_temp=1e-2, **kwargs)

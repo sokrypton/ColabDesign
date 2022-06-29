@@ -65,9 +65,10 @@ class _af_loss:
       #######################################################################
       aux["losses"] = {}
 
-      if self.loss_callbacks is not None:
-        aux["losses"].update(self.loss_callbacks(inputs, outputs))
+      if self.loss_callback is not None:
+        aux["losses"].update(self.loss_callback(inputs, outputs))
       
+      # confidence loss
       plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
       plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
       aux["losses"]["plddt"] = plddt_loss.mean()
@@ -82,7 +83,6 @@ class _af_loss:
         aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()        
         if self._redesign:
           self._get_binder_redesign_loss(**values, aatype=aatype)
-      else:
 
       if self.protocol == "fixbb":
         self._get_fixbb_loss(**values, aatype=aatype)                  
@@ -138,7 +138,7 @@ class _af_loss:
     if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
       seq = jax.tree_map(lambda x:expand_copies(x, self._copies, self.args["block_diag"]), seq)
 
-    return seq, aux
+    return seq
   
   def _get_fixbb_loss(self, aux, outputs, opt, aatype=None):
     '''get backbone specific losses'''

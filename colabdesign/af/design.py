@@ -57,6 +57,10 @@ class _af_design:
     if not keep_history:
       self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self.clear_best()
+    
+    # clear previous results
+    if hasattr(self,"aux"): del self.aux  
+    if hasattr(self,"loss"): del self.loss
 
   def _init_seq(self, mode=None, seq=None, rm_aa=None, add_seq=False, seq_init=None):
     '''initialize sequence'''
@@ -137,6 +141,7 @@ class _af_design:
     self.set_opt(dropout=dropout, hard=hard)
 
     if e_soft is None: e_soft = soft
+    if e_hard is None: e_hard = hard
     if e_temp is None: e_temp = temp
     for i in range(iters):
       self.set_opt(soft=(soft+(e_soft-soft)*((i+1)/iters)),
@@ -319,13 +324,20 @@ class _af_design:
     self.design(temp_iters, soft=True, temp=temp, dropout=dropout,  e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, 
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, waves=1,
                     temp=1.0, dropout=True, **kwargs):
-    '''three stage design (logits→soft→hard)'''
-    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
-    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)  
-  
+    '''three stage design (logits→soft→hard)*waves'''
+    M = 2 if self._args["use_templates"] else 5
+    for w in range(waves):
+      if hasattr(self,"aux"):
+        self.params["seq"] = self.aux["seq"]["pseudo"]
+        self._state = self._init_fun(self.params)
+        self._k = 0
+      self.set_opt(models=1) # sample models
+      self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
+      self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
+      self.set_opt(models=M) # use all models
+      self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   ######################################################################################################
   # EXPERIMENTAL STUFF BELOW

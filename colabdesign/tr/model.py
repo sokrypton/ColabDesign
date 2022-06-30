@@ -238,7 +238,7 @@ class mk_trdesign_model():
     if verbose and (self._k % verbose) == 0:
       x = self.get_loss(get_best=False)
       x["models"] = self.aux["model_num"]
-      print(dict_to_str(x, print_str=f"{self._k}"))
+      print(dict_to_str(x, print_str=f"{self._k}", keys=["models"]))
 
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):
     self.set_opt(opt)

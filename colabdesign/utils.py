@@ -17,6 +17,8 @@ def update_dict(D, *args, **kwargs):
             set_dict(d[k], x[k])
           elif isinstance(d[k],(np.ndarray,jnp.ndarray)):
             d[k] = np.asarray(v)
+          elif d[k] is None:
+            d[k] = v
           else:
             d[k] = type(d[k])(v)
         else:
@@ -42,7 +44,10 @@ def dict_to_str(x, filt=None, keys=None, ok=None, print_str="", f=2):
     if k in x and (filt.get(k,True) or ok in k):
       v = x[k]
       if isinstance(v,float):
-        print_str += f" {k} {v:.{f}f}" 
+        if int(v) == v:
+          print_str += f" {k} {int(v)}"
+        else:
+          print_str += f" {k} {v:.{f}f}"
       else:
         print_str += f" {k} {v}"
   return print_str

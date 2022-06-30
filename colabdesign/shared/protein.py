@@ -2,11 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-restype_1to3 = {'A': 'ALA', 'R': 'ARG', 'N': 'ASN', 'D': 'ASP', 'C': 'CYS',
-                'Q': 'GLN', 'E': 'GLU', 'G': 'GLY', 'H': 'HIS', 'I': 'ILE', 
-                'L': 'LEU', 'K': 'LYS', 'M': 'MET', 'F': 'PHE', 'P': 'PRO',
-                'S': 'SER', 'T': 'THR', 'W': 'TRP', 'Y': 'TYR', 'V': 'VAL'}
-restype_3to1 = {v: k for k, v in restype_1to3.items()}
+from colabdesign.af.alphafold.common import residue_constants
 
 MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
           'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',

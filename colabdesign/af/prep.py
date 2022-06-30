@@ -3,6 +3,7 @@ tf.config.set_visible_devices([], 'GPU')
 import jax
 import jax.numpy as jnp
 import numpy as np
+import re
 
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
@@ -178,7 +179,7 @@ class _af_prep:
     self.restart(set_defaults=True, **kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=False, use_sidechains=False, use_6D=False, **kwargs):
+                    fix_seq=False, use_sidechains=False, **kwargs):
     '''prep input for partial hallucination'''
     
     if "sidechain" in kwargs:
@@ -329,3 +330,32 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
+
+def rewire(pos, order=None, offset=0, loops=0):
+  '''
+  given input [pos]itions (a string of segment ranges seperated by comma,
+  for example: "1-3,4-5"), return list of indices to constrain. The [order] of
+  the segments and the length of [loops] between segments can be controlled.
+  '''
+  # get length for each segment
+  assert isinstance(pos, str)
+  pos = re.sub("[A-Za-z]","",pos)
+  seg_len = [b-a+1 for a,b in [[int(x) for x in (r.split("-") if "-" in r else [r,r])] for r in pos.split(",")]]
+  num_seg = len(seg_len)
+
+  # define order of segments
+  if order is None: order = list(range(num_seg))
+  assert len(order) == num_seg
+
+  # define loop lengths between segments
+  if isinstance(loops, int): loop_len = [loops] * (num_seg - 1)
+  else: loop_len = loops
+  assert len(loop_len) == num_seg - 1
+
+  # get positions we want to restrain/constrain within hallucinated protein 
+  l,new_pos = offset,[]
+  for n,i in enumerate(np.argsort(order)):
+    new_pos.append(l + np.arange(seg_len[i]))
+    if n < num_seg - 1: l += seg_len[i] + loop_len[n] 
+
+  return np.concatenate([new_pos[i] for i in order])

@@ -133,7 +133,7 @@ class _af_design:
              soft=0, e_soft=None,
              hard=0, e_hard=None,
              dropout=True, opt=None, weights=None,
-             callback=None, save_best=False, verbose=1):
+             backprop=True, callback=None, save_best=False, verbose=1):
       
     # override settings if defined
     self.set_opt(opt)
@@ -151,7 +151,7 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
       
-      self.step(lr_scale=lr_scale, callback=callback,
+      self.step(lr_scale=lr_scale, backprop=backprop, callback=callback,
                 save_best=save_best, verbose=verbose)
 
   def step(self, lr_scale=1.0, backprop=True, callback=None,

@@ -93,8 +93,9 @@ class mk_trdesign_model():
 
       # weighted loss
       w = opt["weights"]
-      loss = sum([v*w[k] if k in w else v for k,v in aux["losses"].items()])
-
+      tree_multi = lambda x,y: jax.tree_map(lambda a,b:a*b, x,y)
+      losses = {k:(tree_multi(v,w[k]) if k in w else v) for k,v in aux["losses"].items()}
+      loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
     def _model(params, model_params, opt):

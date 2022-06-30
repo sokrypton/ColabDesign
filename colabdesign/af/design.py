@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.utils import update_dict, Key, dict_to_str
+from colabdesign.shared.utils import update_dict, Key, dict_to_str
 
 try:
   from jax.example_libraries.optimizers import sgd, adam

@@ -4,11 +4,11 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from colabdesign.utils import update_dict, Key, dict_to_str
+from colabdesign.shared.utils import update_dict, Key, dict_to_str
+from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
-from colabdesign.af.misc import _np_get_6D
 from colabdesign.af.prep import prep_pdb, prep_pos
 from colabdesign.af.alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
@@ -322,22 +322,3 @@ class mk_trdesign_model():
       
     self.restart(seed=seed)
     return callback
-
-def _np_get_6D_binned(all_atom_positions, all_atom_mask):
-  # TODO: make differentiable, add use_jax option
-  ref = _np_get_6D(all_atom_positions,
-                   all_atom_mask,
-                   use_jax=False, for_trrosetta=True)
-  ref = jax.tree_map(jnp.squeeze,ref)
-
-  def mtx2bins(x_ref, start, end, nbins, mask):
-    bins = np.linspace(start, end, nbins)
-    x_true = np.digitize(x_ref, bins).astype(np.uint8)
-    x_true = np.where(mask,0,x_true)
-    return np.eye(nbins+1)[x_true][...,:-1]
-
-  mask = (ref["dist"] > 20) | (np.eye(ref["dist"].shape[0]) == 1)
-  return {"dist": mtx2bins(ref["dist"],    2.0,  20.0,  37,  mask=mask),
-          "omega":mtx2bins(ref["omega"], -np.pi, np.pi, 25,  mask=mask),
-          "theta":mtx2bins(ref["theta"], -np.pi, np.pi, 25,  mask=mask),
-          "phi":  mtx2bins(ref["phi"],      0.0, np.pi, 13,  mask=mask)}

@@ -27,6 +27,26 @@ def update_dict(D, *args, **kwargs):
     if isinstance(a, dict): set_dict(D, a)
   set_dict(D, kwargs)
 
+def dict_to_str(x, filt=None, keys=None, ok=None, print_str="", f=2):
+  '''convert dictionary to string for print out'''  
+  if keys is None: keys = []
+  if filt is None: filt = {}
+  if ok is None: ok = ""
+
+  # gather keys
+  for k in x.keys():
+    if k not in keys:
+      keys.append(k)
+
+  for k in keys:
+    if k in x and (filt.get(k,True) or ok in k):
+      v = x[k]
+      if isinstance(v,float):
+        print_str += f" {k} {v:.{f}f}" 
+      else:
+        print_str += f" {k} {v}"
+  return print_str
+
 class Key():
   '''random key generator'''
   def __init__(self, key=None, seed=None):

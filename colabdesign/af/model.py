@@ -34,7 +34,7 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
     
     self._opt = {"dropout":True, "lr":1.0,
                  "recycles":num_recycles, "models":num_models,
-                 "temp":1.0, "soft":1.0, "hard":1.0, "bias":0.0, "lambda":2.0,
+                 "temp":1.0, "soft":1.0, "hard":1.0, "bias":0.0, "alpha":2.0,
                  "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                  "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                  "template": {"aatype":21, "dropout":0.15},

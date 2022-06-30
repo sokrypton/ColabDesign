@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from colabdesign.utils import update_dict, Key
+from colabdesign.utils import update_dict, Key, dict_to_str
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -29,7 +29,7 @@ class mk_trdesign_model():
     # set default options
     self._opt = {"temp":1.0, "soft":1.0, "hard":1.0,
                  "model_num":model_num,"model_sample":model_sample,
-                 "weights":{}, "lr":1.0, "bias":0.0}
+                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
                 
     self.params = {"seq":None}
 
@@ -47,7 +47,7 @@ class mk_trdesign_model():
       seq = {"input":params["seq"]}
 
       # straight-through/reparameterization
-      seq["logits"] = seq["input"] + opt["bias"]
+      seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
       seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
       seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
       seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
@@ -209,7 +209,8 @@ class mk_trdesign_model():
     self.aux["model_num"] = model_num
     self.grad = _grad
 
-  def step(self, backprop=True, callback=None):
+  def step(self, backprop=True, callback=None,
+           save_best=True, verbose=1):
     self.run(backprop=backprop)
     if callback is not None: callback(self)
 
@@ -228,17 +229,22 @@ class mk_trdesign_model():
     # increment
     self._k += 1
 
-  def design(self, iters=100, opt=None, weights=None,
-             save_best=True, verbose=1):
+    # save results
+    if save_best and self.loss < self._best_loss:
+      self._best_loss = self.loss
+      self._best_aux = self.aux
+
+    # print
+    if verbose and (self._k % verbose) == 0:
+      x = self.get_loss(get_best=False)
+      x["models"] = self.aux["model_num"]
+      print(dict_to_str(x, print_str=f"{self._k}"))
+
+  def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):
     self.set_opt(opt)
     self.set_weights(weights)
     for _ in range(iters):
-      self.step()
-      if save_best and self.loss < self._best_loss:
-        self._best_loss = self.loss
-        self._best_aux = self.aux
-      if verbose and (self._k % verbose) == 0:
-        print(self._k, self.aux["model_num"], self.get_loss(get_best=False))
+      self.step(save_best=save_best, verbose=verbose)
 
   def predict(self):
     '''make prediction'''
@@ -251,8 +257,10 @@ class mk_trdesign_model():
     if mode == "preds":
       aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
       x = aux["outputs"]
-    elif mode == "feats": x = self._feats
-    elif mode == "bkg_feats": x = self._bkg_feats
+    elif mode == "feats":
+      x = self._feats
+    elif mode == "bkg_feats":
+      x = self._bkg_feats
 
     x = jax.tree_map(np.asarray, x)
 

@@ -88,7 +88,7 @@ class _af_loss:
       seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
     # straight-through/reparameterization
-    seq["logits"] = seq["input"] * opt["lambda"] + opt["bias"]
+    seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
     seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
     seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
     seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]

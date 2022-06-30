@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.utils import update_dict, Key
+from colabdesign.utils import update_dict, Key, dict_to_str
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -96,8 +96,8 @@ class _af_design:
         bias = bias + seq * 1e8
         use_bias = True 
 
-    if "gumbel" in mode: x += jax.random.gumbel(self.key(), shape) / self.opt["lambda"]
-    if "soft" in mode:   x = jax.nn.softmax(x * self.opt["lambda"])
+    if "gumbel" in mode: x += jax.random.gumbel(self.key(), shape) / self.opt["alpha"]
+    if "soft" in mode:   x = jax.nn.softmax(x * self.opt["alpha"])
 
     # disable certain amino acids
     if rm_aa is not None:
@@ -125,11 +125,11 @@ class _af_design:
     self._k = 0
   
   def design(self, iters,
-             temp=1.0, e_temp=None,
-             soft=False, e_soft=None,
-             hard=False, dropout=True, 
-             opt=None, weights=None, callback=None,
-             save_best=False, verbose=1):
+             temp=1, e_temp=None,
+             soft=0, e_soft=None,
+             hard=0, e_hard=None,
+             dropout=True, opt=None, weights=None,
+             callback=None, save_best=False, verbose=1):
       
     # override settings if defined
     self.set_opt(opt)
@@ -139,17 +139,18 @@ class _af_design:
     if e_soft is None: e_soft = soft
     if e_temp is None: e_temp = temp
     for i in range(iters):
-      temp_ = e_temp + (temp - e_temp) * (1 - (i+1)/iters) ** 2
-      soft_ = soft + (e_soft - soft) * ((i+1)/iters)
-      self.set_opt(temp=temp_, soft=soft_)
+      self.set_opt(soft=(soft+(e_soft-soft)*((i+1)/iters)),
+                   hard=(hard+(e_hard-hard)*((i+1)/iters)),
+                   temp=(e_temp+(temp-e_temp)*(1-(i+1)/iters)**2))
       
       # decay learning rate based on temperature
-      s = self.opt["soft"]
-      lr_scale = (1 - s) + s * self.opt["temp"]
-      self.step(lr_scale=lr_scale, callback=callback)
-      self._save_results(save_best=save_best, verbose=verbose)
+      lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
+      
+      self.step(lr_scale=lr_scale, callback=callback,
+                save_best=save_best, verbose=verbose)
 
-  def step(self, lr_scale=1.0, backprop=True, callback=None):
+  def step(self, lr_scale=1.0, backprop=True, callback=None,
+           save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
@@ -171,6 +172,9 @@ class _af_design:
 
     # increment
     self._k += 1
+
+    # save results
+    self.save_results(save_best=save_best, verbose=verbose)
     
   def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -253,7 +257,7 @@ class _af_design:
     else:
       return loss, aux
     
-  def _save_results(self, save_best=False, verbose=1):
+  def save_results(self, save_best=False, verbose=1):
     '''save the results and update trajectory'''
 
     # save best result
@@ -266,7 +270,7 @@ class _af_design:
 
     losses.update({"models":         self.aux["model_num"],
                    "recycles":   int(self.aux["recycles"]),
-                   "hard":       int(self.opt["hard"]),
+                   "hard":     float(self.opt["hard"]),
                    "soft":     float(self.opt["soft"]),
                    "temp":     float(self.opt["temp"]),
                    "loss":     float(self.loss)})
@@ -277,20 +281,13 @@ class _af_design:
       L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
       losses["seqid"] = float((_aatype[...,:L] == self._wt_aatype[...,:L]).mean())
 
+    # print results
     if verbose and (self._k % verbose) == 0:
-      # print losses  
-      print_list = ["models","recycles","hard","soft","temp","seqid","loss",
-                    "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-                    "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
-      for k in losses.keys():
-        if k not in print_list: print_list.append(k)
-
-      print_str = f"{self._k}"
-      for k in print_list:
-        if k in losses and ("rmsd" in k or self.opt["weights"].get(k,True)):
-          v = losses[k]
-          print_str += f" {k} {v:.2f}" if isinstance(v,float) else f" {k} {v}"
-      print(print_str)
+      keys = ["models","recycles","hard","soft","temp","seqid","loss",
+              "msa_ent","plddt","pae","helix","con","i_pae","i_con",
+              "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
+      print(dict_to_str(losses, filt=self.opt["weights"], print_str=f"{self._k}",
+                        keys=keys, ok="rmsd"))
 
     # save trajectory
     traj = {"losses":losses, "seq":np.asarray(self.aux["seq"]["pseudo"])}
@@ -335,7 +332,7 @@ class _af_design:
   ######################################################################################################
 
   def design_semigreedy(self, iters=100, tries=20, dropout=False,
-                        use_plddt=True, save_best=True, verbose=True):
+                        use_plddt=True, save_best=True, verbose=1):
     '''semigreedy search'''
     
     self.set_opt(hard=True, soft=True, temp=1.0, dropout=dropout)
@@ -382,7 +379,7 @@ class _af_design:
       buff = buff[np.argmin([x["loss"] for x in buff])]
       self.aux, self.loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
       self._k += 1
-      self._save_results(save_best=save_best, verbose=verbose)
+      self.save_results(save_best=save_best, verbose=verbose)
 
   def template_predesign(self, iters=100, soft=True, hard=False, 
                          temp=1.0, dropout=True, **kwargs):

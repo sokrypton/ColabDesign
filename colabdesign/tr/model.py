@@ -19,16 +19,19 @@ except:
   from jax.experimental.optimizers import sgd, adam
 
 class mk_trdesign_model():
-  def __init__(self, protocol="fixbb", model_num=1, model_sample=True, data_dir="params/tr"):
+  def __init__(self, protocol="fixbb", num_models=1,
+               sample_models=True, data_dir="params/tr",
+               loss_callback=None):
     
     assert protocol in ["fixbb","hallucination","partial"]
 
     self.protocol = protocol
     self._data_dir = "." if os.path.isfile("models/model_xaa.npy") else data_dir
+    self._loss_callback = loss_callback
 
     # set default options
     self._opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                 "model_num":model_num,"model_sample":model_sample,
+                 "models":num_models,"sample_models":sample_models,
                  "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
                 
     self.params = {"seq":None}
@@ -85,10 +88,14 @@ class mk_trdesign_model():
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["cce"][k] = -(q[k]*log_p[k]).sum(-1).mean()
 
+      if self._loss_callback is not None:
+        aux["losses"].update(self._loss_callback(outputs))
+
       # weighted loss
-      weighted_losses = jax.tree_map(lambda l, w: l * w, aux["losses"],opt["weights"])
-      loss = jax.tree_leaves(weighted_losses)
-      return sum(loss), aux
+      w = opt["weights"]
+      loss = sum([v*w[k] if k in w else v for k,v in aux["losses"].items()])
+
+      return loss, aux
 
     def _model(params, model_params, opt):
       seq = _get_seq(params, opt)
@@ -171,9 +178,9 @@ class mk_trdesign_model():
     '''run model to get outputs, losses and gradients'''
     
     # decide which model params to use
-    m = self.opt["model_num"]
+    m = self.opt["models"]
     ns = jnp.arange(5)
-    if self.opt["model_sample"] and m != len(ns):
+    if self.opt["sample_models"] and m != len(ns):
       model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
@@ -291,7 +298,7 @@ class mk_trdesign_model():
     def callback(af_model):
       
       # copy [opt]ions from afdesign
-      for k in ["soft","temp","hard","pos","fix_seq","bias"]:
+      for k in ["soft","temp","hard","pos","fix_seq","bias","models"]:
         if k in self.opt and k in af_model.opt:
           self.opt[k] = af_model.opt[k]
 

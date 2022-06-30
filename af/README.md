@@ -102,12 +102,12 @@ model.set_opt(recycles=1)
 
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
-and the gradients/losses are averaged. Each iteration a random set of model params are used unless `model_sample=False`.
+and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
 ```python
-model = mk_afdesign_model(num_models=1, model_sample=True)
+model = mk_afdesign_model(num_models=1, sample_models=True)
 ```
 - `num_models` - number of model params to use at each iteration.
-- `model_sample`:
+- `sample_models`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
 #### How is contact defined? How do I change it?

@@ -15,7 +15,7 @@ from colabdesign.af.design import _af_design
 
 class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
-               num_models=1, model_sample=True,
+               num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, data_dir=".",
                debug=False, loss_callback=None):
@@ -29,7 +29,7 @@ class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
     self._num = num_seq    
     self._args = {"use_templates":use_templates,
                   "recycle_mode": recycle_mode,
-                  "model_sample": model_sample,
+                  "sample_models": sample_models,
                   "debug":debug, "repeat": False}
     
     self._opt = {"dropout":True, "lr":1.0,

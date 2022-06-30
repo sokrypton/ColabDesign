@@ -353,7 +353,7 @@ def get_con_loss(dgram, dgram_bins, cutoff=None, binary=True,
   k_mask = (jnp.arange(b) < num) * (jnp.isnan(x) == False)    
   return jnp.where(k_mask,x,0.0).sum(-1) / (k_mask.sum(-1) + 1e-8)
 
-def get_helix_loss(dgram, dgram_bins, offset=None):
+def get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
   '''helix bias loss'''
   x = get_pw_con_loss(dgram, dgram_bins, cutoff=6.0, binary=True)
   if offset is None:

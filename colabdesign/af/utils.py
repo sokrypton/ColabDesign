@@ -1,10 +1,12 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec 
 
 from colabdesign.shared.protein import _np_kabsch
 from colabdesign.shared.utils import update_dict
-from colabdesign.shared.plot import plot_pseudo_3D, make_animation
+from colabdesign.shared.plot import plot_pseudo_3D, make_animation, show_pdb
 from colabdesign.af.alphafold.common import protein, residue_constants
 
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}

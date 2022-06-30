@@ -1,5 +1,6 @@
 # import matplotlib
 import numpy as np
+from colabdesign.shared.protein import _np_kabsch
 
 import matplotlib
 import matplotlib.pyplot as plt

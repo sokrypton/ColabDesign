@@ -187,7 +187,7 @@ class _af_design:
     # decide which model params to use
     m = self.opt["models"]
     ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
-    if self._args["model_sample"] and m != len(ns):
+    if self._args["sample_models"] and m != len(ns):
       model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]

@@ -4,18 +4,18 @@ import numpy as np
 
 from colabdesign.af.alphafold.model import data, config, model
 
-from colabdesign.shared.model import _model
-
-from colabdesign.af.prep import _af_prep
-from colabdesign.af.loss import _af_loss
-from colabdesign.af.utils import _af_utils
+from colabdesign.shared.model import design_model
+from colabdesign.af.prep   import _af_prep
+from colabdesign.af.loss   import _af_loss
+from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
+from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype 
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_afdesign_model(_model, _af_prep, _af_loss, _af_design, _af_utils):
+class mk_afdesign_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
@@ -45,7 +45,7 @@ class mk_afdesign_model(_model, _af_prep, _af_loss, _af_design, _af_utils):
     self.params = {}
 
     #############################
-    # CONFIG
+    # configure AlphaFold
     #############################
     # decide which condig to use configs to use
     if use_templates:
@@ -66,16 +66,12 @@ class mk_afdesign_model(_model, _af_prep, _af_loss, _af_design, _af_utils):
     cfg.data.common.max_extra_msa = 1
     cfg.data.eval.masked_msa_replace_fraction = 0
 
-    # number of recycles (recycles are now managed in AfDesign)
+    # number of recycles
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
     if recycle_mode == "average": num_recycles = 0
     cfg.data.common.num_recycle = 0      # for feature processing
     cfg.model.num_recycle = num_recycles # for model configuration
     self._config = cfg
-
-    ##################################
-    # MODEL
-    ##################################
     self._model_params = [data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)]
     self._runner = model.RunModel(self._config, self._model_params[0],
                                   is_training=True, recycle_mode=recycle_mode)
@@ -94,8 +90,71 @@ class mk_afdesign_model(_model, _af_prep, _af_loss, _af_design, _af_utils):
     #####################################
     # set protocol specific functions
     #####################################
-    protocols = ["fixbb","hallucination","binder","partial"]
-    prep_fns = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial]
-    loss_fns = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial]
-    self.prep_inputs = dict(zip(protocols, prep_fns))[self.protocol]
-    self._get_loss = dict(zip(protocols, loss_fns))[self.protocol]
+    idx = ["fixbb","hallucination","binder","partial"].index(self.protocol)
+    self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial][idx]
+    self._get_loss   = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial][idx]
+
+  def _get_model(self):
+
+    # setup function to get gradients
+    def _model(params, model_params, inputs, key, opt):
+
+      aux = {}
+      key = Key(key=key).get
+
+      #######################################################################
+      # INPUTS
+      #######################################################################
+
+      # get sequence
+      seq = self._get_seq(params, opt, aux, key())
+            
+      # update sequence features
+      update_seq(seq["pseudo"], inputs)
+      
+      # update amino acid sidechain identity
+      B,L = inputs["aatype"].shape[:2]
+      aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
+      update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
+      
+      # update template features
+      if self._args["use_templates"]:
+        self._update_template(inputs, opt, key())
+      
+      # set dropout
+      inputs["dropout_rate"] = jnp.array([opt["dropout"]]).astype(float)
+      
+      # decide number of recycles to do
+      if self._args["recycle_mode"] in ["last","sample"]:
+        inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
+
+      #######################################################################
+      # OUTPUTS
+      #######################################################################
+      outputs = self._runner.apply(model_params, key(), inputs)
+
+      # add aux outputs
+      aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
+                  "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
+                  "plddt":get_plddt(outputs),
+                  "prev":outputs["prev"]})
+
+      if self._args["debug"]:
+        aux.update({"outputs":outputs, "inputs":inputs})
+
+      #######################################################################
+      # LOSS
+      #######################################################################
+      aux["losses"] = {}
+      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
+
+      if self._loss_callback is not None:
+        aux["losses"].update(self._loss_callback(inputs, outputs))
+
+      # weighted loss
+      w = opt["weights"]
+      loss = sum([v*w[k] if k in w else v for k,v in aux["losses"].items()])
+            
+      return loss, aux
+    
+    return jax.value_and_grad(_model, has_aux=True, argnums=0), _model

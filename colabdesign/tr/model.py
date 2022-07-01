@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from colabdesign.shared.utils import update_dict, Key, dict_to_str
 from colabdesign.shared.protein import _np_get_6D_binned
-from colabdesign.shared.model import _model
+from colabdesign.shared.model import design_model
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -19,7 +19,7 @@ try:
 except:
   from jax.experimental.optimizers import sgd, adam
 
-class mk_trdesign_model(_model):
+class mk_trdesign_model(design_model):
   def __init__(self, protocol="fixbb", num_models=1,
                sample_models=True, data_dir="params/tr",
                loss_callback=None):
@@ -43,7 +43,7 @@ class mk_trdesign_model(_model):
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
     if protocol in ["hallucination","partial"]:
-      self.bkg_model = TrRosetta(bkg_model=True)
+      self._bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
 
@@ -137,7 +137,7 @@ class mk_trdesign_model(_model):
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
-        self._bkg_feats.append(self.bkg_model(model_params, key, self._len))
+        self._bkg_feats.append(self._bkg_model(model_params, key, self._len))
       self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
       self._opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 

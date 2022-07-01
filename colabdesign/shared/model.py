@@ -1,5 +1,5 @@
 from colabdesign.shared.utils import update_dict
-class _model:
+class design_model:
   def set_opt(self, *args, **kwargs):
     '''set [opt]ions'''
     if kwargs.pop("set_defaults", False):

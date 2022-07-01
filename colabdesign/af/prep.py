@@ -189,6 +189,8 @@ class _af_prep:
     if use_sidechains: fix_seq = True
 
     self._copies = 1
+    self._pos = pos
+    self.rewite = _rewire
     
     # get [pos]itions of interests
     pdb = prep_pdb(pdb_filename, chain=chain)
@@ -332,7 +334,7 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
 
-def rewire(pos, order=None, offset=0, loops=0):
+def _rewire(self, order=None, offset=0, loops=0):
   '''
   given input [pos]itions (a string of segment ranges seperated by comma,
   for example: "1-3,4-5"), return list of indices to constrain. The [order] of
@@ -340,7 +342,7 @@ def rewire(pos, order=None, offset=0, loops=0):
   '''
   # get length for each segment
   assert isinstance(pos, str)
-  pos = re.sub("[A-Za-z]","",pos)
+  pos = re.sub("[A-Za-z]","",self._pos)
   seg_len = [b-a+1 for a,b in [[int(x) for x in (r.split("-") if "-" in r else [r,r])] for r in pos.split(",")]]
   num_seg = len(seg_len)
 
@@ -359,4 +361,4 @@ def rewire(pos, order=None, offset=0, loops=0):
     new_pos.append(l + np.arange(seg_len[i]))
     if n < num_seg - 1: l += seg_len[i] + loop_len[n] 
 
-  return np.concatenate([new_pos[i] for i in order])
+  self.opt["pos"] = np.concatenate([new_pos[i] for i in order])

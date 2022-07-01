@@ -5,8 +5,10 @@ import numpy as np
 from colabdesign.af.alphafold.model import data, config, model
 
 from colabdesign.shared.model import design_model
+from colabdesign.shared.utils import Key
+
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype 
@@ -136,7 +138,7 @@ class mk_afdesign_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design
       # add aux outputs
       aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                  "plddt":get_plddt(outputs),
+                  "plddt":get_plddt(outputs),"pae":get_pae(outputs),
                   "prev":outputs["prev"]})
 
       if self._args["debug"]:

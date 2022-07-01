@@ -213,14 +213,13 @@ class _af_prep:
     self._opt["weights"].update(weights)
     self.restart(set_defaults=True, **kwargs)
 
-  def _rewire(self, order=None, offset=0, loops=0):
+  def _rewire(self, order=None, offset=0, loops=0, set_defaults=True):
     '''
     given input [pos]itions (a string of segment ranges seperated by comma,
     for example: "1-3,4-5"), return list of indices to constrain. The [order] of
     the segments and the length of [loops] between segments can be controlled.
     '''
     # get length for each segment
-    assert isinstance(pos, str)
     pos = re.sub("[A-Za-z]","",self._pos)
     seg_len = [b-a+1 for a,b in [[int(x) for x in (r.split("-") if "-" in r else [r,r])] for r in pos.split(",")]]
     num_seg = len(seg_len)
@@ -240,7 +239,11 @@ class _af_prep:
       new_pos.append(l + np.arange(seg_len[i]))
       if n < num_seg - 1: l += seg_len[i] + loop_len[n] 
 
-    self.opt["pos"] = np.concatenate([new_pos[i] for i in order])
+    pos = np.concatenate([new_pos[i] for i in order])
+    if set_defaults:
+      self.opt["pos"] = self._opt["pos"] = pos
+    else:
+      self.opt["pos"] = pos
 
 #######################
 # utils

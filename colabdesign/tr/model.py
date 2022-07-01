@@ -160,13 +160,13 @@ class mk_trdesign_model(design_model):
     self._state = self._init_fun(self.params)
 
   def restart(self, seed=None, opt=None, weights=None, seq=None):
+    self.key = Key(seed=seed).get
     self.opt = jax.tree_map(lambda x:x, self._opt) # copy
     self.set_opt(opt)
     self.set_weights(weights)
     self._init_seq(seq)
     self._init_optimizer()
 
-    self.key = Key(seed=seed).get
     self._best_loss = np.inf
     self._best_aux = None
     

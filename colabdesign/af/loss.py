@@ -119,7 +119,6 @@ class _af_loss:
     # pae loss
     pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
     pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
-    aux["pae"] = pae * 31.0
     
     # define distogram
     dgram = outputs["distogram"]["logits"]

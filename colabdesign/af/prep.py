@@ -111,8 +111,8 @@ class _af_prep:
 
     self.restart(set_defaults=True, **kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, 
-                  homooligomer=False, repeat=False, block_diag=False, **kwargs):
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
+                  repeat=False, block_diag=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
     # block_diag the msa features
@@ -127,7 +127,7 @@ class _af_prep:
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self._args.update({"repeat":repeat,"block_diag":block_diag})
+    self._args.update({"repeat":repeat, "block_diag":block_diag})
     
     # set weights
     self._opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
@@ -190,7 +190,7 @@ class _af_prep:
 
     self._copies = 1
     self._pos = pos
-    self.rewite = _rewire
+    self.rewire = self._rewire
     
     # get [pos]itions of interests
     pdb = prep_pdb(pdb_filename, chain=chain)
@@ -212,6 +212,35 @@ class _af_prep:
       
     self._opt["weights"].update(weights)
     self.restart(set_defaults=True, **kwargs)
+
+  def _rewire(self, order=None, offset=0, loops=0):
+    '''
+    given input [pos]itions (a string of segment ranges seperated by comma,
+    for example: "1-3,4-5"), return list of indices to constrain. The [order] of
+    the segments and the length of [loops] between segments can be controlled.
+    '''
+    # get length for each segment
+    assert isinstance(pos, str)
+    pos = re.sub("[A-Za-z]","",self._pos)
+    seg_len = [b-a+1 for a,b in [[int(x) for x in (r.split("-") if "-" in r else [r,r])] for r in pos.split(",")]]
+    num_seg = len(seg_len)
+
+    # define order of segments
+    if order is None: order = list(range(num_seg))
+    assert len(order) == num_seg
+
+    # define loop lengths between segments
+    if isinstance(loops, int): loop_len = [loops] * (num_seg - 1)
+    else: loop_len = loops
+    assert len(loop_len) == num_seg - 1
+
+    # get positions we want to restrain/constrain within hallucinated protein 
+    l,new_pos = offset,[]
+    for n,i in enumerate(np.argsort(order)):
+      new_pos.append(l + np.arange(seg_len[i]))
+      if n < num_seg - 1: l += seg_len[i] + loop_len[n] 
+
+    self.opt["pos"] = np.concatenate([new_pos[i] for i in order])
 
 #######################
 # utils
@@ -333,32 +362,3 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
-
-def _rewire(self, order=None, offset=0, loops=0):
-  '''
-  given input [pos]itions (a string of segment ranges seperated by comma,
-  for example: "1-3,4-5"), return list of indices to constrain. The [order] of
-  the segments and the length of [loops] between segments can be controlled.
-  '''
-  # get length for each segment
-  assert isinstance(pos, str)
-  pos = re.sub("[A-Za-z]","",self._pos)
-  seg_len = [b-a+1 for a,b in [[int(x) for x in (r.split("-") if "-" in r else [r,r])] for r in pos.split(",")]]
-  num_seg = len(seg_len)
-
-  # define order of segments
-  if order is None: order = list(range(num_seg))
-  assert len(order) == num_seg
-
-  # define loop lengths between segments
-  if isinstance(loops, int): loop_len = [loops] * (num_seg - 1)
-  else: loop_len = loops
-  assert len(loop_len) == num_seg - 1
-
-  # get positions we want to restrain/constrain within hallucinated protein 
-  l,new_pos = offset,[]
-  for n,i in enumerate(np.argsort(order)):
-    new_pos.append(l + np.arange(seg_len[i]))
-    if n < num_seg - 1: l += seg_len[i] + loop_len[n] 
-
-  self.opt["pos"] = np.concatenate([new_pos[i] for i in order])

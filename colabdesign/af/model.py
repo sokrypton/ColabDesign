@@ -41,6 +41,8 @@ class mk_afdesign_model(_model, _af_prep, _af_loss, _af_design, _af_utils):
                  "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                  "template": {"aatype":21, "dropout":0.15},
                  "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
+    
+    self.params = {}
 
     #############################
     # CONFIG

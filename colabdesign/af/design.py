@@ -32,7 +32,7 @@ except:
 class _af_design:
 
   def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False,
-              seq_init=None, mode=None, seq=None, rm_aa=None, add_seq=False,
+              mode=None, seq=None, rm_aa=None,
               optimizer="sgd", **kwargs):    
 
     # set weights and options
@@ -43,10 +43,10 @@ class _af_design:
 
     # initialize sequence
     self.key = Key(seed=seed).get
-    self._init_seq(mode, seq, rm_aa, add_seq, seq_init)
+    self._init_seq(seq, mode, rm_aa, **kwargs)
 
     # setup optimizer
-    self._setup_optimizer(optimizer, **kwargs)
+    self._setup_optimizer(optimizer)
 
     # initialize trajectory
     if not keep_history:
@@ -62,7 +62,7 @@ class _af_design:
     '''initialize sequence'''
 
     # backward compatibility
-    seq_init = kwargs.pop("seq_init",False):
+    seq_init = kwargs.pop("seq_init",False)
     if seq_init:
       if hasattr(seq_init,'__len__') and len(seq_init) == self._len:
         seq = seq_init
@@ -89,9 +89,9 @@ class _af_design:
       if isinstance(seq, str):
         seq = jnp.asarray([aa_order.get(aa,-1) for aa in seq])
         seq = jax.nn.one_hot(seq,20)
-      x = x.at[:].add(seq)
+      x = x + seq
       if kwargs.pop("add_seq",False):
-        b = b.at[:].add(seq * 1e7)
+        b = b + seq * 1e7
 
     # disable certain amino acids
     if rm_aa is not None:
@@ -99,14 +99,16 @@ class _af_design:
         b = b.at[...,aa_order[aa]].add(-1e7)
 
     if "gumbel" in mode:
-      b = b.at[:].add(jax.random.gumbel(self.key(),b.shape))
-    if "soft" in mode:
-      x = jax.nn.softmax(x + b)
+      x_gumbel = jax.random.gumbel(self.key(),x.shape)
+      if "soft" in mode:
+        x = jax.nn.softmax(x + b + x_gumbel)
+      else:
+        x = x + x_gumbel / self.opt["alpha"]
 
     self.opt["bias"] = b 
     self.params["seq"] = x
 
-  def _setup_optimizer(self, optimizer="sgd", **kwargs):
+  def _setup_optimizer(self, optimizer="sgd"):
     '''setup which optimizer to use'''
     
     if optimizer == "adam":
@@ -117,7 +119,7 @@ class _af_design:
       optimizer = sgd
       self._opt["lr"] = 0.1
       
-    self._init_fun, self._update_fun, self._get_params = optimizer(1.0, **kwargs)
+    self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
     self._state = self._init_fun(self.params)
     self._k = 0
   

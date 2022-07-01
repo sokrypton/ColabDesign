@@ -35,7 +35,7 @@ class mk_trdesign_model(_model):
                  "models":num_models,"sample_models":sample_models,
                  "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
                 
-    self.params = {"seq":None}
+    self.params = {}
 
     # setup model
     self._runner = TrRosetta()

@@ -4,6 +4,8 @@ import numpy as np
 
 from colabdesign.af.alphafold.model import data, config, model
 
+from colabdesign.shared.model import _model
+
 from colabdesign.af.prep import _af_prep
 from colabdesign.af.loss import _af_loss
 from colabdesign.af.utils import _af_utils
@@ -13,7 +15,7 @@ from colabdesign.af.design import _af_design
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_afdesign_model(_af_prep, _af_loss, _af_design, _af_utils):
+class mk_afdesign_model(_model, _af_prep, _af_loss, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,

@@ -5,9 +5,11 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.shared.protein import *
+from colabdesign.shared.protein import _np_kabsch, _np_rmsd, _np_get_6D_loss, jnp_rmsd_w
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model import model, folding, all_atom
+
+idx_to_resname = dict((v,k) for k,v in residue_constants.resname_to_idx.items())
 
 ####################
 # confidence metrics

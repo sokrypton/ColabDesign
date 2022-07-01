@@ -36,15 +36,10 @@ class _af_design:
               optimizer="sgd", **kwargs):    
 
     # set weights and options
-    if set_defaults:
-      update_dict(self._opt, opt)
-      update_dict(self._opt["weights"], weights)
-            
     if not keep_history:
-      self.opt = jax.tree_map(lambda x:x, self._opt) # copy
-
-    self.set_opt(opt)
-    self.set_weights(weights)
+      self.opt = jax.tree_map(lambda x:x, self._opt)
+    self.set_opt(opt, set_defaults=set_defaults)
+    self.set_weights(weights, set_defaults=set_defaults)            
 
     # initialize sequence
     self.key = Key(seed=seed).get
@@ -56,62 +51,60 @@ class _af_design:
     # initialize trajectory
     if not keep_history:
       self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self.clear_best()
+      self._best_loss = np.inf
+      self._best_aux = self._best_outs = None
     
     # clear previous results
     if hasattr(self,"aux"): del self.aux  
     if hasattr(self,"loss"): del self.loss
 
-  def _init_seq(self, mode=None, seq=None, rm_aa=None, add_seq=False, seq_init=None):
+  def _init_seq(self, seq=None, mode=None, rm_aa=None, **kwargs):
     '''initialize sequence'''
 
     # backward compatibility
-    if seq_init is not None:
-      print("WARNING: 'seq_init' is being deprecated, use options: 'mode' and 'seq'")
-      x = seq_init
-      if isinstance(x, (np.ndarray, jnp.ndarray)): seq = x
-      elif isinstance(x, str):
-        if len(x) == self._len: seq = x
-        else: mode = x
+    seq_init = kwargs.pop("seq_init",False):
+    if seq_init:
+      if hasattr(seq_init,'__len__') and len(seq_init) == self._len:
+        seq = seq_init
+      elif isinstance(seq_init,(str,list)):
+        mode = seq_init
 
     if mode is None: mode = []
-    
-    # initialize sequence
-    shape = (self._num, self._len, 20)
-    x = 0.01 * jax.random.normal(self.key(), shape)
 
-    # initialize bias
-    bias = jnp.zeros(shape[1:])
-    use_bias = False
-
-    # initialize with input sequence
-    if "wildtype" in mode or "wt" in mode:
-      seq = jax.nn.one_hot(self._wt_aatype, 20)
+    # use wildtype sequence
+    if "wildtype" in mode:
+      wt_seq = jax.nn.one_hot(self._batch["aatype"],20)
       if self.protocol == "partial":
-        seq = jnp.zeros(shape).at[...,self.opt["pos"],:].set(seq)
+        seq = seq.at[...,self.opt["pos"],:].set(wt_seq)
       else:
-        seq = seq[...,:self._len]
+        seq = wt_seq[...,:self._len,:]
+
+    aa_order = residue_constants.restype_order
+
+    # initialize sequence and bias
+    x = 0.01 * jax.random.normal(self.key(),(self._num, self._len, 20))
+    b = jnp.zeros((self._len,20))
+
     if seq is not None:
       if isinstance(seq, str):
-        seq = jnp.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
+        seq = jnp.asarray([aa_order.get(aa,-1) for aa in seq])
         seq = jax.nn.one_hot(seq,20)
-      x = x + seq
-      if add_seq:
-        bias = bias + seq * 1e8
-        use_bias = True 
-
-    if "gumbel" in mode: x += jax.random.gumbel(self.key(), shape) / self.opt["alpha"]
-    if "soft" in mode:   x = jax.nn.softmax(x * self.opt["alpha"])
+      x = x.at[:].add(seq)
+      if kwargs.pop("add_seq",False):
+        b = b.at[:].add(seq * 1e7)
 
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
-        bias = bias - 1e8 * np.eye(20)[residue_constants.restype_order[aa]]
-        use_bias = True
+        b = b.at[...,aa_order[aa]].add(-1e7)
 
-    # set bias and params
-    if use_bias: self.opt["bias"] = bias
-    self.params = {"seq":x}
+    if "gumbel" in mode:
+      b = b.at[:].add(jax.random.gumbel(self.key(),b.shape))
+    if "soft" in mode:
+      x = jax.nn.softmax(x + b)
+
+    self.opt["bias"] = b 
+    self.params["seq"] = x
 
   def _setup_optimizer(self, optimizer="sgd", **kwargs):
     '''setup which optimizer to use'''
@@ -301,10 +294,6 @@ class _af_design:
     if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     for k,v in traj.items(): self._traj[k].append(v)
 
-  def clear_best(self):
-    self._best_loss = np.inf
-    self._best_aux = self._best_outs = None
-
   def design_logits(self, iters, **kwargs):
     '''optimize logits'''
     self.design(iters, **kwargs)
@@ -340,9 +329,8 @@ class _af_design:
       self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   ######################################################################################################
-  # EXPERIMENTAL STUFF BELOW
+  # EXPERIMENTAL
   ######################################################################################################
-
   def design_semigreedy(self, iters=100, tries=20, dropout=False,
                         use_plddt=True, save_best=True, verbose=1):
     '''semigreedy search'''

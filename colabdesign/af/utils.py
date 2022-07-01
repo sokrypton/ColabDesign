@@ -15,11 +15,6 @@ ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################
 class _af_utils:  
-  def set_opt(self, *args, **kwargs):
-    update_dict(self.opt, *args, **kwargs)
-    
-  def set_weights(self, *args, **kwargs):
-    update_dict(self.opt["weights"], *args, **kwargs)
 
   def get_seqs(self, get_best=True):
     '''

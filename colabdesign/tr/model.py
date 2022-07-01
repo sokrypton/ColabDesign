@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 from colabdesign.shared.utils import update_dict, Key, dict_to_str
 from colabdesign.shared.protein import _np_get_6D_binned
+from colabdesign.shared.model import _model
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -18,7 +19,7 @@ try:
 except:
   from jax.experimental.optimizers import sgd, adam
 
-class mk_trdesign_model():
+class mk_trdesign_model(_model):
   def __init__(self, protocol="fixbb", num_models=1,
                sample_models=True, data_dir="params/tr",
                loss_callback=None):
@@ -141,12 +142,6 @@ class mk_trdesign_model():
       self._opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
     self.restart(**kwargs)
-
-  def set_opt(self, *args, **kwargs):
-    update_dict(self.opt, *args, **kwargs)
-
-  def set_weights(self, *args, **kwargs):
-    update_dict(self.opt["weights"], *args, **kwargs)
   
   def _init_seq(self, seq=None):
     if seq is None:
@@ -156,7 +151,7 @@ class mk_trdesign_model():
         seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
         seq = np.eye(20)[seq]
       assert seq.shape[-2] == self._len
-    update_dict(self.params, {"seq":seq})
+    self.params["seq"] = seq
 
   def _init_optimizer(self):
     '''setup which optimizer to use'''      
@@ -165,13 +160,13 @@ class mk_trdesign_model():
     self._state = self._init_fun(self.params)
 
   def restart(self, seed=None, opt=None, weights=None, seq=None):
-    self.key = Key(seed=seed).get
     self.opt = jax.tree_map(lambda x:x, self._opt) # copy
     self.set_opt(opt)
     self.set_weights(weights)
     self._init_seq(seq)
     self._init_optimizer()
 
+    self.key = Key(seed=seed).get
     self._best_loss = np.inf
     self._best_aux = None
     

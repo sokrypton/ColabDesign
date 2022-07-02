@@ -1,4 +1,6 @@
 from colabdesign.shared.utils import update_dict
+from colabdesign.shared.prep import rewire
+
 class design_model:
   def set_opt(self, *args, **kwargs):
     '''set [opt]ions'''

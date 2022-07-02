@@ -36,7 +36,7 @@ def prep_pos(pos, residue, chain):
           "length":np.array(len_set),
           "pos":np.asarray(pos_set)}
 
-def rewire(length, order=None, offset=0, loops=0):
+def rewire(length, order=None, loops=0, offset=0):
   '''
   Given a list of segment [length]s, move them around given an [offset], [order] and [loop] lengths.
   The [order] of the segments and the length of [loops] between segments can be controlled.

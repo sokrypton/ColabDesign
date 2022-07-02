@@ -10,7 +10,9 @@ from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model import all_atom
 from colabdesign.af.alphafold.model.tf import shape_placeholders
+
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
+from colabdesign.shared.prep import prep_pos, rewire
 
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
@@ -87,7 +89,7 @@ class _af_prep:
     if hotspot is None:
       self._hotspot = None
     else:
-      self._hotspot = prep_pos(hotspot, **pdb["idx"])
+      self._hotspot = prep_pos(hotspot, **pdb["idx"])["pos"]
 
     if self._redesign:      
       self._batch = pdb["batch"]
@@ -123,7 +125,6 @@ class _af_prep:
 
     pdb = prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
-    self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
@@ -150,6 +151,7 @@ class _af_prep:
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
+    self._wt_aatype = self._batch["aatype"][:self._len]
     self.restart(set_defaults=True, **kwargs)
     
   def _prep_hallucination(self, length=100, copies=1,
@@ -187,19 +189,21 @@ class _af_prep:
       use_sidechains = kwargs.pop("sidechain")
     self._args["use_sidechains"] = use_sidechains
     if use_sidechains: fix_seq = True
-
-    self._copies = 1
-    self._pos = pos
-    self.rewire = self._rewire
+    self._opt["fix_seq"] = fix_seq
+    self._copies = 1    
     
-    # get [pos]itions of interests
     pdb = prep_pdb(pdb_filename, chain=chain)
-    pos = np.arange(pdb["residue_index"].shape[0]) if pos is None else prep_pos(pos, **pdb["idx"])
-        
-    self._opt.update({"pos":pos, "fix_seq":fix_seq})
-    self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
-    self._wt_aatype = self._batch["aatype"]
+    self._len = pdb["residue_index"].shape[0]
 
+    # get [pos]itions of interests
+    if pos is None:
+      self._opt["pos"] = np.arange(self._len)
+    else:
+      self._pos_info = prep_pos(pos, **pdb["idx"])
+      self._opt["pos"] = p = self._pos_info["pos"]
+      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])
+            
+    self._wt_aatype = self._batch["aatype"]
     if use_sidechains:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
@@ -212,38 +216,6 @@ class _af_prep:
       
     self._opt["weights"].update(weights)
     self.restart(set_defaults=True, **kwargs)
-
-  def _rewire(self, order=None, offset=0, loops=0, set_defaults=True):
-    '''
-    given input [pos]itions (a string of segment ranges seperated by comma,
-    for example: "1-3,4-5"), return list of indices to constrain. The [order] of
-    the segments and the length of [loops] between segments can be controlled.
-    '''
-    # get length for each segment
-    pos = re.sub("[A-Za-z]","",self._pos)
-    seg_len = [b-a+1 for a,b in [[int(x) for x in (r.split("-") if "-" in r else [r,r])] for r in pos.split(",")]]
-    num_seg = len(seg_len)
-
-    # define order of segments
-    if order is None: order = list(range(num_seg))
-    assert len(order) == num_seg
-
-    # define loop lengths between segments
-    if isinstance(loops, int): loop_len = [loops] * (num_seg - 1)
-    else: loop_len = loops
-    assert len(loop_len) == num_seg - 1
-
-    # get positions we want to restrain/constrain within hallucinated protein 
-    l,new_pos = offset,[]
-    for n,i in enumerate(np.argsort(order)):
-      new_pos.append(l + np.arange(seg_len[i]))
-      if n < num_seg - 1: l += seg_len[i] + loop_len[n] 
-
-    pos = np.concatenate([new_pos[i] for i in order])
-    if set_defaults:
-      self.opt["pos"] = self._opt["pos"] = pos
-    else:
-      self.opt["pos"] = pos
 
 #######################
 # utils
@@ -306,34 +278,6 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   # save original residue and chain index
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
-
-def prep_pos(pos, residue, chain=None):
-  if chain is None: chain = np.full(len(residue),None)
-  residue_set,chain_set = [],[]
-  for idx in pos.split(","):
-    i,j = idx.split("-") if "-" in idx else (idx, None)
-
-    # if chain defined
-    if i[0].isalpha():
-      c,i = i[0], int(i[1:])
-    else:
-      c,i = chain[0], int(i)
-
-    if j is None:
-      residue_set.append(i)
-      chain_set.append(c)
-    else:
-      j = int(j[1:] if j[0].isalpha() else j)
-      residue_set += list(range(i,j+1))
-      chain_set += [c] * (j-i+1)
-
-  # get positions
-  pos_array = []
-  for i,c in zip(residue_set, chain_set):
-    idx = np.where((residue == i) & (chain == c))[0]
-    if idx.shape[0] > 0: pos_array.append(idx[0])
-
-  return np.asarray(pos_array)
 
 def make_fixed_size(feat, model_runner, length, batch_axis=True):
   '''pad input features'''

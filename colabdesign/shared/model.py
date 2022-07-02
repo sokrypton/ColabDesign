@@ -11,3 +11,8 @@ class design_model:
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt["weights"], *args, **kwargs)
     update_dict(self.opt["weights"], *args, **kwargs)
+
+  def rewire(self, order=None, offset=0, loops=0, set_defaults=True):
+    if "pos" in self.opt:
+      self.opt["pos"] = rewire(self._pos_info["length"], order, offset, loops)
+      if set_defaults: self._opt["pos"] = self.opt["pos"]

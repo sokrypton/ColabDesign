@@ -73,11 +73,9 @@ class _af_design:
 
     # use wildtype sequence
     if "wildtype" in mode:
-      wt_seq = jax.nn.one_hot(self._batch["aatype"],20)
+      seq = jax.nn.one_hot(self._wt_aatype,20)
       if self.protocol == "partial":
         seq = seq.at[...,self.opt["pos"],:].set(wt_seq)
-      else:
-        seq = wt_seq[...,:self._len,:]
 
     aa_order = residue_constants.restype_order
 

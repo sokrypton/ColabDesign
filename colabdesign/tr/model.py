@@ -5,12 +5,13 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 from colabdesign.shared.utils import update_dict, Key, dict_to_str
+from colabdesign.shared.prep import prep_pos, rewire
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
-from colabdesign.af.prep import prep_pdb, prep_pos
+from colabdesign.af.prep import prep_pdb, 
 from colabdesign.af.alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
@@ -119,9 +120,10 @@ class mk_trdesign_model(design_model):
       self._batch = pdb["batch"]
 
       if self.protocol in ["partial"] and pos is not None:
-        p = prep_pos(pos, **pdb["idx"])
+        self._pos_info = prep_pos(pos, **pdb["idx"])
+        p = self._pos_info["pos"]
         self._batch = jax.tree_map(lambda x:x[p], self._batch)
-        self._opt["pos"] = np.arange(len(p))
+        self._opt["pos"] = p
         self._opt["fix_seq"] = fix_seq
 
       self._feats = _np_get_6D_binned(self._batch["all_atom_positions"],

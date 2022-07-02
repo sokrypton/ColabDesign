@@ -33,11 +33,10 @@ class mk_afdesign_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design
     self._num = num_seq    
     self._args = {"use_templates":use_templates,
                   "recycle_mode": recycle_mode,
-                  "sample_models": sample_models,
                   "debug":debug, "repeat": False}
     
     self._opt = {"dropout":True, "lr":1.0,
-                 "recycles":num_recycles, "models":num_models,
+                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
                  "temp":1.0, "soft":1.0, "hard":1.0, "bias":0.0, "alpha":2.0,
                  "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                  "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
@@ -124,7 +123,7 @@ class mk_afdesign_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design
         self._update_template(inputs, opt, key())
       
       # set dropout
-      inputs["dropout_rate"] = jnp.array([opt["dropout"]]).astype(float)
+      inputs["dropout_scale"] = jnp.array([opt["dropout"]]).astype(float)
       
       # decide number of recycles to do
       if self._args["recycle_mode"] in ["last","sample"]:

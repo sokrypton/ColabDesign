@@ -110,7 +110,7 @@ class mk_trdesign_model(design_model):
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None,
-                  pos=None, fix_seq=False, **kwargs):
+                  pos=None, fix_seq=True, **kwargs):
     '''
     prep inputs for TrDesign
     '''    
@@ -296,7 +296,7 @@ class mk_trdesign_model(design_model):
     def callback(af_model):
       
       # copy [opt]ions from afdesign
-      for k in ["soft","temp","hard","pos","fix_seq","bias","models"]:
+      for k in ["soft","temp","hard","pos","fix_seq","bias","models","alpha"]:
         if k in self.opt and k in af_model.opt:
           self.opt[k] = af_model.opt[k]
 

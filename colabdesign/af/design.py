@@ -191,7 +191,7 @@ class _af_design:
     # decide which model params to use
     m = self.opt["models"]
     ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
-    if self._args["sample_models"] and m != len(ns):
+    if self.opt["sample_models"] and m != len(ns):
       model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
@@ -324,20 +324,15 @@ class _af_design:
     self.design(temp_iters, soft=True, temp=temp, dropout=dropout,  e_temp=1e-2, **kwargs)
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
-  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10, waves=1,
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
                     temp=1.0, dropout=True, **kwargs):
-    '''three stage design (logits→soft→hard)*waves'''
+    '''three stage design (logits→soft→hard)'''
     M = 2 if self._args["use_templates"] else 5
-    for w in range(waves):
-      if hasattr(self,"aux"):
-        self.params["seq"] = self.aux["seq"]["pseudo"]
-        self._state = self._init_fun(self.params)
-        self._k = 0
-      self.set_opt(models=1) # sample models
-      self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
-      self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
-      self.set_opt(models=M) # use all models
-      self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
+    self.set_opt(models=1) # sample models
+    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
+    self.set_opt(models=M) # use all models
+    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   ######################################################################################################
   # EXPERIMENTAL

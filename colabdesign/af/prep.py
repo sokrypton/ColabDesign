@@ -182,7 +182,7 @@ class _af_prep:
     self.restart(set_defaults=True, **kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=False, use_sidechains=False, **kwargs):
+                    fix_seq=True, use_sidechains=False, **kwargs):
     '''prep input for partial hallucination'''
     
     if "sidechain" in kwargs:

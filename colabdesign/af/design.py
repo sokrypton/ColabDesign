@@ -62,20 +62,25 @@ class _af_design:
     '''initialize sequence'''
 
     # backward compatibility
-    seq_init = kwargs.pop("seq_init",False)
-    if seq_init:
-      if hasattr(seq_init,'__len__') and len(seq_init) == self._len:
-        seq = seq_init
-      elif isinstance(seq_init,(str,list)):
+    seq_init = kwargs.pop("seq_init",None)
+    if seq_init is not None:
+      print("WARNING: 'seq_init' is being deprecated in favor of 'seq' and 'mode'")
+      modes = ["soft","gumbel","wildtype","wt"]
+      if isinstance(seq_init,str):
+        seq_init = seq_init.split("_")
+      if isinstance(seq_init,list) and seq_init[0] in modes:
         mode = seq_init
+      else:
+        seq = seq_init
 
     if mode is None: mode = []
-
     # use wildtype sequence
     if "wildtype" in mode:
-      seq = jax.nn.one_hot(self._wt_aatype,20)
+      wt_seq = jax.nn.one_hot(self._wt_aatype,20)
       if self.protocol == "partial":
         seq = seq.at[...,self.opt["pos"],:].set(wt_seq)
+      else:
+        seq = wt_seq
 
     aa_order = residue_constants.restype_order
 
@@ -84,9 +89,15 @@ class _af_design:
     b = jnp.zeros((self._len,20))
 
     if seq is not None:
-      if isinstance(seq, str):
+      if isinstance(seq,str):
         seq = jnp.asarray([aa_order.get(aa,-1) for aa in seq])
-        seq = jax.nn.one_hot(seq,20)
+        seq = jax.nn.one_hot(seq,20)      
+      elif isinstance(seq,list):
+        if isinstance(seq[0],str):
+          seq = jnp.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
+          seq = jax.nn.one_hot(seq,20)
+        else:
+          seq = jnp.asarray(seq)
       x = x + seq
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
@@ -103,8 +114,8 @@ class _af_design:
       else:
         x = x + x_gumbel / self.opt["alpha"]
 
-    self.opt["bias"] = b 
     self.params["seq"] = x
+    self.opt["bias"] = b 
 
   def _setup_optimizer(self, optimizer="sgd"):
     '''setup which optimizer to use'''

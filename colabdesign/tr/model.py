@@ -11,7 +11,7 @@ from colabdesign.shared.model import design_model
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
-from colabdesign.af.prep import prep_pdb, 
+from colabdesign.af.prep import prep_pdb
 from colabdesign.af.alphafold.common import protein, residue_constants
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 

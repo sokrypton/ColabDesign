@@ -5,6 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import copy_dict, update_dict
 from colabdesign.shared.prep import rewire
 from colabdesign.af.alphafold.common import residue_constants
+
 aa_order = residue_constants.restype_order
 order_aa = {b:a for a,b in aa_order.items()}
 
@@ -34,10 +35,7 @@ class design_model:
     if mode is None: mode = []
 
     # decide on shape
-    if hasattr(self,"_num"):
-      shape = (self._num, self._len, 20)
-    else:
-      shape = (self._len, 20)
+    shape = (self._num, self._len, 20)
     
     # initialize bias
     if bias is None:
@@ -93,7 +91,20 @@ class design_model:
     self.params["seq"] = x
     if set_bias: self.opt["bias"] = b 
 
+  def get_seq(self, get_best=True):
+    '''
+    get sequences as strings
+    - set get_best=False, to get the last sampled sequence
+    '''
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = jax.tree_map(lambda x:np.asarray(x), aux)
+    x = aux["seq"]["hard"].argmax(-1)
+    return ["".join([order_aa[a] for a in s]) for s in x]
+  
+  def get_seqs(self, get_best=True):
+    return self.get_seq(get_best)
+
   def rewire(self, order=None, offset=0, loops=0):
-    if hasattr(self,"_pos_info")
+    if hasattr(self,"_pos_info"):
       self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
                                offset=offset, loops=loops)

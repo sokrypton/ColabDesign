@@ -59,12 +59,14 @@ class _af_design:
              temp=1, e_temp=None,
              soft=0, e_soft=None,
              hard=0, e_hard=None,
-             dropout=True, opt=None, weights=None,
-             backprop=True, callback=None, save_best=False, verbose=1):
+             opt=None, weights=None, backprop=True, callback=None,
+             save_best=False, verbose=1, **kwargs):
       
     # update options/settings (if defined)
-    self.set_opt(opt, dropout=dropout)
+    self.set_opt(opt)
     self.set_weights(weights)
+    if "dropout" in kwargs:
+      self.set_opt(dropout=kwargs.pop("dropout"))
 
     if e_soft is None: e_soft = soft
     if e_hard is None: e_hard = hard
@@ -210,8 +212,8 @@ class _af_design:
       # compute sequence recovery
       _aatype = self.aux["seq"]["hard"].argmax(-1)
       if "pos" in self.opt:
-        _aatype = _aatype[...,self.opt["pos"],:]
-      losses["seqid"] = float(_aatype == self._wt_aatype).mean()
+        _aatype = _aatype[...,self.opt["pos"]]
+      losses["seqid"] = float((_aatype == self._wt_aatype).mean())
 
     # print results
     if verbose and (self._k % verbose) == 0:

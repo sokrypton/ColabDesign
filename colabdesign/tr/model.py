@@ -12,8 +12,7 @@ from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
 from colabdesign.af.prep import prep_pdb
-from colabdesign.af.alphafold.common import protein, residue_constants
-ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
+from colabdesign.af.alphafold.common import protein
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -30,6 +29,7 @@ class mk_trdesign_model(design_model):
     self.protocol = protocol
     self._data_dir = "." if os.path.isfile("models/model_xaa.npy") else data_dir
     self._loss_callback = loss_callback
+    self._num = 1
 
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
@@ -64,7 +64,7 @@ class mk_trdesign_model(design_model):
       if self.protocol in ["partial"] and "pos" in opt:
         pos = opt["pos"]
         seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
-        seq = jax.tree_map(lambda x: jnp.where(opt["fix_seq"],x.at[pos,:].set(seq_ref),x), seq)
+        seq = jax.tree_map(lambda x: jnp.where(opt["fix_seq"],x.at[...,pos,:].set(seq_ref),x), seq)
       return seq
     
     def _get_loss(outputs, opt):
@@ -102,7 +102,7 @@ class mk_trdesign_model(design_model):
 
     def _model(params, model_params, opt):
       seq = _get_seq(params, opt)
-      outputs = self._runner(seq["pseudo"], model_params)
+      outputs = self._runner(seq["pseudo"][0], model_params)
       loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
@@ -273,11 +273,6 @@ class mk_trdesign_model(design_model):
     weights = aux["opt"]["weights"][k]
     weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
     return float(sum(jax.tree_leaves(weighted_losses)))
-
-  def get_seq(self, get_best=True):
-    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    x = np.array(aux["seq"]["pseudo"].argmax(-1))
-    return "".join([ORDER_RESTYPE[a] for a in x])
     
   def af_callback(self, weight=1.0, seed=None):
     
@@ -289,7 +284,7 @@ class mk_trdesign_model(design_model):
           self.opt[k] = af_model.opt[k]
 
       # update sequence input
-      self.params["seq"] = af_model.params["seq"][0]
+      self.params["seq"] = af_model.params["seq"]
       
       # run trdesign
       self.run(backprop = weight > 0)

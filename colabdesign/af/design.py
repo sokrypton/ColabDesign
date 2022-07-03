@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import update_dict, Key, dict_to_str
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -17,9 +17,6 @@ except:
 # \_af_design
 # |\
 # | \_restart
-# | |\_init_seq
-# |  \_setup_optimizer
-# |
 #  \
 #   \_design
 #    \_step
@@ -31,118 +28,43 @@ except:
 
 class _af_design:
 
-  def restart(self, seed=None, weights=None, opt=None, set_defaults=False, keep_history=False,
-              mode=None, seq=None, rm_aa=None,
-              optimizer="sgd", **kwargs):    
+  def restart(self, seed=None, optimizer="sgd", opt=None, weights=None,
+              seq=None, keep_history=False, **kwargs):   
+    '''restart the optimizer''' 
 
-    # set weights and options
-    if not keep_history:
-      self.opt = jax.tree_map(lambda x:x, self._opt)
-    self.set_opt(opt, set_defaults=set_defaults)
-    self.set_weights(weights, set_defaults=set_defaults)            
+    # update options/settings (if defined)
+    self.set_opt(opt)
+    self.set_weights(weights)
 
     # initialize sequence
     self.key = Key(seed=seed).get
-    self._init_seq(seq, mode, rm_aa, **kwargs)
+    self.set_seq(seq=seq, **kwargs)
 
     # setup optimizer
-    self._setup_optimizer(optimizer)
-
-    # initialize trajectory
-    if not keep_history:
-      self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best_loss = np.inf
-      self._best_aux = self._best_outs = None
-    
-    # clear previous results
-    if hasattr(self,"aux"): del self.aux  
-    if hasattr(self,"loss"): del self.loss
-
-  def _init_seq(self, seq=None, mode=None, rm_aa=None, **kwargs):
-    '''initialize sequence'''
-
-    # backward compatibility
-    seq_init = kwargs.pop("seq_init",None)
-    if seq_init is not None:
-      print("WARNING: 'seq_init' is being deprecated in favor of 'seq' and 'mode'")
-      modes = ["soft","gumbel","wildtype","wt"]
-      if isinstance(seq_init,str):
-        seq_init = seq_init.split("_")
-      if isinstance(seq_init,list) and seq_init[0] in modes:
-        mode = seq_init
-      else:
-        seq = seq_init
-
-    if mode is None: mode = []
-    # use wildtype sequence
-    if "wildtype" in mode:
-      wt_seq = jax.nn.one_hot(self._wt_aatype,20)
-      if self.protocol == "partial":
-        seq = seq.at[...,self.opt["pos"],:].set(wt_seq)
-      else:
-        seq = wt_seq
-
-    aa_order = residue_constants.restype_order
-
-    # initialize sequence and bias
-    x = 0.01 * jax.random.normal(self.key(),(self._num, self._len, 20))
-    b = jnp.zeros((self._len,20))
-
-    if seq is not None:
-      if isinstance(seq,str):
-        seq = jnp.asarray([aa_order.get(aa,-1) for aa in seq])
-        seq = jax.nn.one_hot(seq,20)      
-      elif isinstance(seq,list):
-        if isinstance(seq[0],str):
-          seq = jnp.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
-          seq = jax.nn.one_hot(seq,20)
-        else:
-          seq = jnp.asarray(seq)
-      x = x + seq
-      if kwargs.pop("add_seq",False):
-        b = b + seq * 1e7
-
-    # disable certain amino acids
-    if rm_aa is not None:
-      for aa in rm_aa.split(","):
-        b = b.at[...,aa_order[aa]].add(-1e7)
-
-    if "gumbel" in mode:
-      x_gumbel = jax.random.gumbel(self.key(),x.shape)
-      if "soft" in mode:
-        x = jax.nn.softmax(x + b + x_gumbel)
-      else:
-        x = x + x_gumbel / self.opt["alpha"]
-
-    self.params["seq"] = x
-    self.opt["bias"] = b 
-
-  def _setup_optimizer(self, optimizer="sgd"):
-    '''setup which optimizer to use'''
-    
-    if optimizer == "adam":
-      optimizer = adam
-      self._opt["lr"] = 0.02
-    
-    if optimizer == "sgd":
-      optimizer = sgd
-      self._opt["lr"] = 0.1
-      
+    if isinstance(optimizer, str):
+      if optimizer == "adam": (optimizer,lr) = (adam,0.02)
+      if optimizer == "sgd":  (optimizer,lr) = (sgd,0.1)
+      self.opt["lr"] = lr
     self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
     self._state = self._init_fun(self.params)
     self._k = 0
+
+    if not keep_history:
+      # initialize trajectory
+      self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
+      self._best_loss = np.inf
+      self._best_aux = self._best_outs = None
   
-  def design(self, iters,
+  def design(self, iters=100,
              temp=1, e_temp=None,
              soft=0, e_soft=None,
              hard=0, e_hard=None,
              dropout=True, opt=None, weights=None,
              backprop=True, callback=None, save_best=False, verbose=1):
       
-    # override settings if defined
-    self.set_opt(opt)
+    # update options/settings (if defined)
+    self.set_opt(opt, dropout=dropout)
     self.set_weights(weights)
-    self.set_opt(dropout=dropout, hard=hard)
 
     if e_soft is None: e_soft = soft
     if e_hard is None: e_hard = hard

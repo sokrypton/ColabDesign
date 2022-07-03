@@ -67,7 +67,7 @@ class _af_prep:
     
     self._redesign = binder_chain is not None
     self._copies = 1
-    self._opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
+    self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
     # get pdb info
@@ -94,7 +94,7 @@ class _af_prep:
     if self._redesign:      
       self._batch = pdb["batch"]
       self._wt_aatype = self._batch["aatype"][target_len:]
-      self._opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
+      self.opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
                                     "con":0.0, "i_pae":0.01, "i_con":0.0})      
     else: # binder hallucination            
       # pad inputs
@@ -106,12 +106,12 @@ class _af_prep:
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
       self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
+      self.opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self.restart(set_defaults=True, **kwargs)
+    self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
                   repeat=False, block_diag=False, **kwargs):
@@ -131,7 +131,7 @@ class _af_prep:
     self._args.update({"repeat":repeat, "block_diag":block_diag})
     
     # set weights
-    self._opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
 
     # update residue index from pdb
     if copies > 1:
@@ -147,12 +147,12 @@ class _af_prep:
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        self._opt["weights"].update({"i_pae":0.01, "i_con":0.0})
+        self.opt["weights"].update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
     self._wt_aatype = self._batch["aatype"][:self._len]
-    self.restart(set_defaults=True, **kwargs)
+    self.restart(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=False, **kwargs):
@@ -170,16 +170,16 @@ class _af_prep:
     self._args.update({"block_diag":block_diag, "repeat":repeat})
     
     # set weights
-    self._opt["weights"].update({"con":1.0})
+    self.opt["weights"].update({"con":1.0})
     if copies > 1:
       if repeat:
         offset = 1
       else:
         offset = 50
-        self._opt["weights"].update({"i_pae":0.01, "i_con":0.1})
+        self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
       self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
 
-    self.restart(set_defaults=True, **kwargs)
+    self.restart(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, use_sidechains=False, **kwargs):
@@ -189,7 +189,7 @@ class _af_prep:
       use_sidechains = kwargs.pop("sidechain")
     self._args["use_sidechains"] = use_sidechains
     if use_sidechains: fix_seq = True
-    self._opt["fix_seq"] = fix_seq
+    self.opt["fix_seq"] = fix_seq
     self._copies = 1    
     
     pdb = prep_pdb(pdb_filename, chain=chain)
@@ -197,10 +197,10 @@ class _af_prep:
 
     # get [pos]itions of interests
     if pos is None:
-      self._opt["pos"] = np.arange(self._len)
+      self.opt["pos"] = np.arange(self._len)
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
-      self._opt["pos"] = p = self._pos_info["pos"]
+      self.opt["pos"] = p = self._pos_info["pos"]
       self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])
             
     self._wt_aatype = self._batch["aatype"]
@@ -214,8 +214,8 @@ class _af_prep:
     if use_sidechains:
       weights.update({"sc_rmsd":0.0, "sc_fape":0.0})
       
-    self._opt["weights"].update(weights)
-    self.restart(set_defaults=True, **kwargs)
+    self.opt["weights"].update(weights)
+    self.restart(**kwargs)
 
 #######################
 # utils

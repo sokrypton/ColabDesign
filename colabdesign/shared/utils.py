@@ -29,6 +29,9 @@ def update_dict(D, *args, **kwargs):
     if isinstance(a, dict): set_dict(D, a)
   set_dict(D, kwargs)
 
+def copy_dict(x):
+  return jax.tree_map(lambda y:y, x)
+
 def dict_to_str(x, filt=None, keys=None, ok=None, print_str="", f=2):
   '''convert dictionary to string for print out'''  
   if keys is None: keys = []

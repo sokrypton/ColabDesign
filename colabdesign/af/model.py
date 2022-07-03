@@ -35,13 +35,13 @@ class mk_afdesign_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design
                   "recycle_mode": recycle_mode,
                   "debug":debug, "repeat": False}
     
-    self._opt = {"dropout":True, "lr":1.0,
-                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
-                 "temp":1.0, "soft":1.0, "hard":1.0, "bias":0.0, "alpha":2.0,
-                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
-                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
-                 "template": {"aatype":21, "dropout":0.15},
-                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
+    self.opt = {"dropout":True, "lr":1.0,
+                "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
+                "temp":1.0, "soft":1.0, "hard":1.0, "bias":0.0, "alpha":2.0,
+                "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
+                "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
+                "template": {"aatype":21, "dropout":0.15},
+                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
     
     self.params = {}
 
@@ -51,7 +51,7 @@ class mk_afdesign_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design
     # decide which condig to use configs to use
     if use_templates:
       model_name = "model_1_ptm"
-      self._opt["models"] = min(num_models, 2)
+      self.opt["models"] = min(num_models, 2)
     else:
       model_name = "model_3_ptm"
     

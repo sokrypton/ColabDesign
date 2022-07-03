@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from colabdesign.shared.utils import update_dict, Key, dict_to_str
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
 from colabdesign.shared.prep import prep_pos, rewire
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model
@@ -32,9 +32,9 @@ class mk_trdesign_model(design_model):
     self._loss_callback = loss_callback
 
     # set default options
-    self._opt = {"temp":1.0, "soft":1.0, "hard":1.0,
-                 "models":num_models,"sample_models":sample_models,
-                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
+    self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
+                "models":num_models,"sample_models":sample_models,
+                "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
                 
     self.params = {}
 
@@ -123,14 +123,14 @@ class mk_trdesign_model(design_model):
         self._pos_info = prep_pos(pos, **pdb["idx"])
         p = self._pos_info["pos"]
         self._batch = jax.tree_map(lambda x:x[p], self._batch)
-        self._opt["pos"] = p
-        self._opt["fix_seq"] = fix_seq
+        self.opt["pos"] = p
+        self.opt["fix_seq"] = fix_seq
 
       self._feats = _np_get_6D_binned(self._batch["all_atom_positions"],
                                       self._batch["all_atom_mask"])
 
       self._len = len(self._batch["aatype"])
-      self._opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
+      self.opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
     if self.protocol in ["hallucination", "partial"]:
       # compute background distribution
@@ -141,36 +141,24 @@ class mk_trdesign_model(design_model):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
         self._bkg_feats.append(self._bkg_model(model_params, key, self._len))
       self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
-      self._opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
+      self.opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
     self.restart(**kwargs)
   
-  def _init_seq(self, seq=None):
-    if seq is None:
-      seq = 0.01 * jax.random.normal(self.key(), (self._len,20))
-    else:
-      if isinstance(seq, str):
-        seq = np.array([residue_constants.restype_order.get(aa,-1) for aa in seq])
-        seq = np.eye(20)[seq]
-      assert seq.shape[-2] == self._len
-    self.params["seq"] = seq
+  def restart(self, seed=None, opt=None, weights=None,
+              seq=None, **kwargs):
+    self.key = Key(seed=seed).get
+    self.set_opt(opt)
+    self.set_weights(weights)
+    self.set_seq(seq, **kwargs)
 
-  def _init_optimizer(self):
-    '''setup which optimizer to use'''      
+    # setup optimizer
     self._init_fun, self._update_fun, self._get_params = sgd(1.0)
     self._k = 0
     self._state = self._init_fun(self.params)
 
-  def restart(self, seed=None, opt=None, weights=None, seq=None):
-    self.key = Key(seed=seed).get
-    self.opt = jax.tree_map(lambda x:x, self._opt) # copy
-    self.set_opt(opt)
-    self.set_weights(weights)
-    self._init_seq(seq)
-    self._init_optimizer()
-
-    self._best_loss = np.inf
-    self._best_aux = None
+    # clear previous best
+    self._best_loss, self._best_aux = np.inf, None
     
   def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''

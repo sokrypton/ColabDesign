@@ -29,8 +29,8 @@ class _af_inputs:
     seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
     seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
     
-    # fix sequence for partial hallucination
-    if self.protocol == "partial":
+    # fix sequence
+    if "pos" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
       fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[:,opt["pos"],:].set(seq_ref),x)
       seq = jax.tree_map(fix_seq,seq)
@@ -59,7 +59,7 @@ class _af_inputs:
         template_aatype = jnp.broadcast_to(opt["template"]["aatype"],(L,))
       
       if self.protocol == "binder":
-        if self._redesign:
+        if self._args["redesign"]:
           aatype = jnp.asarray(self._batch["aatype"])
           aatype = aatype.at[self._target_len:].set(0)
           template_aatype = aatype.at[self._target_len:].set(opt["template"]["aatype"])
@@ -94,11 +94,8 @@ class _af_inputs:
             inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
       
       if self.protocol == "partial":
-        p = opt["pos"]
         for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0,p].set(v)
-          # if k == "template_aatype": v = jax.nn.one_hot(v,22)
-          # inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
+          inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
           if k == "template_all_atom_masks":
             inputs[k] = inputs[k].at[:,0,:,5:].set(0)
 

@@ -40,7 +40,7 @@ class _af_loss:
     aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux, interface=True)
 
-    if self._redesign:
+    if self._args["redesign"]:
       aatype = inputs["aatype"][0]
       true = self._batch["all_atom_positions"][:,1,:]
       pred = outputs["structure_module"]["final_atom_positions"][:,1,:]

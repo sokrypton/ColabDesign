@@ -65,15 +65,15 @@ class _af_prep:
     -hotspot = define position on target
     '''
     
-    self._redesign = binder_chain is not None
+    self._args["redesign"] = binder_chain is not None
     self._copies = 1
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
     # get pdb info
-    chains = f"{chain},{binder_chain}" if self._redesign else chain
+    chains = f"{chain},{binder_chain}" if self._args["redesign"] else chain
     pdb = prep_pdb(pdb_filename, chain=chains)
-    if self._redesign:
+    if self._args["redesign"]:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
       if split_templates: num_templates = 2      
@@ -91,7 +91,7 @@ class _af_prep:
     else:
       self._hotspot = prep_pos(hotspot, **pdb["idx"])["pos"]
 
-    if self._redesign:      
+    if self._args["redesign"]:      
       self._batch = pdb["batch"]
       self._wt_aatype = self._batch["aatype"][target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
@@ -185,8 +185,7 @@ class _af_prep:
                     fix_seq=True, use_sidechains=False, **kwargs):
     '''prep input for partial hallucination'''
     
-    if "sidechain" in kwargs:
-      use_sidechains = kwargs.pop("sidechain")
+    if "sidechain" in kwargs: use_sidechains = kwargs.pop("sidechain")
     self._args["use_sidechains"] = use_sidechains
     if use_sidechains: fix_seq = True
     self.opt["fix_seq"] = fix_seq

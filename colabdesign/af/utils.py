@@ -116,8 +116,11 @@ class _af_utils:
     ax2 = fig.add_subplot(gs[3:,:])
     ax1_ = ax1.twinx()
     
-    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
-      rmsd = self.get_loss("rmsd")
+    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+      if self.protocol == "partial" and self._args["use_sidechains"]:
+        rmsd = self.get_loss("sc_rmsd")
+      else:
+        rmsd = self.get_loss("rmsd")
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")
       ax1.plot(rmsd,color="black")
@@ -126,7 +129,7 @@ class _af_utils:
       ax1.set_yscale("log")
       ticks = [0.25,0.5,1,2,4,8,16,32,64]
       ax1.set(xticks=[])
-      ax1.set_yticks(ticks);ax1.set_yticklabels(ticks)
+      ax1.set_yticks(ticks); ax1.set_yticklabels(ticks)
       ax1.set_ylabel("RMSD",color="black");ax1_.set_ylabel("seqid",color="green")
       ax1.set_ylim(0.25,64)
       ax1_.set_ylim(0,0.4)

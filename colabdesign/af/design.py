@@ -206,11 +206,12 @@ class _af_design:
                    "temp":     float(self.opt["temp"]),
                    "loss":     float(self.loss)})
     
-    if self.protocol == "fixbb" or (self.protocol == "binder" and self._redesign):
+    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       # compute sequence recovery
       _aatype = self.aux["seq"]["hard"].argmax(-1)
-      L = min(_aatype.shape[-1], self._wt_aatype.shape[-1])
-      losses["seqid"] = float((_aatype[...,:L] == self._wt_aatype[...,:L]).mean())
+      if "pos" in self.opt:
+        _aatype = _aatype[...,self.opt["pos"],:]
+      losses["seqid"] = float(_aatype == self._wt_aatype).mean()
 
     # print results
     if verbose and (self._k % verbose) == 0:

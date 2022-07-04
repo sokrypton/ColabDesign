@@ -129,8 +129,8 @@ class mk_trdesign_model(design_model):
       self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
       self.opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
-    self.restart(**kwargs)
     self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
   
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, reset_opt=True, **kwargs):

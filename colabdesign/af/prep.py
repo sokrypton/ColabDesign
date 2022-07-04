@@ -149,8 +149,8 @@ class _af_prep:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
     self._wt_aatype = self._batch["aatype"][:self._len]
-    self.restart(**kwargs)
     self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=False, **kwargs):
@@ -177,8 +177,8 @@ class _af_prep:
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
 
-    self.restart(**kwargs)
     self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, use_sidechains=False, **kwargs):
@@ -213,8 +213,8 @@ class _af_prep:
       weights.update({"sc_rmsd":0.0, "sc_fape":0.0})
       
     self.opt["weights"].update(weights)
-    self.restart(**kwargs)
     self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
 
 #######################
 # utils

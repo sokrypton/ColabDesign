@@ -144,9 +144,12 @@ class mk_trdesign_model(design_model):
       self.opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
 
     self.restart(**kwargs)
+    self._opt = copy_dict(self.opt)
   
   def restart(self, seed=None, opt=None, weights=None,
-              seq=None, **kwargs):
+              seq=None, reset_opt=False, **kwargs):
+
+    if reset_opt: self.opt = copy_dict(self._opt)
     self.key = Key(seed=seed).get
     self.set_opt(opt)
     self.set_weights(weights)

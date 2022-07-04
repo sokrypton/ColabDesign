@@ -29,8 +29,11 @@ except:
 class _af_design:
 
   def restart(self, seed=None, optimizer="sgd", opt=None, weights=None,
-              seq=None, keep_history=False, **kwargs):   
+              seq=None, keep_history=False, reset_opt=False, **kwargs):   
     '''restart the optimizer''' 
+    
+    # reset [opt]ions
+    if reset_opt: self.opt = copy_dict(self._opt)
 
     # update options/settings (if defined)
     self.set_opt(opt)
@@ -55,33 +58,6 @@ class _af_design:
       self._best_loss = np.inf
       self._best_aux = self._best_outs = None
   
-  def design(self, iters=100,
-             temp=1, e_temp=None,
-             soft=0, e_soft=None,
-             hard=0, e_hard=None,
-             opt=None, weights=None, backprop=True, callback=None,
-             save_best=False, verbose=1, **kwargs):
-      
-    # update options/settings (if defined)
-    self.set_opt(opt)
-    self.set_weights(weights)
-    if "dropout" in kwargs:
-      self.set_opt(dropout=kwargs.pop("dropout"))
-
-    if e_soft is None: e_soft = soft
-    if e_hard is None: e_hard = hard
-    if e_temp is None: e_temp = temp
-    for i in range(iters):
-      self.set_opt(soft=(soft+(e_soft-soft)*((i+1)/iters)),
-                   hard=(hard+(e_hard-hard)*((i+1)/iters)),
-                   temp=(e_temp+(temp-e_temp)*(1-(i+1)/iters)**2))
-      
-      # decay learning rate based on temperature
-      lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
-      
-      self.step(lr_scale=lr_scale, backprop=backprop, callback=callback,
-                save_best=save_best, verbose=verbose)
-
   def step(self, lr_scale=1.0, backprop=True, callback=None,
            save_best=False, verbose=1):
     '''do one step of gradient descent'''
@@ -113,8 +89,8 @@ class _af_design:
     '''run model to get outputs, losses and gradients'''
     
     # decide which model params to use
-    m = self.opt["models"]
     ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
+    m = min(self.opt["models"],len(ns))
     if self.opt["sample_models"] and m != len(ns):
       model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
@@ -230,6 +206,34 @@ class _af_design:
     if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     for k,v in traj.items(): self._traj[k].append(v)
 
+  # ---------------------------------------------------------------------------------
+  # example design functions
+  # ---------------------------------------------------------------------------------
+  def design(self, iters=100,
+             temp=1, e_temp=None,
+             soft=0, e_soft=None,
+             hard=0, e_hard=None,
+             opt=None, weights=None, dropout=None,
+             backprop=True, callback=None, save_best=False, verbose=1):
+      
+    # update options/settings (if defined)
+    self.set_opt(opt, dropout=dropout)
+    self.set_weights(weights)
+
+    if e_soft is None: e_soft = soft
+    if e_hard is None: e_hard = hard
+    if e_temp is None: e_temp = temp
+    for i in range(iters):
+      self.set_opt(soft=(soft+(e_soft-soft)*((i+1)/iters)),
+                   hard=(hard+(e_hard-hard)*((i+1)/iters)),
+                   temp=(e_temp+(temp-e_temp)*(1-(i+1)/iters)**2))
+      
+      # decay learning rate based on temperature
+      lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
+      
+      self.step(lr_scale=lr_scale, backprop=backprop, callback=callback,
+                save_best=save_best, verbose=verbose)
+
   def design_logits(self, iters, **kwargs):
     '''optimize logits'''
     self.design(iters, **kwargs)
@@ -242,31 +246,34 @@ class _af_design:
     ''' optimize argmax(logits)'''
     self.design(iters, soft=True, hard=True, **kwargs)
 
+  # ---------------------------------------------------------------------------------
+  # experimental
+  # ---------------------------------------------------------------------------------
+
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
-                    temp=1.0, dropout=True, **kwargs):
+                    models=1, dropout=True, **kwargs):
     '''two stage design (soft→hard)'''
-    self.design(soft_iters, soft=True, temp=temp, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True, temp=temp, dropout=dropout,  e_temp=1e-2, **kwargs)
+    self.set_opt(models=models, sample_models=True) # sample models
+    self.design(soft_iters, soft=True, temp=1, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
+    self.set_opt(models=5) # use all models
     self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
-                    temp=1.0, dropout=True, **kwargs):
+                    models=1, dropout=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    M = 2 if self._args["use_templates"] else 5
-    self.set_opt(models=1) # sample models
-    self.design(soft_iters, e_soft=True, temp=temp, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True,   temp=temp, dropout=dropout, e_temp=1e-2,**kwargs)
-    self.set_opt(models=M) # use all models
+    self.set_opt(models=models, sample_models=True) # sample models
+    self.design(soft_iters, e_soft=True, temp=1, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=True,   temp=1, dropout=dropout, e_temp=1e-2,**kwargs)
+    self.set_opt(models=5) # use all models
     self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
-  ######################################################################################################
-  # EXPERIMENTAL
-  ######################################################################################################
-  def design_semigreedy(self, iters=100, tries=20, dropout=False,
-                        use_plddt=True, save_best=True, verbose=1):
-    '''semigreedy search'''
-    
-    self.set_opt(hard=True, soft=True, temp=1.0, dropout=dropout)
+  def design_semigreedy(self, iters=100, tries=20, models=1,
+                        use_plddt=True, save_best=True,
+                        verbose=1):
+    '''semigreedy search'''    
+    self.set_opt(hard=True, dropout=False,
+                 models=models, sample_models=False)
     if self._k == 0:
       self.run(backprop=False)
 
@@ -311,6 +318,8 @@ class _af_design:
       self.aux, self.loss, self.params["seq"] = buff["aux"], buff["loss"], buff["seq"]
       self._k += 1
       self.save_results(save_best=save_best, verbose=verbose)
+
+  # ---------------------------------------------------------------------------------
 
   def template_predesign(self, iters=100, soft=True, hard=False, 
                          temp=1.0, dropout=True, **kwargs):

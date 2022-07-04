@@ -13,6 +13,7 @@ from colabdesign.af.alphafold.model.tf import shape_placeholders
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos, rewire
+from colabdesign.shared.utils import copy_dict
 
 ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 
@@ -20,10 +21,6 @@ ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
 # AF_PREP - input prep functions
 #################################################
 class _af_prep:
-  def repeat_idx(self, idx, copies=1, offset=50):
-    idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
-    return np.tile(idx,copies) + idx_offset
-
   def _prep_features(self, length, num_templates=1, template_features=None):
     '''process features'''
     sequence = "A" * length
@@ -112,6 +109,7 @@ class _af_prep:
     self._binder_len = self._len = binder_len
 
     self.restart(**kwargs)
+    self._opt = copy_dict(self.opt)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
                   repeat=False, block_diag=False, **kwargs):
@@ -145,7 +143,7 @@ class _af_prep:
         else:
           self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
-          self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.0})
     else:
@@ -153,6 +151,7 @@ class _af_prep:
 
     self._wt_aatype = self._batch["aatype"][:self._len]
     self.restart(**kwargs)
+    self._opt = copy_dict(self.opt)
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=False, **kwargs):
@@ -177,9 +176,10 @@ class _af_prep:
       else:
         offset = 50
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
-      self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
 
     self.restart(**kwargs)
+    self._opt = copy_dict(self.opt)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, use_sidechains=False, **kwargs):
@@ -215,10 +215,15 @@ class _af_prep:
       
     self.opt["weights"].update(weights)
     self.restart(**kwargs)
+    self._opt = copy_dict(self.opt)
 
 #######################
 # utils
 #######################
+def repeat_idx(idx, copies=1, offset=50):
+  idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
+  return np.tile(idx,copies) + idx_offset
+
 def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   '''extract features from pdb'''
 

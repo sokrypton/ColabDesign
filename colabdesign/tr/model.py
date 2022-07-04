@@ -7,7 +7,8 @@ import matplotlib.pyplot as plt
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
 from colabdesign.shared.prep import prep_pos, rewire
 from colabdesign.shared.protein import _np_get_6D_binned
-from colabdesign.shared.model import design_model
+from colabdesign.shared.model import design_model, soft_seq
+
 from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -47,25 +48,6 @@ class mk_trdesign_model(design_model):
       self._bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
-
-    def _get_seq(params, opt):
-      seq = {"input":params["seq"]}
-
-      # straight-through/reparameterization
-      seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
-      seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
-      seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
-      seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
-
-      # create pseudo sequence
-      seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-      seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
-
-      if self.protocol in ["partial"] and "pos" in opt:
-        pos = opt["pos"]
-        seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
-        seq = jax.tree_map(lambda x: jnp.where(opt["fix_seq"],x.at[...,pos,:].set(seq_ref),x), seq)
-      return seq
     
     def _get_loss(outputs, opt):
       aux = {"outputs":outputs, "losses":{}}
@@ -101,7 +83,11 @@ class mk_trdesign_model(design_model):
       return loss, aux
 
     def _model(params, model_params, opt):
-      seq = _get_seq(params, opt)
+      seq = soft_seq(params["seq"], opt)
+      if "pos" in opt:
+        seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
+        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,opt["pos"],:].set(seq_ref),x)
+        seq = jax.tree_map(fix_seq,seq)
       outputs = self._runner(seq["pseudo"][0], model_params)
       loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})

@@ -108,3 +108,21 @@ class design_model:
     if hasattr(self,"_pos_info"):
       self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
                                offset=offset, loops=loops)
+
+def soft_seq(x, opt):
+  seq = {"input":x}
+  # shuffle msa (randomly pick which sequence is query)
+  if x.ndim == 3 and x.shape[0] > 1:
+    n = jax.random.randint(key,[],0,x.shape[0])
+    seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
+
+  # straight-through/reparameterization
+  seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
+  seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
+  seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
+  seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
+
+  # create pseudo sequence
+  seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
+  seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
+  return seq

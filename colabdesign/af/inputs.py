@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.alphafold.model import model
 
@@ -11,30 +12,11 @@ from colabdesign.af.alphafold.model import model
 class _af_inputs:
   def _get_seq(self, params, opt, aux, key):
     '''get sequence features'''
-    seq = {"input":params["seq"]}
-    seq_shape = params["seq"].shape
-
-    # shuffle msa (randomly pick which sequence is query)
-    if self._num > 1:
-      n = jax.random.randint(key,[],0,seq_shape[0])
-      seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
-
-    # straight-through/reparameterization
-    seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
-    seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
-    seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
-    seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
-
-    # create pseudo sequence
-    seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-    seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
-    
-    # fix sequence
+    seq = soft_seq(params["seq"], opt)
     if "pos" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[:,opt["pos"],:].set(seq_ref),x)
+      fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,opt["pos"],:].set(seq_ref),x)
       seq = jax.tree_map(fix_seq,seq)
-
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     # protocol specific modifications to seq features

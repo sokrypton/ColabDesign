@@ -240,11 +240,11 @@ class _af_design:
 
   def design_logits(self, iters=100, **kwargs):
     '''optimize logits'''
-    self.design(iters, soft=0, hard=1, **kwargs)
+    self.design(iters, soft=0, hard=0, **kwargs)
 
   def design_soft(self, iters=100, **kwargs):
     ''' optimize softmax(logits/temp)'''
-    self.design(iters, soft=1, hard=0, temp=temp, **kwargs)
+    self.design(iters, soft=1, hard=0, **kwargs)
   
   def design_hard(self, iters=100, **kwargs):
     ''' optimize argmax(logits)'''

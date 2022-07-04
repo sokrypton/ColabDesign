@@ -210,9 +210,9 @@ class _af_design:
   # example design functions
   # ---------------------------------------------------------------------------------
   def design(self, iters=100,
-             temp=1, e_temp=None,
-             soft=0, e_soft=None,
-             hard=0, e_hard=None,
+             soft=None, e_soft=None,
+             temp=None, e_temp=None,
+             hard=None, e_hard=None,
              opt=None, weights=None, dropout=None,
              backprop=True, callback=None, save_best=False, verbose=1):
       
@@ -220,9 +220,13 @@ class _af_design:
     self.set_opt(opt, dropout=dropout)
     self.set_weights(weights)
 
+    if soft is None: soft = self.opt["soft"]
+    if temp is None: temp = self.opt["temp"]
+    if hard is None: hard = self.opt["hard"]
     if e_soft is None: e_soft = soft
-    if e_hard is None: e_hard = hard
     if e_temp is None: e_temp = temp
+    if e_hard is None: e_hard = hard
+    
     for i in range(iters):
       self.set_opt(soft=(soft+(e_soft-soft)*((i+1)/iters)),
                    hard=(hard+(e_hard-hard)*((i+1)/iters)),
@@ -234,17 +238,17 @@ class _af_design:
       self.step(lr_scale=lr_scale, backprop=backprop, callback=callback,
                 save_best=save_best, verbose=verbose)
 
-  def design_logits(self, iters, **kwargs):
+  def design_logits(self, iters=100, **kwargs):
     '''optimize logits'''
-    self.design(iters, **kwargs)
+    self.design(iters, soft=0, hard=1, **kwargs)
 
-  def design_soft(self, iters, **kwargs):
+  def design_soft(self, iters=100, **kwargs):
     ''' optimize softmax(logits/temp)'''
-    self.design(iters, soft=True, **kwargs)
+    self.design(iters, soft=1, hard=0, temp=temp, **kwargs)
   
-  def design_hard(self, iters, **kwargs):
+  def design_hard(self, iters=100, **kwargs):
     ''' optimize argmax(logits)'''
-    self.design(iters, soft=True, hard=True, **kwargs)
+    self.design(iters, soft=1, hard=1, **kwargs)
 
   # ---------------------------------------------------------------------------------
   # experimental
@@ -254,19 +258,19 @@ class _af_design:
                     models=1, dropout=True, **kwargs):
     '''two stage design (soft→hard)'''
     self.set_opt(models=models, sample_models=True) # sample models
-    self.design(soft_iters, soft=True, temp=1, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
+    self.design(soft_iters, soft=1, temp=1, dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=1, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
     self.set_opt(models=5) # use all models
-    self.design(hard_iters, soft=True, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
+    self.design(hard_iters, soft=1, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
                     models=1, dropout=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.set_opt(models=models, sample_models=True) # sample models
-    self.design(soft_iters, e_soft=True, temp=1, dropout=dropout, **kwargs)
-    self.design(temp_iters, soft=True,   temp=1, dropout=dropout, e_temp=1e-2,**kwargs)
+    self.design(soft_iters, soft=0, temp=1,    hard=0, e_soft=1,    dropout=dropout, **kwargs)
+    self.design(temp_iters, soft=1, temp=1,    hard=0, e_temp=1e-2, dropout=dropout, **kwargs)
     self.set_opt(models=5) # use all models
-    self.design(hard_iters, soft=True,   temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
+    self.design(hard_iters, soft=1, temp=1e-2, hard=1, dropout=False, save_best=True, **kwargs)
 
   def design_semigreedy(self, iters=100, tries=20, models=1,
                         use_plddt=True, save_best=True,

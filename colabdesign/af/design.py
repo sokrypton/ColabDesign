@@ -29,11 +29,12 @@ except:
 class _af_design:
 
   def restart(self, seed=None, optimizer="sgd", opt=None, weights=None,
-              seq=None, keep_history=False, reset_opt=False, **kwargs):   
+              seq=None, keep_history=False, reset_opt=True, **kwargs):   
     '''restart the optimizer''' 
     
     # reset [opt]ions
-    if reset_opt: self.opt = copy_dict(self._opt)
+    if reset_opt and not keep_history:
+      self.opt = copy_dict(self._opt)
 
     # update options/settings (if defined)
     self.set_opt(opt)

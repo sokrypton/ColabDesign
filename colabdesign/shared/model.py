@@ -105,9 +105,10 @@ class design_model:
     return self.get_seq(get_best)
 
   def rewire(self, order=None, offset=0, loops=0):
-    if hasattr(self,"_pos_info"):
-      self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
-                               offset=offset, loops=loops)
+    self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
+                             offset=offset, loops=loops)
+    if hasattr(self,"_opt"):
+      self._opt["pos"] = self.opt["pos"]
 
 def soft_seq(x, opt):
   seq = {"input":x}

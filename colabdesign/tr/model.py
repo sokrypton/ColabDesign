@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
-from colabdesign.shared.prep import prep_pos, rewire
+from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model, soft_seq
 
@@ -133,9 +133,11 @@ class mk_trdesign_model(design_model):
     self._opt = copy_dict(self.opt)
   
   def restart(self, seed=None, opt=None, weights=None,
-              seq=None, reset_opt=False, **kwargs):
+              seq=None, reset_opt=True, **kwargs):
 
-    if reset_opt: self.opt = copy_dict(self._opt)
+    if reset_opt:
+      self.opt = copy_dict(self._opt)
+      
     self.key = Key(seed=seed).get
     self.set_opt(opt)
     self.set_weights(weights)

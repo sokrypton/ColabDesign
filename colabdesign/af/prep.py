@@ -12,10 +12,9 @@ from colabdesign.af.alphafold.model import all_atom
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
-from colabdesign.shared.prep import prep_pos, rewire
+from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import copy_dict
-
-ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
+from colabdesign.shared.model import order_aa
 
 #################################################
 # AF_PREP - input prep functions
@@ -252,7 +251,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
 
     has_ca = batch["all_atom_mask"][:,0] == 1
     batch = jax.tree_map(lambda x:x[has_ca], batch)
-    seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
+    seq = "".join([order_aa[a] for a in batch["aatype"]])
     residue_index = protein_obj.residue_index[has_ca] + last      
     last = residue_index[-1] + 50
     

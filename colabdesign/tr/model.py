@@ -20,7 +20,7 @@ try:
 except:
   from jax.experimental.optimizers import sgd, adam
 
-class mk_trdesign_model(design_model):
+class mk_tr_model(design_model):
   def __init__(self, protocol="fixbb", num_models=1,
                sample_models=True, data_dir="params/tr",
                loss_callback=None):

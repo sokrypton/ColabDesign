@@ -137,7 +137,7 @@ class mk_trdesign_model(design_model):
 
     if reset_opt:
       self.opt = copy_dict(self._opt)
-      
+
     self.key = Key(seed=seed).get
     self.set_opt(opt)
     self.set_weights(weights)
@@ -151,17 +151,22 @@ class mk_trdesign_model(design_model):
     # clear previous best
     self._best_loss, self._best_aux = np.inf, None
     
-  def run(self, backprop=True):
+  def run(self, model=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
     
-    # decide which model params to use
-    m = self.opt["models"]
-    ns = jnp.arange(5)
-    if self.opt["sample_models"] and m != len(ns):
-      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+    if model is None:
+      # decide which model params to use
+      ns = jnp.arange(5)
+      m = min(self.opt["models"],len(ns))
+      if self.opt["sample_models"] and m != len(ns):
+        model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+      else:
+        model_num = ns[:m]
+      model_num = np.array(model_num).tolist()
+    elif isinstance(model,int):
+      model_num = [model]
     else:
-      model_num = ns[:m]
-    model_num = np.array(model_num).tolist()
+      model_num = list(model)
 
     # run in serial
     _loss, _aux, _grad = [],[],[]
@@ -193,9 +198,9 @@ class mk_trdesign_model(design_model):
     self.aux["model_num"] = model_num
     self.grad = _grad
 
-  def step(self, backprop=True, callback=None,
-           save_best=True, verbose=1):
-    self.run(backprop=backprop)
+  def step(self, model=None, backprop=True,
+           callback=None, save_best=True, verbose=1):
+    self.run(model=model, backprop=backprop)
     if callback is not None: callback(self)
 
     # normalize gradient

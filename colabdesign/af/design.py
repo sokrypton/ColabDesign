@@ -55,16 +55,107 @@ class _af_design:
 
     if not keep_history:
       # initialize trajectory
-      self._traj = {"losses":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
+      self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best_loss = np.inf
       self._best_aux = self._best_outs = None
-  
-  def step(self, lr_scale=1.0, backprop=True, callback=None,
-           save_best=False, verbose=1):
+      
+  def run(self, model=None, backprop=True):
+    '''run model to get outputs, losses and gradients'''
+    
+    # decide which model params to use
+    if model is None:
+      ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
+      m = min(self.opt["models"],len(ns))
+      if self.opt["sample_models"] and m != len(ns):
+        model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+      else:
+        model_num = ns[:m]
+      model_num = np.array(model_num).tolist()
+    else:
+      model_num = [model] if isinstance(model,int) else list(model)
+
+    # loop through model params
+    outs = []
+    for n in model_num:
+      p = self._model_params[n]
+      outs.append(self._recycle(p, backprop=backprop))
+    outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)    
+
+    # update gradients
+    self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
+
+    # update loss (take mean across models)
+    self.loss = outs["loss"].mean()
+    
+    # update [aux]iliary outputs
+    self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
+    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
+    self.aux["model_num"] = model_num    
+    self._outs = self.aux # backward compatibility
+
+    # update log
+    self.aux["log"] = copy_dict(self.aux["losses"])
+    self.aux["log"].update({"hard": self.opt["hard"], "soft": self.opt["soft"],
+                            "temp": self.opt["temp"], "loss": self.loss,
+                            "recycles": self.aux["recycles"]})
+
+    # compute sequence recovery
+    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+      aatype = self.aux["seq"]["pseudo"].argmax(-1)
+      if "pos" in self.opt:
+        aatype = aatype[...,self.opt["pos"]]
+      self.aux["log"] = (aatype == self._wt_aatype).mean()
+
+    self.aux["log"] = jax.tree_map(float, self.aux["log"])
+    self.aux["log"]["models"] = self.aux["model_num"]
+
+  def _recycle(self, model_params, backprop=True):   
+    mode = self._args["recycle_mode"]             
+
+    def _single():
+      flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
+      if backprop:
+        (loss, aux), grad = self._grad_fn(*flags)
+      else:
+        loss, aux = self._fn(*flags)
+        grad = jax.tree_map(jnp.zeros_like, self.params)
+      return {"loss":loss, "aux":aux, "grad":grad}
+
+    if mode in ["backprop","add_prev"]:
+      recycles = self.opt["recycles"] = self._runner.config.model.num_recycle
+      out = _single()
+    
+    else:
+      recycles = self.opt["recycles"]
+      if mode == "average":
+        L = self._inputs["residue_index"].shape[-1]
+        self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
+                                'prev_pair': np.zeros([L,L,128]),
+                                'prev_pos': np.zeros([L,37,3])}
+        grad = []
+        for _ in range(recycles+1):
+          out = _single()
+          grad.append(out["grad"])
+          self._inputs["prev"] = out["aux"]["prev"]
+        out["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
+      
+      elif mode == "sample":
+        self.opt["recycles"] = jax.random.randint(self.key(), [], 0, recycles+1)
+        out = _single()
+        (self.opt["recycles"],recycles) = (recycles,self.opt["recycles"])
+      
+      else:
+        out = _single()
+    
+    out["aux"]["recycles"] = recycles
+    return out
+
+  def step(self, lr_scale=1.0, model=None, backprop=True,
+           callback=None, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(backprop=backprop)
+    self.run(model=model, backprop=backprop)
     if callback is not None: callback(self)
 
     # normalize gradient
@@ -85,127 +176,28 @@ class _af_design:
 
     # save results
     self.save_results(save_best=save_best, verbose=verbose)
-    
-  def run(self, backprop=True):
-    '''run model to get outputs, losses and gradients'''
-    
-    # decide which model params to use
-    ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
-    m = min(self.opt["models"],len(ns))
-    if self.opt["sample_models"] and m != len(ns):
-      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
-    else:
-      model_num = ns[:m]
-    model_num = np.array(model_num).tolist()    
-    
-    # loop through model params
-    _loss, _aux, _grad = [],[],[]
-    for n in model_num:
-      p = self._model_params[n]
-      if backprop:
-        (l,a),g = self._recycle(p)
-        _grad.append(g)
-      else:
-        l,a = self._recycle(p, backprop=False)
-      _loss.append(l); _aux.append(a)
 
-    # update gradients
-    if backprop:
-      self.grad = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *_grad)
-    else:
-      self.grad = jax.tree_map(jnp.zeros_like, self.params)
-
-    # update loss (take mean across models)
-    self.loss = jnp.stack(_loss).mean()
-    
-    # update aux
-    _aux = jax.tree_map(lambda *x: jnp.stack(x), *_aux)    
-    self.aux = jax.tree_map(lambda x:x[0], _aux)
-    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), _aux["losses"])
-    self.aux["model_num"] = model_num    
-    self._outs = self.aux # backward compatibility
-      
-  def _recycle(self, model_params, backprop=True):                
-    # initialize previous (for recycle)
-    L = self._inputs["residue_index"].shape[-1]
-    self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                            'prev_pair': np.zeros([L,L,128]),
-                            'prev_pos': np.zeros([L,37,3])}
-              
-    if self._args["recycle_mode"] in ["backprop","add_prev"]:
-      self.opt["recycles"] = self._runner.config.model.num_recycle
-
-    recycles = self.opt["recycles"]
-
-    if self._args["recycle_mode"] == "average":
-      # average gradient across recycles
-      grad = []
-      for r in range(recycles+1):
-        if backprop:
-          (loss, aux), _grad = self._grad_fn(self.params, model_params, self._inputs, self.key(), self.opt)
-          grad.append(_grad)
-        else:
-          loss, aux = self._fn(self.params, model_params, self._inputs, self.key(), self.opt)
-        self._inputs["prev"] = aux["prev"]
-      if backprop:
-        grad = jax.tree_map(lambda *x: jnp.asarray(x).mean(0), *grad)
-
-    else:
-      if self._args["recycle_mode"] == "sample":
-        self.opt["recycles"] = jax.random.randint(self.key(), [], 0, recycles+1)
-      
-      if backprop:
-        (loss, aux), grad = self._grad_fn(self.params, model_params, self._inputs, self.key(), self.opt)
-      else:
-        loss, aux = self._fn(self.params, model_params, self._inputs, self.key(), self.opt)
-
-    aux["recycles"] = self.opt["recycles"]
-    self.opt["recycles"] = recycles
-    
-    if backprop:
-      return (loss, aux), grad
-    else:
-      return loss, aux
-    
   def save_results(self, save_best=False, verbose=1):
-    '''save the results and update trajectory'''
-
-    # save best result
-    if save_best and self.loss < self._best_loss:
-      self._best_loss = self.loss
-      self._best_aux = self._best_outs = self.aux
-
-    # save losses
-    losses = jax.tree_map(float,self.aux["losses"])
-
-    losses.update({"models":         self.aux["model_num"],
-                   "recycles":   int(self.aux["recycles"]),
-                   "hard":     float(self.opt["hard"]),
-                   "soft":     float(self.opt["soft"]),
-                   "temp":     float(self.opt["temp"]),
-                   "loss":     float(self.loss)})
-    
-    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      # compute sequence recovery
-      _aatype = self.aux["seq"]["hard"].argmax(-1)
-      if "pos" in self.opt:
-        _aatype = _aatype[...,self.opt["pos"]]
-      losses["seqid"] = float((_aatype == self._wt_aatype).mean())
-
-    # print results
-    if verbose and (self._k % verbose) == 0:
-      keys = ["models","recycles","hard","soft","temp","seqid","loss",
-              "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-              "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
-      print(dict_to_str(losses, filt=self.opt["weights"], print_str=f"{self._k}",
-                        keys=keys, ok="rmsd"))
-
     # save trajectory
-    traj = {"losses":losses, "seq":np.asarray(self.aux["seq"]["pseudo"])}
+    traj = {"log":self.aux["log"], "seq":np.asarray(self.aux["seq"]["pseudo"])}
     traj["xyz"] = np.asarray(self.aux["final_atom_positions"][:,1,:])
     traj["plddt"] = np.asarray(self.aux["plddt"])
     if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     for k,v in traj.items(): self._traj[k].append(v)
+
+    # save best result
+    if save_best:
+      if self.loss < self._best_loss:
+        self._best_loss = self.loss
+        self._best_aux = self._best_outs = self.aux
+    
+    if verbose and (self._k % verbose) == 0:
+      # preferred order
+      keys = ["models","recycles","hard","soft","temp","seqid","loss",
+              "msa_ent","plddt","pae","helix","con","i_pae","i_con",
+              "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]        
+      print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
+                        print_str=f"{self._k}", keys=keys, ok="rmsd"))
 
   # ---------------------------------------------------------------------------------
   # example design functions

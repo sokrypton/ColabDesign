@@ -16,7 +16,7 @@ class _af_utils:
   
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''
-    return np.array([float(loss[x]) for loss in self._traj["losses"]])
+    return np.array([float(loss[x]) for loss in self._traj["log"]])
 
   def save_pdb(self, filename=None, get_best=True):
     '''
@@ -122,11 +122,11 @@ class _af_utils:
       ax1.set_ylim(0.25,64)
       ax1_.set_ylim(0,0.4)
       # extras
-      if "soft" in self._traj["losses"][0]:
+      if "soft" in self._traj["log"][0]:
         ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
-      if "temp" in self._traj["losses"][0]:
+      if "temp" in self._traj["log"][0]:
         ax2.plot(self.get_loss("temp"),color="orange",label="temp")
-      if "hard" in self._traj["losses"][0]:
+      if "hard" in self._traj["log"][0]:
         ax2.plot(self.get_loss("hard"),color="red",label="hard")
       ax2.set_ylim(-0.1,1.1)
       ax2.set_xlabel("iterations")

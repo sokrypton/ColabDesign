@@ -142,7 +142,7 @@ class _af_design:
         out["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
       
       elif mode == "sample":
-        self.opt["recycles"] = jax.random.randint(self.key(), [], 0, recycles+1)
+        self.set_opt(recycles=jax.random.randint(self.key(),[],0,recycles+1))
         out = self._single(model_params, backprop)
         (self.opt["recycles"],recycles) = (recycles,self.opt["recycles"])
       

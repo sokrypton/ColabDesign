@@ -107,8 +107,8 @@ class _af_prep:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self.restart(**kwargs)
     self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
                   repeat=False, block_diag=False, **kwargs):

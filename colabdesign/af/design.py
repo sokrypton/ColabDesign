@@ -104,26 +104,28 @@ class _af_design:
       aatype = self.aux["seq"]["pseudo"].argmax(-1)
       if "pos" in self.opt:
         aatype = aatype[...,self.opt["pos"]]
-      self.aux["log"] = (aatype == self._wt_aatype).mean()
+      self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
     self.aux["log"] = jax.tree_map(float, self.aux["log"])
     self.aux["log"]["models"] = self.aux["model_num"]
 
-  def _recycle(self, model_params, backprop=True):   
-    mode = self._args["recycle_mode"]             
+  def _single(self, model_params, backprop=True):
+    '''single pass through the model'''
+    flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
+    if backprop:
+      (loss, aux), grad = self._grad_fn(*flags)
+    else:
+      loss, aux = self._fn(*flags)
+      grad = jax.tree_map(jnp.zeros_like, self.params)
+    return {"loss":loss, "aux":aux, "grad":grad}
 
-    def _single():
-      flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
-      if backprop:
-        (loss, aux), grad = self._grad_fn(*flags)
-      else:
-        loss, aux = self._fn(*flags)
-        grad = jax.tree_map(jnp.zeros_like, self.params)
-      return {"loss":loss, "aux":aux, "grad":grad}
+  def _recycle(self, model_params, backprop=True):   
+    '''multiple passes through the model (aka recycle)'''
+    mode = self._args["recycle_mode"]             
 
     if mode in ["backprop","add_prev"]:
       recycles = self.opt["recycles"] = self._runner.config.model.num_recycle
-      out = _single()
+      out = self._single(model_params, backprop)
     
     else:
       recycles = self.opt["recycles"]
@@ -134,18 +136,18 @@ class _af_design:
                                 'prev_pos': np.zeros([L,37,3])}
         grad = []
         for _ in range(recycles+1):
-          out = _single()
+          out = self._single(model_params, backprop)
           grad.append(out["grad"])
           self._inputs["prev"] = out["aux"]["prev"]
         out["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
       
       elif mode == "sample":
         self.opt["recycles"] = jax.random.randint(self.key(), [], 0, recycles+1)
-        out = _single()
+        out = self._single(model_params, backprop)
         (self.opt["recycles"],recycles) = (recycles,self.opt["recycles"])
       
       else:
-        out = _single()
+        out = self._single(model_params, backprop)
     
     out["aux"]["recycles"] = recycles
     return out

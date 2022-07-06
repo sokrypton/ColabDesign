@@ -1,0 +1,72 @@
+import random
+import jax
+import numpy as np
+import jax.numpy as jnp
+
+def clear_mem():
+  backend = jax.lib.xla_bridge.get_backend()
+  for buf in backend.live_buffers(): buf.delete()
+
+def update_dict(D, *args, **kwargs):
+  '''robust function for updating dictionary'''
+  def set_dict(d, x):
+    for k,v in x.items():
+      if v is not None:
+        if k in d:
+          if isinstance(v, dict):
+            set_dict(d[k], x[k])
+          elif isinstance(d[k],(np.ndarray,jnp.ndarray)):
+            d[k] = np.asarray(v)
+          elif d[k] is None:
+            d[k] = v
+          else:
+            d[k] = type(d[k])(v)
+        else:
+          print(f"ERROR: '{k}' not found in {list(d.keys())}")  
+  while len(args) > 0 and isinstance(args[0],str):
+    D,args = D[args[0]],args[1:]
+  for a in args:
+    if isinstance(a, dict): set_dict(D, a)
+  set_dict(D, kwargs)
+
+def copy_dict(x):
+  return jax.tree_map(lambda y:y, x)
+
+def dict_to_str(x, filt=None, keys=None, ok=None, print_str="", f=2):
+  '''convert dictionary to string for print out'''  
+  if keys is None: keys = []
+  if filt is None: filt = {}
+  if ok is None: ok = ""
+
+  # gather keys
+  for k in x.keys():
+    if k not in keys:
+      keys.append(k)
+
+  for k in keys:
+    if k in x and (filt.get(k,True) or ok in k):
+      v = x[k]
+      if isinstance(v,float):
+        if int(v) == v:
+          print_str += f" {k} {int(v)}"
+        else:
+          print_str += f" {k} {v:.{f}f}"
+      else:
+        print_str += f" {k} {v}"
+  return print_str
+
+class Key():
+  '''random key generator'''
+  def __init__(self, key=None, seed=None):
+    if key is None:
+      self.seed = random.randint(0,2147483647) if seed is None else seed
+      self.key = jax.random.PRNGKey(self.seed) 
+    else:
+      self.key = key
+  def get(self, num=1):
+    if num > 1:
+      self.key, *sub_keys = jax.random.split(self.key, num=(num+1))
+      return sub_keys
+    else:
+      self.key, sub_key = jax.random.split(self.key)
+      return sub_key

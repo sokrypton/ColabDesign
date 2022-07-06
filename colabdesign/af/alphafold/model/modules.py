@@ -69,7 +69,7 @@ def dropout_wrapper(module,
                     global_config,
                     output_act=None,
                     is_training=True,
-                    scale_rate=1.0,
+                    dropout_scale=1.0,
                     **kwargs):
   """Applies module + dropout + residual update."""
   if output_act is None:
@@ -89,7 +89,7 @@ def dropout_wrapper(module,
 
   residual = apply_dropout(tensor=residual,
                            safe_key=safe_key,
-                           rate=dropout_rate * scale_rate,
+                           rate=dropout_rate * dropout_scale,
                            is_training=is_training,
                            broadcast_dim=broadcast_dim)
 
@@ -276,7 +276,7 @@ class AlphaFold(hk.Module):
       The output of AlphaFoldIteration is a nested dictionary containing
       predictions from the various heads.
     """
-    if "scale_rate" not in batch: batch["scale_rate"] = jnp.ones((1,))
+    if "dropout_scale" not in batch: batch["dropout_scale"] = jnp.ones((1,))
     impl = AlphaFoldIteration(self.config, self.global_config)
 
     if jnp.issubdtype(batch['aatype'].dtype, jnp.integer):
@@ -335,7 +335,7 @@ class TemplatePairStack(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, pair_act, pair_mask, is_training, safe_key=None, scale_rate=1.0):
+  def __call__(self, pair_act, pair_mask, is_training, safe_key=None, dropout_scale=1.0):
     """Builds TemplatePairStack module.
 
     Arguments:
@@ -362,7 +362,7 @@ class TemplatePairStack(hk.Module):
       pair_act, safe_key = x
 
       dropout_wrapper_fn = functools.partial(
-          dropout_wrapper, is_training=is_training, global_config=gc, scale_rate=scale_rate)
+          dropout_wrapper, is_training=is_training, global_config=gc, dropout_scale=dropout_scale)
 
       safe_key, *sub_keys = safe_key.split(6)
       sub_keys = iter(sub_keys)
@@ -1507,7 +1507,7 @@ class EvoformerIteration(hk.Module):
     self.global_config = global_config
     self.is_extra_msa = is_extra_msa
 
-  def __call__(self, activations, masks, is_training=True, safe_key=None, scale_rate=1.0):
+  def __call__(self, activations, masks, is_training=True, safe_key=None, dropout_scale=1.0):
     """Builds EvoformerIteration module.
 
     Arguments:
@@ -1537,7 +1537,7 @@ class EvoformerIteration(hk.Module):
         dropout_wrapper,
         is_training=is_training,
         global_config=gc,
-        scale_rate=scale_rate)
+        dropout_scale=dropout_scale)
 
     safe_key, *sub_keys = safe_key.split(10)
     sub_keys = iter(sub_keys)
@@ -1724,7 +1724,7 @@ class EmbeddingsAndEvoformer(hk.Module):
           template_batch,
           mask_2d,
           is_training=is_training,
-          scale_rate=batch["scale_rate"])
+          dropout_scale=batch["dropout_scale"])
 
       pair_activations += template_pair_representation
     
@@ -1756,7 +1756,7 @@ class EmbeddingsAndEvoformer(hk.Module):
               'pair': mask_2d
           },
           is_training=is_training,
-          safe_key=safe_subkey, scale_rate=batch["scale_rate"])
+          safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
       return (extra_evoformer_output, safe_key)
 
     if gc.use_remat:
@@ -1843,7 +1843,7 @@ class EmbeddingsAndEvoformer(hk.Module):
           activations=act,
           masks=evoformer_masks,
           is_training=is_training,
-          safe_key=safe_subkey, scale_rate=batch["scale_rate"])
+          safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
       return (evoformer_output, safe_key)
 
     if gc.use_remat:
@@ -1881,7 +1881,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, batch, mask_2d, is_training, scale_rate=1.0):
+  def __call__(self, query_embedding, batch, mask_2d, is_training, dropout_scale=1.0):
     """Build the single template embedding.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
@@ -1972,7 +1972,7 @@ class SingleTemplateEmbedding(hk.Module):
 
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 11
     act = TemplatePairStack(
-        self.config.template_pair_stack, self.global_config)(act, mask_2d, is_training, scale_rate=scale_rate)
+        self.config.template_pair_stack, self.global_config)(act, mask_2d, is_training, dropout_scale=dropout_scale)
 
     act = hk.LayerNorm([-1], True, True, name='output_layer_norm')(act)
     return act
@@ -1989,7 +1989,7 @@ class TemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, template_batch, mask_2d, is_training, scale_rate=1.0):
+  def __call__(self, query_embedding, template_batch, mask_2d, is_training, dropout_scale=1.0):
     """Build TemplateEmbedding module.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
@@ -2018,7 +2018,7 @@ class TemplateEmbedding(hk.Module):
     template_embedder = SingleTemplateEmbedding(self.config, self.global_config)
 
     def map_fn(batch):
-      return template_embedder(query_embedding, batch, mask_2d, is_training, scale_rate=scale_rate)
+      return template_embedder(query_embedding, batch, mask_2d, is_training, dropout_scale=dropout_scale)
 
     template_pair_representation = mapping.sharded_map(map_fn, in_axes=0)(template_batch)
 

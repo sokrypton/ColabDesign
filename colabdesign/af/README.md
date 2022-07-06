@@ -1,6 +1,6 @@
 - model.py  - configure the model
-- prep.py   - configure the inputs
+- inputs.py - configure the inputs
 - loss.py   - configure the loss
+- prep.py   - prep features
 - design.py - gradient update loop
 - utils.py  - various tools for saving/plotting
-- misc.py   - collection of functions (mostly for computing loss)

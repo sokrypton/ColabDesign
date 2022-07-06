@@ -14,16 +14,16 @@ pip install git+https://github.com/sokrypton/ColabDesign.git
 # download weights
 if [ ! -d params/tr ]; then
   mkdir -p params/tr
-  wget https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
-  wget https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
-  unzip models.zip -d params/tr/
-  unzip bkgr_models.zip -d params/tr/
+  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
+  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
+  unzip -qqo models.zip -d params/tr/
+  unzip -qqo bkgr_models.zip -d params/tr/
 fi
 ```
 
 ### example
 ```python
-from colabdesign import clear_mem, mk_trdesign_model
+from colabdesign import *
 
 clear_mem()
 tr_model = mk_trdesign_model(protocol="fixbb")
@@ -36,7 +36,7 @@ print(tr_model.get_seq())
 ### example
 combine AfDesign and TrDesign for fixed backbone design 
 ```python
-from colabdesign import clear_mem, mk_afdesign_model, mk_trdesign_model
+from colabdesign import *
 
 clear_mem()
 af_model = mk_afdesign_model(protocol="fixbb")

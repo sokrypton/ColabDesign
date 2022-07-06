@@ -95,7 +95,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial][idx]
     self._get_loss   = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial][idx]
 
-  def _get_model(self):
+  def _get_model(self, callback=None):
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key, opt):
@@ -141,7 +141,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "prev":outputs["prev"]})
 
       if self._args["debug"]:
-        aux.update({"outputs":outputs, "inputs":inputs})
+        aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       #######################################################################
       # LOSS
@@ -150,7 +150,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 
       if self._loss_callback is not None:
-        aux["losses"].update(self._loss_callback(inputs, outputs))
+        aux["losses"].update(self._loss_callback(inputs, outputs, opt))
 
       # weighted loss
       w = opt["weights"]

@@ -15,6 +15,7 @@
 """Specialized mapping functions."""
 
 import functools
+import inspect
 
 from typing import Any, Callable, Optional, Sequence, Union
 
@@ -75,9 +76,12 @@ def sharded_map(
   Returns:
     function with smap applied.
   """
-  vmapped_fun = hk.vmap(fun, in_axes, out_axes)
+  if 'split_rng' in inspect.signature(hk.vmap).parameters:
+    vmapped_fun = hk.vmap(fun, in_axes, out_axes, split_rng=False)
+  else:
+    # TODO(tomhennigan): Remove this when older versions of Haiku aren't used.
+    vmapped_fun = hk.vmap(fun, in_axes, out_axes)
   return sharded_apply(vmapped_fun, shard_size, in_axes, out_axes)
-
 
 def sharded_apply(
     fun: Callable[..., PYTREE_JAX_ARRAY],  # pylint: disable=g-bare-generic

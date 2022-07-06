@@ -1,37 +1,36 @@
 import tensorflow as tf
 tf.config.set_visible_devices([], 'GPU')
+
 import jax
 import jax.numpy as jnp
 import numpy as np
+import re
 
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model import all_atom
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 
-from colabdesign.af.misc import _np_get_cb
-ORDER_RESTYPE = {v: k for k, v in residue_constants.restype_order.items()}
+from colabdesign.shared.protein import _np_get_cb, pdb_to_string
+from colabdesign.shared.prep import prep_pos
+from colabdesign.shared.utils import copy_dict
+from colabdesign.shared.model import order_aa
 
 #################################################
 # AF_PREP - input prep functions
 #################################################
 class _af_prep:
-  def repeat_idx(self, idx, copies=1, offset=50):
-    idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
-    return np.tile(idx,copies) + idx_offset
-
   def _prep_features(self, length, num_templates=1, template_features=None):
     '''process features'''
-    num_seq = self.args["num_seq"]
     sequence = "A" * length
     feature_dict = {
         **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
-        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[num_seq*[[0]*length]])
+        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[self._num*[[0]*length]])
     }
-    if self.args["use_templates"]:
+    if self._args["use_templates"]:
       # reconfigure model
       self._runner.config.data.eval.max_templates = num_templates
-      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] + num_templates
+      self._runner.config.data.eval.max_msa_clusters = self._num + num_templates
       if template_features is None:
         feature_dict.update({'template_aatype': np.zeros([num_templates,length,22]),
                              'template_all_atom_masks': np.zeros([num_templates,length,37]),
@@ -41,7 +40,7 @@ class _af_prep:
         feature_dict.update(template_features)
       
     inputs = self._runner.process_features(feature_dict, random_seed=0)
-    if num_seq > 1:
+    if self._num > 1:
       inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
       inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
     return inputs
@@ -62,15 +61,15 @@ class _af_prep:
     -hotspot = define position on target
     '''
     
-    self._redesign = binder_chain is not None
+    self._args["redesign"] = binder_chain is not None
     self._copies = 1
-    self._default_opt["template_dropout"] = 0.0 if use_binder_template else 1.0
+    self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
     # get pdb info
-    chains = f"{chain},{binder_chain}" if self._redesign else chain
+    chains = f"{chain},{binder_chain}" if self._args["redesign"] else chain
     pdb = prep_pdb(pdb_filename, chain=chains)
-    if self._redesign:
+    if self._args["redesign"]:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
       if split_templates: num_templates = 2      
@@ -86,12 +85,12 @@ class _af_prep:
     if hotspot is None:
       self._hotspot = None
     else:
-      self._hotspot = prep_pos(hotspot, **pdb["idx"])
+      self._hotspot = prep_pos(hotspot, **pdb["idx"])["pos"]
 
-    if self._redesign:      
+    if self._args["redesign"]:      
       self._batch = pdb["batch"]
       self._wt_aatype = self._batch["aatype"][target_len:]
-      self._default_opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
+      self.opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
                                     "con":0.0, "i_pae":0.01, "i_con":0.0})      
     else: # binder hallucination            
       # pad inputs
@@ -103,33 +102,33 @@ class _af_prep:
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
       self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-      self._default_opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
+      self.opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
 
-    self.restart(set_defaults=True, **kwargs)
+    self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, 
-                  homooligomer=False, repeat=False, block_diag=False, **kwargs):
+  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
+                  repeat=False, block_diag=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
     else:
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
-    self._wt_aatype = self._batch["aatype"]
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self.args.update({"repeat":repeat,"block_diag":block_diag})
+    self._args.update({"repeat":repeat, "block_diag":block_diag})
     
     # set weights
-    self._default_opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
 
     # update residue index from pdb
     if copies > 1:
@@ -143,13 +142,15 @@ class _af_prep:
         else:
           self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
-          self._inputs["residue_index"] = self.repeat_idx(pdb["residue_index"], copies)[None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        self._default_opt["weights"].update({"i_pae":0.01, "i_con":0.0})
+        self.opt["weights"].update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
-    self.restart(set_defaults=True, **kwargs)
+    self._wt_aatype = self._batch["aatype"][:self._len]
+    self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=False, **kwargs):
@@ -157,46 +158,50 @@ class _af_prep:
     
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self.args["num_seq"] * (1 + copies)
+      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
     else:
       block_diag = False
       
     self._len = length
     self._copies = copies
     self._inputs = self._prep_features(length * copies)
-    self.args.update({"block_diag":block_diag, "repeat":repeat})
+    self._args.update({"block_diag":block_diag, "repeat":repeat})
     
     # set weights
-    self._default_opt["weights"].update({"con":1.0})
+    self.opt["weights"].update({"con":1.0})
     if copies > 1:
       if repeat:
         offset = 1
       else:
         offset = 50
-        self._default_opt["weights"].update({"i_pae":0.01, "i_con":0.1})
-      self._inputs["residue_index"] = self.repeat_idx(np.arange(length), copies, offset=offset)[None]
+        self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
 
-    self.restart(set_defaults=True, **kwargs)
+    self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, use_sidechains=False, use_6D=False, **kwargs):
+                    fix_seq=True, use_sidechains=False, **kwargs):
     '''prep input for partial hallucination'''
-    if "sidechain" in kwargs: use_sidechains = kwargs["sidechain"]
-    self.args.update({"use_sidechains":use_sidechains,
-                      "fix_seq":fix_seq})
-    self._copies = 1
     
-    # get [pos]itions of interests
+    if "sidechain" in kwargs: use_sidechains = kwargs.pop("sidechain")
+    self._args["use_sidechains"] = use_sidechains
+    if use_sidechains: fix_seq = True
+    self.opt["fix_seq"] = fix_seq
+    self._copies = 1    
+    
     pdb = prep_pdb(pdb_filename, chain=chain)
-    if pos is None:
-      pos = np.arange(pdb["residue_index"].shape[0])
-    else:
-      pos = prep_pos(pos, **pdb["idx"])
-    
-    self._default_opt["pos"] = pos
-    self._batch = jax.tree_map(lambda x:x[pos], pdb["batch"])
-    self._wt_aatype = self._batch["aatype"]
+    self._len = pdb["residue_index"].shape[0]
 
+    # get [pos]itions of interests
+    if pos is None:
+      self.opt["pos"] = np.arange(self._len)
+    else:
+      self._pos_info = prep_pos(pos, **pdb["idx"])
+      self.opt["pos"] = p = self._pos_info["pos"]
+      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])
+            
+    self._wt_aatype = self._batch["aatype"]
     if use_sidechains:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
@@ -204,17 +209,20 @@ class _af_prep:
     self._inputs = self._prep_features(self._len)
     
     weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
-    if use_6D:
-      weights["6D"] = 1.0
     if use_sidechains:
-      weights.update({"sc_rmsd":0.0,"sc_fape":0.0})
+      weights.update({"sc_rmsd":0.1, "sc_fape":0.1})
       
-    self._default_opt["weights"].update(weights)
-    self.restart(set_defaults=True, **kwargs)
+    self.opt["weights"].update(weights)
+    self._opt = copy_dict(self.opt)
+    self.restart(**kwargs)
 
 #######################
 # utils
 #######################
+def repeat_idx(idx, copies=1, offset=50):
+  idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
+  return np.tile(idx,copies) + idx_offset
+
 def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   '''extract features from pdb'''
 
@@ -243,7 +251,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
 
     has_ca = batch["all_atom_mask"][:,0] == 1
     batch = jax.tree_map(lambda x:x[has_ca], batch)
-    seq = "".join([ORDER_RESTYPE[a] for a in batch["aatype"]])
+    seq = "".join([order_aa[a] for a in batch["aatype"]])
     residue_index = protein_obj.residue_index[has_ca] + last      
     last = residue_index[-1] + 50
     
@@ -273,34 +281,6 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   # save original residue and chain index
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
-
-def prep_pos(pos, residue, chain=None):
-  if chain is None: chain = np.full(len(residue),None)
-  residue_set,chain_set = [],[]
-  for idx in pos.split(","):
-    i,j = idx.split("-") if "-" in idx else (idx, None)
-
-    # if chain defined
-    if i[0].isalpha():
-      c,i = i[0], int(i[1:])
-    else:
-      c,i = chain[0], int(i)
-
-    if j is None:
-      residue_set.append(i)
-      chain_set.append(c)
-    else:
-      j = int(j[1:] if j[0].isalpha() else j)
-      residue_set += list(range(i,j+1))
-      chain_set += [c] * (j-i+1)
-
-  # get positions
-  pos_array = []
-  for i,c in zip(residue_set, chain_set):
-    idx = np.where((residue == i) & (chain == c))[0]
-    if idx.shape[0] > 0: pos_array.append(idx[0])
-
-  return np.asarray(pos_array)
 
 def make_fixed_size(feat, model_runner, length, batch_axis=True):
   '''pad input features'''
@@ -332,36 +312,3 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
-
-MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
-          'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
-          'HSK':'HIS','SAC':'SER','PCA':'GLU','DAL':'ALA',
-          'CME':'CYS','CSD':'CYS','OCS':'CYS','DPR':'PRO',
-          'B3K':'LYS','ALY':'LYS','YCM':'CYS','MLZ':'LYS',
-          '4BF':'TYR','KCX':'LYS','B3E':'GLU','B3D':'ASP',
-          'HZP':'PRO','CSX':'CYS','BAL':'ALA','HIC':'HIS',
-          'DBZ':'ALA','DCY':'CYS','DVA':'VAL','NLE':'LEU',
-          'SMC':'CYS','AGM':'ARG','B3A':'ALA','DAS':'ASP',
-          'DLY':'LYS','DSN':'SER','DTH':'THR','GL3':'GLY',
-          'HY3':'PRO','LLP':'LYS','MGN':'GLN','MHS':'HIS',
-          'TRQ':'TRP','B3Y':'TYR','PHI':'PHE','PTR':'TYR',
-          'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
-          'CSD':'CYS','SEC':'CYS'}
-
-def pdb_to_string(pdb_file):
-  modres = {**MODRES}
-  lines = []
-  for line in open(pdb_file,"rb"):
-    line = line.decode("utf-8","ignore").rstrip()
-    if line[:6] == "MODRES":
-      k = line[12:15]
-      v = line[24:27]
-      if k not in modres and v in residue_constants.restype_3to1:
-        modres[k] = v
-    if line[:6] == "HETATM":
-      k = line[17:20]
-      if k in modres:
-        line = "ATOM  "+line[6:17]+modres[k]+line[20:]
-    if line[:4] == "ATOM":
-      lines.append(line)
-  return "\n".join(lines)

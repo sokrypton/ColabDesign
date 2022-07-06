@@ -1,0 +1,300 @@
+# import matplotlib
+import numpy as np
+from colabdesign.shared.protein import _np_kabsch
+
+import matplotlib
+import matplotlib.pyplot as plt
+import matplotlib.patheffects
+from matplotlib import animation
+from matplotlib.gridspec import GridSpec 
+from matplotlib import collections as mcoll
+try:
+  import py3Dmol
+except:
+  print("py3Dmol not installed")
+  
+from string import ascii_uppercase,ascii_lowercase
+
+alphabet_list = list(ascii_uppercase+ascii_lowercase)
+pymol_color_list = ["#33ff33","#00ffff","#ff33cc","#ffff00","#ff9999","#e5e5e5","#7f7fff","#ff7f00",
+                    "#7fff7f","#199999","#ff007f","#ffdd5e","#8c3f99","#b2b2b2","#007fff","#c4b200",
+                    "#8cb266","#00bfbf","#b27f7f","#fcd1a5","#ff7f7f","#ffbfdd","#7fffff","#ffff7f",
+                    "#00ff7f","#337fcc","#d8337f","#bfff3f","#ff7fff","#d8d8ff","#3fffbf","#b78c4c",
+                    "#339933","#66b2b2","#ba8c84","#84bf00","#b24c66","#7f7f7f","#3f3fa5","#a5512b"]
+
+jalview_color_list = {"Clustal":           ["#80a0f0","#f01505","#00ff00","#c048c0","#f08080","#00ff00","#c048c0","#f09048","#15a4a4","#80a0f0","#80a0f0","#f01505","#80a0f0","#80a0f0","#ffff00","#00ff00","#00ff00","#80a0f0","#15a4a4","#80a0f0"],
+                      "Zappo":             ["#ffafaf","#6464ff","#00ff00","#ff0000","#ffff00","#00ff00","#ff0000","#ff00ff","#6464ff","#ffafaf","#ffafaf","#6464ff","#ffafaf","#ffc800","#ff00ff","#00ff00","#00ff00","#ffc800","#ffc800","#ffafaf"],
+                      "Taylor":            ["#ccff00","#0000ff","#cc00ff","#ff0000","#ffff00","#ff00cc","#ff0066","#ff9900","#0066ff","#66ff00","#33ff00","#6600ff","#00ff00","#00ff66","#ffcc00","#ff3300","#ff6600","#00ccff","#00ffcc","#99ff00"],
+                      "Hydrophobicity":    ["#ad0052","#0000ff","#0c00f3","#0c00f3","#c2003d","#0c00f3","#0c00f3","#6a0095","#1500ea","#ff0000","#ea0015","#0000ff","#b0004f","#cb0034","#4600b9","#5e00a1","#61009e","#5b00a4","#4f00b0","#f60009","#0c00f3","#680097","#0c00f3"],
+                      "Helix Propensity":  ["#e718e7","#6f906f","#1be41b","#778877","#23dc23","#926d92","#ff00ff","#00ff00","#758a75","#8a758a","#ae51ae","#a05fa0","#ef10ef","#986798","#00ff00","#36c936","#47b847","#8a758a","#21de21","#857a85","#49b649","#758a75","#c936c9"],
+                      "Strand Propensity": ["#5858a7","#6b6b94","#64649b","#2121de","#9d9d62","#8c8c73","#0000ff","#4949b6","#60609f","#ecec13","#b2b24d","#4747b8","#82827d","#c2c23d","#2323dc","#4949b6","#9d9d62","#c0c03f","#d3d32c","#ffff00","#4343bc","#797986","#4747b8"],
+                      "Turn Propensity":   ["#2cd3d3","#708f8f","#ff0000","#e81717","#a85757","#3fc0c0","#778888","#ff0000","#708f8f","#00ffff","#1ce3e3","#7e8181","#1ee1e1","#1ee1e1","#f60909","#e11e1e","#738c8c","#738c8c","#9d6262","#07f8f8","#f30c0c","#7c8383","#5ba4a4"],
+                      "Buried Index":      ["#00a35c","#00fc03","#00eb14","#00eb14","#0000ff","#00f10e","#00f10e","#009d62","#00d52a","#0054ab","#007b84","#00ff00","#009768","#008778","#00e01f","#00d52a","#00db24","#00a857","#00e619","#005fa0","#00eb14","#00b649","#00f10e"]}
+
+pymol_cmap = matplotlib.colors.ListedColormap(pymol_color_list)
+
+def renum_pdb_str(pdb_str, Ls=None):
+  if Ls is not None:
+    L_init = 0
+    new_chain = {}
+    for L,c in zip(Ls, alphabet_list):
+      new_chain.update({i:c for i in range(L_init,L_init+L)})
+      L_init += L  
+
+  n,pdb_out = 1,[]
+  resnum_,chain_ = None,None
+  for line in pdb_str.split("\n"):
+    if line[:4] == "ATOM":
+      chain = line[21:22]
+      resnum = int(line[22:22+5])
+      if resnum_ is None: resnum_ = resnum
+      if chain_ is None: chain_ = chain
+      if resnum != resnum_ or chain != chain_:
+        resnum_,chain_ = resnum,chain
+        n += 1
+      if Ls is None: pdb_out.append("%s%4i%s" % (line[:22],n,line[26:]))
+      else: pdb_out.append("%s%s%4i%s" % (line[:21],new_chain[n-1],n,line[26:]))        
+  return "\n".join(pdb_out)
+    
+def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
+             color="pLDDT", chains=None, Ls=None, vmin=50, vmax=90,
+             color_HP=False, size=(800,480), hbondCutoff=4.0):
+  
+  if chains is None:
+    chains = 1 if Ls is None else len(Ls)
+
+  view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js', width=size[0], height=size[1])
+  pdb_str_renum = renum_pdb_str(pdb_str, Ls)
+  view.addModel(pdb_str_renum,'pdb',{'hbondCutoff':hbondCutoff})
+  if color == "pLDDT":
+    view.setStyle({'cartoon': {'colorscheme': {'prop':'b','gradient': 'roygb','min':vmin,'max':vmax}}})
+  elif color == "rainbow":
+    view.setStyle({'cartoon': {'color':'spectrum'}})
+  elif color == "chain":
+    for n,chain,color in zip(range(chains),alphabet_list,pymol_color_list):
+       view.setStyle({'chain':chain},{'cartoon': {'color':color}})
+  if show_sidechains:
+    BB = ['C','O','N']
+    HP = ["ALA","GLY","VAL","ILE","LEU","PHE","MET","PRO","TRP","CYS","TYR"]
+    if color_HP:
+      view.addStyle({'and':[{'resn':HP},{'atom':BB,'invert':True}]},
+                    {'stick':{'colorscheme':"yellowCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':HP,'invert':True},{'atom':BB,'invert':True}]},
+                    {'stick':{'colorscheme':"whiteCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"GLY"},{'atom':'CA'}]},
+                    {'sphere':{'colorscheme':"yellowCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"PRO"},{'atom':['C','O'],'invert':True}]},
+                    {'stick':{'colorscheme':"yellowCarbon",'radius':0.3}})
+    else:
+      view.addStyle({'and':[{'resn':["GLY","PRO"],'invert':True},{'atom':BB,'invert':True}]},
+                    {'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"GLY"},{'atom':'CA'}]},
+                    {'sphere':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
+      view.addStyle({'and':[{'resn':"PRO"},{'atom':['C','O'],'invert':True}]},
+                    {'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})  
+  if show_mainchains:
+    BB = ['C','O','N','CA']
+    view.addStyle({'atom':BB},{'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
+  view.zoomTo()
+  return view
+
+def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
+                   cmap="gist_rainbow", line_w=2.0,
+                   cmin=None, cmax=None, zmin=None, zmax=None):
+
+  def rescale(a, amin=None, amax=None):
+    a = np.copy(a)
+    if amin is None: amin = a.min()
+    if amax is None: amax = a.max()
+    a[a < amin] = amin
+    a[a > amax] = amax
+    return (a - amin)/(amax - amin)
+
+  # make segments
+  xyz = np.asarray(xyz)
+  seg = np.concatenate([xyz[:-1,None,:],xyz[1:,None,:]],axis=-2)
+  seg_xy = seg[...,:2]
+  seg_z = seg[...,2].mean(-1)
+  ord = seg_z.argsort()
+
+  # set colors
+  if c is None: c = np.arange(len(seg))[::-1]
+  else: c = (c[1:] + c[:-1])/2
+  c = rescale(c,cmin,cmax)  
+
+  if isinstance(cmap, str):
+    if cmap == "gist_rainbow": c *= 0.75
+    colors = matplotlib.cm.get_cmap(cmap)(c)
+  else:
+    colors = cmap(c)
+  
+  if chainbreak is not None:
+    dist = np.linalg.norm(xyz[:-1] - xyz[1:], axis=-1)
+    colors[...,3] = (dist < chainbreak).astype(np.float)
+
+  # add shade/tint based on z-dimension
+  z = rescale(seg_z,zmin,zmax)[:,None]
+  tint, shade = z/3, (z+2)/3
+  colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * tint
+  colors[:,:3] = colors[:,:3] * shade
+
+  set_lim = False
+  if ax is None:
+    fig, ax = plt.subplots()
+    fig.set_figwidth(5)
+    fig.set_figheight(5)
+    set_lim = True
+  else:
+    fig = ax.get_figure()
+    if ax.get_xlim() == (0,1):
+      set_lim = True
+      
+  if set_lim:
+    xy_min = xyz[:,:2].min() - line_w
+    xy_max = xyz[:,:2].max() + line_w
+    ax.set_xlim(xy_min,xy_max)
+    ax.set_ylim(xy_min,xy_max)
+
+  ax.set_aspect('equal')
+    
+  # determine linewidths
+  width = fig.bbox_inches.width * ax.get_position().width
+  linewidths = line_w * 72 * width / np.diff(ax.get_xlim())
+
+  lines = mcoll.LineCollection(seg_xy[ord], colors=colors[ord], linewidths=linewidths,
+                               path_effects=[matplotlib.patheffects.Stroke(capstyle="round")])
+  
+  return ax.add_collection(lines)
+
+def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
+  if Ln is None: Ln = sum(Ls)
+  L_prev = 0
+  for L_i in Ls[:-1]:
+    L = L_prev + L_i
+    L_prev += L_i
+    ax.plot([0,Ln],[L,L],color="black")
+    ax.plot([L,L],[0,Ln],color="black")
+  
+  if add_yticks:
+    ticks = np.cumsum([0]+Ls)
+    ticks = (ticks[1:] + ticks[:-1])/2
+    ax.yticks(ticks,alphabet_list[:len(ticks)])
+  
+def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
+                   losses=None, pos_ref=None, line_w=2.0,
+                   dpi=100, interval=60, color_msa="Taylor",
+                   length=None, **kwargs):
+
+  def align(P, Q, P_trim=None):
+    if P_trim is None: P_trim = P
+    p_trim = P_trim - P_trim.mean(0,keepdims=True)
+    p = P - P_trim.mean(0,keepdims=True)
+    q = Q - Q.mean(0,keepdims=True)
+    return p @ _np_kabsch(p_trim, q, use_jax=False)
+
+  if xyz is not None:
+    # compute reference position
+    if pos_ref is None: pos_ref = xyz[-1]
+    
+
+    # align to reference
+    if length is None:
+      L = len(pos_ref)
+    elif isinstance(length, list):
+      L = length[0]
+    else:
+      L = length
+      
+    pos_ref_trim = pos_ref[:L]
+    # align to reference position
+    new_positions = []
+    for i in range(len(xyz)):
+      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:L]))
+    pos = np.asarray(new_positions)
+
+    # rotate for best view
+    pos_mean = np.concatenate(pos,0)
+    m = pos_mean.mean(0)
+    rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+    pos = (pos - m) @ rot_mtx + m
+    pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
+
+  # initialize figure
+  if pae is not None and len(pae) == 0: pae = None
+  fig = plt.figure()
+  gs = GridSpec(4,3, figure=fig)
+  if pae is not None:
+    ax1, ax2, ax3 = fig.add_subplot(gs[:3,:2]), fig.add_subplot(gs[3:,:]), fig.add_subplot(gs[:3,2:])
+  else:
+    ax1, ax2 = fig.add_subplot(gs[:3,:]), fig.add_subplot(gs[3:,:])
+
+  fig.subplots_adjust(top=0.95,bottom=0.1,right=0.95,left=0.05,hspace=0,wspace=0)
+  fig.set_figwidth(8); fig.set_figheight(6); fig.set_dpi(dpi)
+  ax2.set_xlabel("positions"); ax2.set_yticks([])
+  if seq[0].shape[0] > 1: ax2.set_ylabel("sequences")
+  else: ax2.set_ylabel("amino acids")
+
+  if xyz is None:
+    ax1.set_title("predicted contact map")
+  else:
+    ax1.set_title("N→C") if plddt is None else ax1.set_title("pLDDT")
+  if pae is not None:
+    ax3.set_title("pAE")
+    ax3.set_xticks([])
+    ax3.set_yticks([])
+
+  # set bounderies
+  if xyz is not None:
+    x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
+    x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
+
+    x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
+    y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2
+    if x_pad > 0:
+      x_min -= x_pad
+      x_max += x_pad
+    else:
+      y_min -= y_pad
+      y_max += y_pad
+
+    ax1.set_xlim(x_min, x_max)
+    ax1.set_ylim(y_min, y_max)
+  ax1.set_xticks([])
+  ax1.set_yticks([])
+
+  # get animation frames
+  ims = []
+  for k in range(len(seq)):
+    ims.append([])
+    if xyz is not None:
+      if plddt is None:
+        ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      else:
+        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+    else:
+      L = con[k].shape[0]
+      ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1, extent=(0, L, L, 0)))
+
+    if seq[k].shape[0] == 1:
+      ims[-1].append(ax2.imshow(seq[k][0].T, animated=True, cmap="bwr_r",vmin=-1, vmax=1))
+    else:
+      cmap = matplotlib.colors.ListedColormap(jalview_color_list[color_msa])
+      vmax = len(jalview_color_list[color_msa]) - 1
+      ims[-1].append(ax2.imshow(seq[k].argmax(-1), animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
+    
+    if pae is not None:
+      L = pae[k].shape[0]
+      ims[-1].append(ax3.imshow(pae[k], animated=True, cmap="bwr",vmin=0, vmax=30, extent=(0, L, L, 0)))
+
+  # add lines
+  if length is not None:
+    Ls = length if isinstance(length, list) else [length,None]
+    if con is not None:
+      plot_ticks(ax1, Ls, con[0].shape[0])
+    if pae is not None:
+      plot_ticks(ax3, Ls, pae[0].shape[0])
+
+  # make animation!
+  ani = animation.ArtistAnimation(fig, ims, blit=True, interval=interval)
+  plt.close()
+  return ani.to_html5_video()

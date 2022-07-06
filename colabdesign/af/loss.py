@@ -2,161 +2,46 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.af.misc import _np_get_6D_loss, _np_rmsd, _np_kabsch
-from colabdesign.af.misc import update_seq, update_aatype 
-from colabdesign.af.misc import get_plddt, get_pae, get_fape_loss, get_dgram_loss, get_rmsd_loss_w, get_sc_rmsd
-
+from colabdesign.shared.utils import Key
+from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.common import residue_constants
+
+idx_to_resname = dict((v,k) for k,v in residue_constants.resname_to_idx.items())
 
 ####################################################
 # AF_LOSS - setup loss function
 ####################################################
 class _af_loss:
-  def _get_fn(self):
-    # setup function to get gradients
-    def mod(params, model_params, inputs, key, opt):
+  # protocol specific loss functions
+  def _loss_hallucination(self, inputs, outputs, opt, aux):
+    plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
+    plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+    aux["losses"]["plddt"] = plddt_loss.mean()
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-      # get sequence
-      key, key_ = jax.random.split(key)
-      seq = self._get_seq(params, opt, key_)      
-      
-      aux = {"seq":seq,
-             "seq_pseudo":seq["pseudo"], # backward compatibility
-             "losses":{}}
+  def _loss_fixbb(self, inputs, outputs, opt, aux):
+    '''get losses'''
+    plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
+    plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-      # entropy loss for msa
-      if self.args["num_seq"] > 1:
-        seq_prf = seq["hard"].mean(0)
-        aux["losses"]["msa_ent"] = -(seq_prf * jnp.log(seq_prf + 1e-8)).sum(-1).mean()
-      
-      # protocol specific modifications to seq features
-      if self.protocol == "binder":
-        # concatenate target and binder sequence
-        seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
-        seq_target = jnp.broadcast_to(seq_target,(self.args["num_seq"],*seq_target.shape))
-        seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
-        
-      if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-        seq = jax.tree_map(lambda x:expand_copies(x, self._copies, self.args["block_diag"]), seq)
-            
-      # update sequence features
-      seq_pssm = seq["soft"] if self.args["use_pssm"] else None
-      update_seq(seq["pseudo"], inputs, seq_pssm=seq_pssm)
-      
-      # update amino acid sidechain identity
-      B,L = inputs["aatype"].shape[:2]
-      aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
-      update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
-      
-      # update template features
-      if self.args["use_templates"]:
-        key, key_ = jax.random.split(key)
-        self._update_template(inputs, opt, key_)
-      
-      # scale dropout rate
-      inputs["scale_rate"] = jnp.where(opt["dropout"],jnp.full(1,opt["dropout_scale"]),jnp.zeros(1))
-      
-      # get outputs
-      outputs = self._get_out(inputs, model_params, opt, key)
-      aux["prev"] = outputs["prev"]
-      values = {"aux":aux,"outputs":outputs,"opt":opt}
-      
-      # pairwise loss
-      self._get_pairwise_loss(**values, inputs=inputs)
+    copies = 1 if self._args["repeat"] else self._copies
+    aatype = inputs["aatype"][0]
+    aux["losses"].update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
+                          "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies),
+                          "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
+                          "plddt":plddt_loss.mean()})
 
-      # confidence losses
-      if self.use_struct:
-        plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
-        plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
-        if self.protocol == "binder":
-          if self._redesign: self._get_binder_redesign_loss(**values, aatype=aatype)
-          aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
-        else:
-          aux["losses"]["plddt"] = plddt_loss.mean()
-          
-      # get protocol specific losses
-      if self.protocol == "fixbb":
-        self._get_fixbb_loss(**values, aatype=aatype)                  
-      if self.protocol == "partial":
-        self._get_partial_loss(**values, aatype=aatype)
+  def _loss_binder(self, inputs, outputs, opt, aux):
+    '''get losses'''
+    plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
+    plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+    aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
+    self._get_pairwise_loss(inputs, outputs, opt, aux, interface=True)
 
-      # weighted loss
-      loss = []
-      losses_keys = list(aux["losses"].keys())
-      for k in losses_keys:
-        if k in opt["weights"]:
-          loss.append(aux["losses"][k] * opt["weights"][k])
-        else:
-          _ = aux["losses"].pop(k)
-      loss = sum(loss)
-      
-      # add aux outputs
-      if self.use_struct:
-        aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
-                    "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                    "plddt":get_plddt(outputs)})
-      
-      if "contact_map" not in aux:
-        aux["contact_map"] = get_contact_map(outputs)          
-        
-      if self.args["debug"]: aux.update({"outputs":outputs, "inputs":inputs})
-      return loss, aux
-    
-    return jax.value_and_grad(mod, has_aux=True, argnums=0), mod
-
-  def _get_out(self, inputs, model_params, opt, key):
-    '''get outputs'''
-    mode = self.args["recycle_mode"]
-    if mode in ["last","sample"]:
-      inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
-    return self._runner.apply(model_params, key, inputs)
-
-  def _get_seq(self, params, opt, key):
-    '''get sequence features'''
-    seq = {"input":params["seq"]}
-    seq_shape = params["seq"].shape
-
-    # shuffle msa (randomly pick which sequence is query)
-    if self.args["num_seq"] > 1:
-      n = jax.random.randint(key,[],0,seq_shape[0])
-      seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
-
-    # straight-through/reparameterization
-    seq["logits"] = 2.0 * seq["input"] + opt["bias"] + jnp.where(opt["gumbel"], jax.random.gumbel(key,seq_shape), 0.0)
-    seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
-    seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
-    seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
-
-    # create pseudo sequence
-    seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-    seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
-    
-    # for partial hallucination, force sequence if sidechain constraints defined
-    if self.protocol == "partial" and (self.args["fix_seq"] or self.args["use_sidechains"]):
-      p = opt["pos"]
-      seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      if jnp.issubdtype(p.dtype, jnp.integer):
-        seq = jax.tree_map(lambda x:x.at[:,p,:].set(seq_ref), seq)
-      else:
-        # TODO confirm this is correct
-        seq_ref = p.T @ seq_ref
-        w = 1 - seq_ref.sum(-1, keepdims=True)
-        seq = jax.tree_map(lambda x:x*w + seq_ref, seq)
-    return seq
-  
-  def _get_fixbb_loss(self, aux, outputs, opt, aatype=None):
-    '''get backbone specific losses'''
-    copies = 1 if self.args["repeat"] else self._copies
-    if self.use_struct:    
-      aux["losses"].update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
-                            "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies)})
-    aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies)
-
-  
-  def _get_binder_redesign_loss(self, aux, outputs, opt, aatype=None):
-    '''get binder redesign specific losses'''
-    # compute rmsd of binder relative to target
-    if self.use_struct:
+    if self._args["redesign"]:
+      aatype = inputs["aatype"][0]
       true = self._batch["all_atom_positions"][:,1,:]
       pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
       L = self._target_len
@@ -166,22 +51,26 @@ class _af_loss:
       rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
       fape = get_fape_loss(self._batch, outputs, model_config=self._config)
       aux["losses"].update({"rmsd":rmsd_binder, "fape":fape})
-    
-    # compute cce of binder + interface
-    errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
-    aux["losses"]["dgram_cce"] = errors["errors"][L:,:].mean()
-    
-  def _get_partial_loss(self, aux, outputs, opt, aatype=None):
-    '''compute loss for partial hallucination protocol'''
+      
+      # compute cce of binder + interface
+      errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
+      aux["losses"]["dgram_cce"] = errors["errors"][L:,:].mean()       
+
+  def _loss_partial(self, inputs, outputs, opt, aux):
+    '''get losses'''    
+    plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
+    plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
+    aux["losses"]["plddt"] = plddt_loss.mean()
+    self._get_pairwise_loss(inputs, outputs, opt, aux)
+
 
     def sub(x, p, axis=0):
-      if jnp.issubdtype(p.dtype, jnp.integer):
-        fn = lambda y:jnp.take(y,p,axis)
-      else:
-        fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
+      fn = lambda y:jnp.take(y,p,axis)
+      # fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
       return jax.tree_map(fn, x)
 
     pos = opt["pos"]
+    aatype = inputs["aatype"][0]
     _config = self._config.model.heads.structure_module
 
     # dgram
@@ -190,119 +79,56 @@ class _af_loss:
     aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
                                          logits=dgram, aatype=aatype)
 
-    if self.use_struct:
-      true = self._batch["all_atom_positions"]
-      pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
+    true = self._batch["all_atom_positions"]
+    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
 
-      # TODO: 6D loss
-      # aux["losses"]["6D"] = _np_get_6D_loss(true, pred, use_theta=not self.args["use_sidechains"])
+    # rmsd
+    aux["losses"]["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
 
-      # rmsd
-      aux["losses"]["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
+    # fape
+    fape_loss = {"loss":0.0}
+    struct = outputs["structure_module"]
+    traj = {"traj":sub(struct["traj"],pos,-2)}
+    folding.backbone_loss(fape_loss, self._batch, traj, _config)
+    aux["losses"]["fape"] = fape_loss["loss"]
 
-      # fape
-      fape_loss = {"loss":0.0}
-      struct = outputs["structure_module"]
-      traj = {"traj":sub(struct["traj"],pos,-2)}
-      folding.backbone_loss(fape_loss, self._batch, traj, _config)
-      aux["losses"]["fape"] = fape_loss["loss"]
+    # sidechain specific losses
+    if self._args["use_sidechains"]:
+      # sc_fape
+      pred_pos = sub(struct["final_atom14_positions"],pos)
+      sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
+                   "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
 
-      # sidechain specific losses
-      if self.args["use_sidechains"]:
+      aux["losses"]["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
 
-        # sc_fape
-        pred_pos = sub(struct["final_atom14_positions"],pos)
-        sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
-                     "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
+      # sc_rmsd
+      true_aa = self._batch["aatype"]
+      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
+      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)    
 
-        aux["losses"]["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
+  def _get_pairwise_loss(self, inputs, outputs, opt, aux, interface=False):
+    '''get pairwise loss features'''
 
-        # sc_rmsd
-        true_aa = self._batch["aatype"]
-        true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-        aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)
-
-  def _get_pairwise_loss(self, aux, outputs, opt, inputs=None):
-    '''compute pairwise losses (contact and pae)'''
-
-    if inputs is None:
-      offset = None
+    # decide on what offset to use
+    if "offset" in inputs:
+      offset = inputs["offset"][0]
     else:
-      if "offset" in inputs:
-        offset = inputs["offset"][0] if "offset" in inputs else None
-      else:
-        idx = inputs["residue_index"][0]
-        offset = idx[:,None] - idx[None,:]
+      idx = inputs["residue_index"][0]
+      offset = idx[:,None] - idx[None,:]
 
     # pae loss
-    if self.use_struct:
-      pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
-      pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
+    pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
+    pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
     
     # define distogram
     dgram = outputs["distogram"]["logits"]
     dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-    if self.args["debug"]:
-      aux.update({"dgram":dgram, "dgram_bins":dgram_bins})
-
-    # contact
-    def get_pw_con_loss(dgram, cutoff, binary=True, entropy=True):
-      '''convert distogram into pairwise contact loss'''
-      bins = dgram_bins < cutoff
-      
-      px = jax.nn.softmax(dgram)
-      px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))
-      
-      # con_loss_cat = (bins * px_ * (1-px)).sum(-1) 
-      con_loss_cat = 1 - (bins * px).max(-1)
-      con_loss_bin = 1 - (bins * px).sum(-1)
-      con_loss = jnp.where(binary, con_loss_bin, con_loss_cat)
-      
-      # binary/cateogorical cross-entropy
-      con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
-      con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))      
-      con_loss_ent = jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
-      
-      return jnp.where(entropy, con_loss_ent, con_loss)
-    
-    def get_con_loss(dgram, c, offset=None):
-      '''convert distogram into contact loss'''  
-      def min_k(x, k=1, seqsep=0):
-        a,b = x.shape
-        if offset is None:
-          mask = jnp.abs(jnp.arange(a)[:,None] - jnp.arange(b)[None,:]) >= seqsep
-        else:
-          mask = jnp.abs(offset) >= seqsep
-          
-        x = jnp.sort(jnp.where(mask,x,jnp.nan))
-        k_mask = (jnp.arange(b) < k) * (jnp.isnan(x) == False)
-        
-        return jnp.where(k_mask,x,0.0).sum(-1) / (k_mask.sum(-1) + 1e-8)
-
-      x = get_pw_con_loss(dgram,c["cutoff"],c["binary"],c["entropy"])
-      if "seqsep" in c:
-        return min_k(x, c["num"], seqsep=c["seqsep"])
-      else:
-        return min_k(x, c["num"])
-    
-    def get_helix_loss(dgram,c,offset=None):
-      '''helix bias loss'''
-      x = get_pw_con_loss(dgram, 6.0, binary=True, entropy=c["entropy"])
-      if offset is None:
-        return jnp.diagonal(x,3).mean()
-      else:
-        mask = offset == 3
-        return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
-
-    # get contact options
-    c,ic = opt["con"],opt["i_con"]
-    
-    if self.use_struct:
-      aux["pae"] = get_pae(outputs)
-      
-    if self.protocol == "binder":
-      # split pae/con into inter/intra
-      
+    if not interface:
+      aux["losses"].update({"con":get_con_loss(dgram, dgram_bins, offset=offset, **opt["con"]).mean(),
+                            "helix":get_helix_loss(dgram, dgram_bins, offset=offset, **opt["con"]),
+                            "pae":pae.mean()})
+    else:
+      # split pae/con into inter/intra      
       L = self._target_len if self.protocol == "binder" else self._len
       H = self._hotspot if hasattr(self,"_hotspot") else None
       
@@ -318,111 +144,52 @@ class _af_loss:
         else:
           return aa,abba
 
-      if self.use_struct:
-        ks,vs = ["pae","con"], [pae,dgram]
-      else:
-        ks,vs = ["con"], [dgram]
       x_offset, ix_offset = split_feats(jnp.abs(offset))
-      for k,v in zip(ks,vs):
+      for k,v in zip(["pae","con"], [pae,dgram]):
         x, ix = split_feats(v)        
         if k == "con":
-          aux["losses"]["helix"] = get_helix_loss(x, c, x_offset)
-          x = get_con_loss(x, c, x_offset)
-          ix = get_con_loss(ix, ic, ix_offset)
+          aux["losses"]["helix"] = get_helix_loss(x, dgram_bins, x_offset)
+          # dgram, dgram_bins, cutoff=None, num=1, seqsep=0, binary=True, offset=None
+          x = get_con_loss(x, dgram_bins, offset=x_offset, **opt["con"])
+          ix = get_con_loss(ix, dgram_bins, offset=ix_offset, **opt["i_con"])
+
         aux["losses"].update({k:x.mean(),f"i_{k}":ix.mean()})
-    else:
-      if self.use_struct:
-        if self.protocol == "binder": aux["pae"] = get_pae(outputs)
-        aux["losses"].update({"con":get_con_loss(dgram, c, offset).mean(),
-                              "helix":get_helix_loss(dgram, c, offset),
-                              "pae":pae.mean()})
-      else:
-        aux["losses"].update({"con":get_con_loss(dgram, c, offset).mean(),
-                             "helix":get_helix_loss(dgram, c, offset)})
-              
-  def _update_template(self, inputs, opt, key):
-    ''''dynamically update template features'''
-    if self.protocol in ["partial","fixbb","binder"]:      
-      L = self._batch["aatype"].shape[0]
-      
-      if self.protocol in ["partial","fixbb"]:
-        aatype = jnp.zeros(L)
-        template_aatype = jnp.broadcast_to(opt["template_aatype"],(L,))
-      
-      if self.protocol == "binder":
-        if self._redesign:
-          aatype = jnp.asarray(self._batch["aatype"])
-          aatype = aatype.at[self._target_len:].set(0)
-          template_aatype = aatype.at[self._target_len:].set(opt["template_aatype"])
-        else:
-          aatype = template_aatype = self._batch["aatype"]
-      
-      # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-      pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
-                                                 self._batch["all_atom_positions"],
-                                                 self._batch["all_atom_mask"])
-      
-      # define template features
-      template_feats = {"template_aatype": template_aatype,
-                        "template_all_atom_positions": self._batch["all_atom_positions"],
-                        "template_all_atom_masks": self._batch["all_atom_mask"],
-                        "template_pseudo_beta": pb,
-                        "template_pseudo_beta_mask": pb_mask}
-      
-      # protocol specific template injection
-      if self.protocol == "fixbb":
-        for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0].set(v)            
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
-      
-      if self.protocol == "binder":
-        n = self._target_len
-        for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])            
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
-      
-      if self.protocol == "partial":
-        p = opt["pos"]
-        for k,v in template_feats.items():
-          if jnp.issubdtype(p.dtype, jnp.integer):
-            inputs[k] = inputs[k].at[:,0,p].set(v)
-          else:
-            if k == "template_aatype": v = jax.nn.one_hot(v,22)
-            inputs[k] = jnp.einsum("ij,i...->j...",p,v)[None,None]
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
 
-    # dropout template input features
-    L = inputs["template_aatype"].shape[2]
-    n = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt["template_dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
+#####################################################################################
+#####################################################################################
 
-def expand_copies(x, copies, block_diag=True):
-  '''given msa (N,L,20) expand to 
-  if block_diag:
-    (N*(1+copies),L*copies,22)
+def get_pw_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
+  '''dgram to contacts'''
+  if cutoff is None: cutoff = dgram_bins[-1]
+  bins = dgram_bins < cutoff  
+  px = jax.nn.softmax(dgram)
+  px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))        
+  # binary/cateogorical cross-entropy
+  con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
+  con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))
+  return jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
+
+def get_con_loss(dgram, dgram_bins, cutoff=None, binary=True,
+                 num=1, seqsep=0, offset=None):
+  '''convert distogram into contact loss'''  
+  x = get_pw_con_loss(dgram, dgram_bins, cutoff, binary)  
+  a,b = x.shape
+  if offset is None:
+    mask = jnp.abs(jnp.arange(a)[:,None] - jnp.arange(b)[None,:]) >= seqsep
   else:
-    (N,L*copies,22)
-  '''
-  if x.shape[-1] < 22:
-    x = jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
-  x = jnp.tile(x,[1,copies,1])
-  if copies > 1 and block_diag:
-    L = x.shape[1]
-    sub_L = L // copies
-    y = x.reshape((-1,1,copies,sub_L,22))
-    block_diag_mask = jnp.expand_dims(jnp.eye(copies),(0,3,4))
-    seq = block_diag_mask * y
-    gap_seq = (1-block_diag_mask) * jax.nn.one_hot(jnp.repeat(21,sub_L),22)  
-    y = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
-    return jnp.concatenate([x,y],0)
+    mask = jnp.abs(offset) >= seqsep
+  x = jnp.sort(jnp.where(mask,x,jnp.nan))
+  k_mask = (jnp.arange(b) < num) * (jnp.isnan(x) == False)    
+  return jnp.where(k_mask,x,0.0).sum(-1) / (k_mask.sum(-1) + 1e-8)
+
+def get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
+  '''helix bias loss'''
+  x = get_pw_con_loss(dgram, dgram_bins, cutoff=6.0, binary=True)
+  if offset is None:
+    return jnp.diagonal(x,3).mean()
   else:
-    return x
+    mask = offset == 3
+    return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
 
 def get_contact_map(outputs, dist=8.0):
   '''get contact map from distogram'''
@@ -430,3 +197,146 @@ def get_contact_map(outputs, dist=8.0):
   dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
   dist_mtx = dist_bins[dist_logits.argmax(-1)]
   return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)
+
+####################
+# confidence metrics
+####################
+def get_plddt(outputs):
+  logits = outputs["predicted_lddt"]["logits"]
+  num_bins = logits.shape[-1]
+  bin_width = 1.0 / num_bins
+  bin_centers = jnp.arange(start=0.5 * bin_width, stop=1.0, step=bin_width)
+  probs = jax.nn.softmax(logits, axis=-1)
+  return jnp.sum(probs * bin_centers[None, :], axis=-1)
+
+def get_pae(outputs):
+  prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"],-1)
+  breaks = outputs["predicted_aligned_error"]["breaks"]
+  step = breaks[1]-breaks[0]
+  bin_centers = breaks + step/2
+  bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
+  return (prob*bin_centers).sum(-1)
+
+####################
+# loss functions
+####################
+def get_rmsd_loss_w(batch, outputs, copies=1):
+  weights = batch["all_atom_mask"][:,1]
+  true = batch["all_atom_positions"][:,1,:]
+  pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+  if copies == 1:
+    return jnp_rmsd_w(true, pred, weights)
+  else:
+    # TODO add support for weights
+    I = copies - 1
+    L = true.shape[0] // copies
+    p = true - true[:L].mean(0)
+    q = pred - pred[:L].mean(0)
+    p = p @ _np_kabsch(p[:L], q[:L])
+    rm = jnp.square(p[:L]-q[:L]).sum(-1).mean()
+    p,q = p[L:].reshape(I,1,L,-1),q[L:].reshape(1,I,L,-1)
+    rm += jnp.square(p-q).sum(-1).mean(-1).min(-1).sum()
+    return jnp.sqrt(rm / copies)
+
+def get_rmsd_loss(batch, outputs):
+  true = batch["all_atom_positions"][:,1,:]
+  pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+  return _np_rmsd(true,pred)
+
+def _distogram_log_loss(logits, bin_edges, batch, num_bins, copies=1, return_errors=False):
+  """Log loss of a distogram."""
+  pos,mask = batch['pseudo_beta'],batch['pseudo_beta_mask']
+  sq_breaks = jnp.square(bin_edges)
+  dist2 = jnp.square(pos[:,None] - pos[None,:]).sum(-1,keepdims=True)
+  true_bins = jnp.sum(dist2 > sq_breaks, axis=-1)
+  true = jax.nn.one_hot(true_bins, num_bins)
+
+  if copies == 1:
+    errors = -(true * jax.nn.log_softmax(logits)).sum(-1)    
+    sq_mask = mask[:,None] * mask[None,:]
+    avg_error = (errors * sq_mask).sum()/(1e-6 + sq_mask.sum())
+    if return_errors:
+      return {"errors": errors, "loss": avg_error}
+    else:
+      return avg_error
+  else:
+    # TODO add support for masks
+    L = pos.shape[0] // copies
+    I = copies - 1
+    true_, pred_ = true[:L,:L], logits[:L,:L]
+    intra_errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
+    avg_error = intra_errors.mean()
+
+    true_, pred_ = true[:L,L:], logits[:L,L:]
+    true_, pred_ = true_.reshape(L,I,1,L,-1), pred_.reshape(L,1,I,L,-1)
+    inter_errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
+    avg_error += inter_errors.mean((0,-1)).min(-1).sum()
+    
+    if return_errors:
+      return {"intra_errors": intra_errors,
+              "inter_errors": inter_errors,
+              "loss": avg_error/copies}
+    else:
+      return avg_error/copies
+
+def get_dgram_loss(batch, outputs, model_config, logits=None, aatype=None, copies=1, return_errors=False):
+  # get cb features (ca in case of glycine)
+  if aatype is None: aatype = batch["aatype"]
+  pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
+                                             batch["all_atom_positions"],
+                                             batch["all_atom_mask"])
+  if logits is None: logits = outputs["distogram"]["logits"]
+  dgram_loss = _distogram_log_loss(logits,
+                                   outputs["distogram"]["bin_edges"],
+                                   batch={"pseudo_beta":pb,"pseudo_beta_mask":pb_mask},
+                                   num_bins=model_config.model.heads.distogram.num_bins,
+                                   copies=copies, return_errors=return_errors)
+  return dgram_loss
+
+def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
+  sub_batch = jax.tree_map(lambda x: x, batch)
+  sub_batch["use_clamped_fape"] = use_clamped_fape
+  loss = {"loss":0.0}    
+  folding.backbone_loss(loss, sub_batch, outputs["structure_module"], model_config.model.heads.structure_module)
+  return loss["loss"]
+
+def get_sc_rmsd(true_pos, pred_pos, aa_ident, atoms_to_exclude=None):
+  if atoms_to_exclude is None: atoms_to_exclude = ["N","C","O"]
+  
+  # collect atom indices
+  idx,idx_alt = [],[]
+  for n,a in enumerate(aa_ident):
+    aa = idx_to_resname[a]
+    atoms = set(residue_constants.residue_atoms[aa])
+    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
+    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
+    swaps.update({v:k for k,v in swaps.items()})
+    for atom in atoms.difference(atoms_to_exclude):
+      idx.append(n * 14 + atoms14.index(atom))
+      if atom in swaps:
+        idx_alt.append(n * 14 + atoms14.index(swaps[atom]))
+      else:
+        idx_alt.append(idx[-1])
+  idx, idx_alt = np.asarray(idx), np.asarray(idx_alt)
+
+  # select atoms
+  T, P = true_pos.reshape(-1,3)[idx], pred_pos.reshape(-1,3)[idx]
+
+  # select non-ambigious atoms
+  non_amb = idx == idx_alt
+  t, p = T[non_amb], P[non_amb]
+
+  # align non-ambigious atoms
+  aln = _np_kabsch(t-t.mean(0), p-p.mean(0))
+  T,P = (T-t.mean(0)) @ aln, P-p.mean(0)
+  P_alt = pred_pos.reshape(-1,3)[idx_alt]-p.mean(0)
+
+  # compute rmsd
+  msd = jnp.minimum(jnp.square(T-P).sum(-1),jnp.square(T-P_alt).sum(-1)).mean()
+  return jnp.sqrt(msd + 1e-8)
+
+def get_6D_loss(batch, outputs, **kwargs):
+  true = batch["all_atom_positions"]
+  pred = outputs["structure_module"]["final_atom_positions"]
+  mask = batch["all_atom_mask"]
+  return _np_get_6D_loss(true, pred, mask, **kwargs)

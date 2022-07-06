@@ -210,7 +210,7 @@ class _af_prep:
     
     weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
     if use_sidechains:
-      weights.update({"sc_rmsd":0.0, "sc_fape":0.0})
+      weights.update({"sc_rmsd":0.1, "sc_fape":0.1})
       
     self.opt["weights"].update(weights)
     self._opt = copy_dict(self.opt)

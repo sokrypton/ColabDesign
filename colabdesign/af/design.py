@@ -59,7 +59,7 @@ class _af_design:
       self._best_loss = np.inf
       self._best_aux = self._best_outs = None
       
-  def run(self, model=None, backprop=True):
+  def run(self, model=None, backprop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
     
     # decide which model params to use
@@ -92,6 +92,9 @@ class _af_design:
     self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
     self.aux["model_num"] = model_num    
     self._outs = self.aux # backward compatibility
+
+    # callback
+    if callback is not None: callback(self)
 
     # update log
     self.aux["log"] = copy_dict(self.aux["losses"])
@@ -157,8 +160,7 @@ class _af_design:
     '''do one step of gradient descent'''
     
     # run
-    self.run(model=model, backprop=backprop)
-    if callback is not None: callback(self)
+    self.run(model=model, backprop=backprop, callback=callback)
 
     # normalize gradient
     g = self.grad["seq"]

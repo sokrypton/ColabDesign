@@ -30,8 +30,17 @@ class _af_design:
 
   def restart(self, seed=None, optimizer="sgd", opt=None, weights=None,
               seq=None, keep_history=False, reset_opt=True, **kwargs):   
-    '''restart the optimizer''' 
-    
+    '''
+    restart the optimization
+    ------------
+    note: model.restart() resets the [opt]ions and weights to their defaults
+    use model.set_opt(..., set_defaults=True) and model.set_weights(..., set_defaults=True)
+    or model.restart(reset_opt=False) to avoid this
+    ------------
+    seed=0 - set seed for reproducibility
+    reset_opt=False - do NOT reset [opt]ions/weights to defaults
+    keep_history=True - do NOT clear the trajectory/[opt]ions/weights
+    '''
     # reset [opt]ions
     if reset_opt and not keep_history:
       self.opt = copy_dict(self._opt)

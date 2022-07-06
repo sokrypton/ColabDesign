@@ -11,11 +11,42 @@ order_aa = {b:a for a,b in aa_order.items()}
 
 class design_model:
   def set_opt(self, *args, **kwargs):
-    '''set [opt]ions'''
+    '''
+    set [opt]ions
+    -------------------
+    note: model.restart() resets the [opt]ions to their defaults
+    use model.set_opt(..., set_defaults=True) 
+    or model.restart(..., reset_opt=False) to avoid this
+    -------------------    
+    model.set_opt(models=1, recycles=0)
+    model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
+    model.set_opt(lr=1, set_defaults=True)
+    '''
+    if "optimizer" in kwargs:
+      print("ERROR: use model.restart(optimizer=...) to set the optimizer")
+
+    if "recycle_mode" in kwargs and "recycle_mode" in self._args:
+      if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
+        self._args["recycle_mode"] = kwargs.pop("recycle_mode")
+      else:
+        print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
+
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt, *args, **kwargs)
+
     update_dict(self.opt, *args, **kwargs)
 
   def set_weights(self, *args, **kwargs):
-    '''set weights'''
+    '''
+    set weights
+    -------------------
+    note: model.restart() resets the weights to their defaults
+    use model.set_weights(..., set_defaults=True) to avoid this
+    -------------------
+    model.set_weights(rmsd=1)
+    '''
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt["weights"], *args, **kwargs)
     update_dict(self.opt["weights"], *args, **kwargs)
 
   def set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, **kwargs):

@@ -19,6 +19,8 @@ def update_dict(D, *args, **kwargs):
             d[k] = np.asarray(v)
           elif d[k] is None:
             d[k] = v
+          elif isinstance(d[k], dict):
+            d[k] = jax.tree_map(lambda x: type(x)(v), d[k])
           else:
             d[k] = type(d[k])(v)
         else:

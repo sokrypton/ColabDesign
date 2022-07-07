@@ -181,12 +181,18 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, use_sidechains=False, **kwargs):
+                    fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
+                    **kwargs):
     '''prep input for partial hallucination'''
     
-    if "sidechain" in kwargs: use_sidechains = kwargs.pop("sidechain")
+    # configure settings
+    if "sidechain" in kwargs:
+      use_sidechains = kwargs.pop("sidechain")
     self._args["use_sidechains"] = use_sidechains
-    if use_sidechains: fix_seq = True
+    if use_sidechains:
+      fix_seq = True
+      self._args["atoms_to_exclude"] = atoms_to_exclude
+
     self.opt["fix_seq"] = fix_seq
     self._copies = 1    
     

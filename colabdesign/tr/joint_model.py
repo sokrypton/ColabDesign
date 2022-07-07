@@ -27,12 +27,13 @@ class mk_af_tr_model:
         self.tr.prep_inputs(pdb_filename=pdb_filename, chain=chain)
 
     if protocol == "partial":
-      def _prep_inputs(pdb_filename, chain, pos=None, length=None, fix_seq=False, use_sidechains=False):
+      def _prep_inputs(pdb_filename, chain, pos=None, length=None,
+                       fix_seq=False, use_sidechains=False, atoms_to_exclude=None):
         if use_sidechains: fix_seq = True
         flags = dict(pdb_filename=pdb_filename, chain=chain, pos=pos,
-                     length=length, fix_seq=fix_seq)
+                     length=length, fix_seq=fix_seq, atoms_to_exclude=atoms_to_exclude)
         self.af.prep_inputs(**flags, use_sidechains=use_sidechains)
-        self.tr.prep_inputs(**flags)  
+        self.tr.prep_inputs(**flags)
       
       def _rewire(order=None, offset=0, loops=0):
         self.af.rewire(order=order, offset=offset, loops=loops)

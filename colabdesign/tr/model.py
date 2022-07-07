@@ -96,7 +96,7 @@ class mk_tr_model(design_model):
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None,
-                  pos=None, fix_seq=True, **kwargs):
+                  pos=None, fix_seq=True, atoms_to_exclude=None, **kwargs):
     '''
     prep inputs for TrDesign
     '''    
@@ -127,7 +127,21 @@ class mk_tr_model(design_model):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
         self._bkg_feats.append(self._bkg_model(model_params, key, self._len))
       self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
-      self.opt["weights"]["bkg"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
+
+      # reweight the background
+      self.opt["weights"]["bkg"] = dict(dist=1/6,omega=1/6,phi=2/6,theta=2/6)
+      if self.protocol == "partial" or atoms_to_exclude is not None:
+        if atoms_to_exclude is None:
+          atoms_to_exclude = ["N","C","O"]          
+        if "N" in atoms_to_exclude:
+          # theta = [N]-CA-CB-CB
+          self.opt["weights"]["bkg"] = dict(dist=1/4,omega=1/4,phi=1/2,theta=0)
+        if "CA" in atoms_to_exclude:
+          # theta = N-[CA]-CB-CB
+          # omega = [CA]-CB-CB-[CA]
+          # phi = [CA]-CB-CB
+          self.opt["weights"]["bkg"] = dict(dist=1,omega=0,phi=0,theta=0)
+
 
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
@@ -181,7 +195,7 @@ class mk_tr_model(design_model):
     outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)
     
     # average results
-    if average: outs = jax.tee_map(lambda x:x.mean(0), outs)
+    if average: outs = jax.tree_map(lambda x:x.mean(0), outs)
 
     # update
     self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]

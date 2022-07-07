@@ -104,7 +104,8 @@ class _af_loss:
       # sc_rmsd
       true_aa = self._batch["aatype"]
       true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)    
+      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa,
+                                             atoms_to_exclude=self._args["atoms_to_exclude"])    
 
   def _get_pairwise_loss(self, inputs, outputs, opt, aux, interface=False):
     '''get pairwise loss features'''

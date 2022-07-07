@@ -33,7 +33,7 @@ class mk_tr_model(design_model):
     self._num = 1
 
     # set default options
-    self.opt = {"temp":1.0, "soft":1.0, "hard":1.0,
+    self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
                 "models":num_models,"sample_models":sample_models,
                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
                 
@@ -178,7 +178,7 @@ class mk_tr_model(design_model):
         loss,aux = self._fn(self.params, model_params, self.opt)
         grad = jax.tree_map(jnp.zeros_like, self.params)
       outs.append({"loss":loss,"aux":aux,"grad":grad})
-    outs = jax.tree_map(lambda *x:jnp.stack(x), *_outs)
+    outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)
     
     # average results
     if average: outs = jax.tee_map(lambda x:x.mean(0), outs)

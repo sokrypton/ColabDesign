@@ -144,7 +144,7 @@ class design_model:
   def predict(self, seq=None, model=0):
     self.set_seq(seq)
     self.set_opt(dropout=False)
-    self.run(model=model, backprop=False)
+    self.run(model=model, backprop=False, average=False)
     return self.aux
 
 def soft_seq(x, opt):

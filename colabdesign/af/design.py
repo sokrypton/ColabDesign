@@ -68,7 +68,7 @@ class _af_design:
       self._best_loss = np.inf
       self._best_aux = self._best_outs = None
       
-  def run(self, model=None, backprop=True, callback=None):
+  def run(self, model=None, backprop=True, average=True, callback=None):
     '''run model to get outputs, losses and gradients'''
     
     # decide which model params to use
@@ -90,17 +90,19 @@ class _af_design:
       outs.append(self._recycle(p, backprop=backprop))
     outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)    
 
-    # update gradients
-    self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
+    if average:
+      # update gradients
+      self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
 
-    # update loss (take mean across models)
-    self.loss = outs["loss"].mean()
-    
-    # update [aux]iliary outputs
-    self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
-    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
-    self.aux["model_num"] = model_num    
-    self._outs = self.aux # backward compatibility
+      # update [aux]iliary outputs
+      self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
+
+      # update loss (take mean across models)
+      self.loss = outs["loss"].mean()      
+      self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
+
+    else:
+      self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]
 
     # callback
     if callback is not None: callback(self)
@@ -119,7 +121,10 @@ class _af_design:
       self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
     self.aux["log"] = jax.tree_map(float, self.aux["log"])
-    self.aux["log"]["models"] = self.aux["model_num"]
+    self.aux["log"]["models"] = model_num
+    
+    # backward compatibility
+    self._outs = self.aux
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''

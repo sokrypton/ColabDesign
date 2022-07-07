@@ -2,9 +2,11 @@ from colabdesign.af.model import mk_af_model
 from colabdesign.tr.model import mk_tr_model
 
 class mk_af_tr_model:
-  def __init__(self, protocol="fixbb", use_templates=False):
+  def __init__(self, protocol="fixbb", use_templates=False,
+               recycle_mode="last", num_recycles=0):
     assert protocol in ["fixbb","partial","hallucination","binder"]
-    self.af = mk_af_model(protocol=protocol, use_templates=use_templates)
+    self.af = mk_af_model(protocol=protocol, use_templates=use_templates,
+                          recycle_mode=recycle_mode, num_recycles=num_recycles)
     
     if protocol == "binder":
       def _prep_inputs(pdb_filename, chain, binder_len=50, binder_chain=None, **kwargs):

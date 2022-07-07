@@ -151,7 +151,7 @@ class mk_tr_model(design_model):
     # clear previous best
     self._best_loss, self._best_aux = np.inf, None
     
-  def run(self, model=None, backprop=True):
+  def run(self, model=None, backprop=True, average=True):
     '''run model to get outputs, losses and gradients'''
     
     if model is None:
@@ -169,34 +169,23 @@ class mk_tr_model(design_model):
       model_num = list(model)
 
     # run in serial
-    _loss, _aux, _grad = [],[],[]
+    outs = []
     for n in model_num:
       model_params = self._model_params[n]
       if backprop:
-        (l,a),g = self._grad_fn(self.params, model_params, self.opt)
-        _grad.append(g)
+        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt)
       else:
-        l,a = self._fn(self.params, model_params, self.opt)
-      _loss.append(l)
-      _aux.append(a)
+        loss,aux = self._fn(self.params, model_params, self.opt)
+        grad = jax.tree_map(jnp.zeros_like, self.params)
+      outs.append({"loss":loss,"aux":aux,"grad":grad})
+    outs = jax.tree_map(lambda *x:jnp.stack(x), *_outs)
     
     # average results
-    if len(model_num) > 1:
-      _loss = jnp.asarray(_loss).mean()
-      _aux = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_aux)
-      if backprop: _grad = jax.tree_map(lambda *v: jnp.stack(v).mean(0), *_grad)
-    else:
-      _loss,_aux = _loss[0],_aux[0]
-      if backprop: _grad = _grad[0] 
-
-    if not backprop:
-      _grad = jax.tree_map(jnp.zeros_like, self.params)
+    if average: outs = jax.tee_map(lambda x:x.mean(0), outs)
 
     # update
-    self.loss = _loss
-    self.aux = _aux
+    self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]
     self.aux["model_num"] = model_num
-    self.grad = _grad
 
   def step(self, model=None, backprop=True,
            callback=None, save_best=True, verbose=1):
@@ -234,10 +223,6 @@ class mk_tr_model(design_model):
     self.set_weights(weights)
     for _ in range(iters):
       self.step(save_best=save_best, verbose=verbose)
-
-  def predict(self):
-    '''make prediction'''
-    self.run(backprop=False)
   
   def plot(self, mode="preds", get_best=True, dpi=100):
     '''plot predictions'''

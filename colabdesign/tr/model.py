@@ -117,6 +117,15 @@ class mk_tr_model(design_model):
 
       self._len = len(self._batch["aatype"])
       self.opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
+      if atoms_to_exclude is not None:
+        if "N" in atoms_to_exclude:
+          # theta = [N]-CA-CB-CB
+          self.opt["weights"]["cce"] = dict(dist=1/4,omega=1/4,phi=1/2,theta=0)
+        if "CA" in atoms_to_exclude:
+          # theta = N-[CA]-CB-CB
+          # omega = [CA]-CB-CB-[CA]
+          # phi = [CA]-CB-CB
+          self.opt["weights"]["cce"] = dict(dist=1,omega=0,phi=0,theta=0)
 
     if self.protocol in ["hallucination", "partial"]:
       # compute background distribution
@@ -130,17 +139,6 @@ class mk_tr_model(design_model):
 
       # reweight the background
       self.opt["weights"]["bkg"] = dict(dist=1/6,omega=1/6,phi=2/6,theta=2/6)
-      if self.protocol == "partial" or atoms_to_exclude is not None:
-        if atoms_to_exclude is None:
-          atoms_to_exclude = ["N","C","O"]          
-        if "N" in atoms_to_exclude:
-          # theta = [N]-CA-CB-CB
-          self.opt["weights"]["bkg"] = dict(dist=1/4,omega=1/4,phi=1/2,theta=0)
-        if "CA" in atoms_to_exclude:
-          # theta = N-[CA]-CB-CB
-          # omega = [CA]-CB-CB-[CA]
-          # phi = [CA]-CB-CB
-          self.opt["weights"]["bkg"] = dict(dist=1,omega=0,phi=0,theta=0)
 
 
     self._opt = copy_dict(self.opt)

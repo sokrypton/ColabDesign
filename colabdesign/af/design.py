@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -120,7 +120,7 @@ class _af_design:
         aatype = aatype[...,self.opt["pos"]]
       self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
-    self.aux["log"] = jax.tree_map(float, self.aux["log"])
+    self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"]["models"] = model_num
     
     # backward compatibility

@@ -32,7 +32,16 @@ def update_dict(D, *args, **kwargs):
   set_dict(D, kwargs)
 
 def copy_dict(x):
+  '''deepcopy dictionary'''
   return jax.tree_map(lambda y:y, x)
+
+def to_float(x):
+  '''convert to float'''
+  if hasattr(x,"tolist"): x = x.tolist()
+  if isinstance(x,dict): x = {k:to_float(y) for k,y in x.items()}
+  elif hasattr(x,"__iter__"): x = [to_float(y) for y in x]
+  else: x = float(x)
+  return x
 
 def dict_to_str(x, filt=None, keys=None, ok=None, print_str="", f=2):
   '''convert dictionary to string for print out'''  

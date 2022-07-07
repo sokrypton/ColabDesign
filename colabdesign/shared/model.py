@@ -147,10 +147,10 @@ class design_model:
     self.run(model=model, backprop=False, average=False)
     return self.aux
 
-def soft_seq(x, opt):
+def soft_seq(x, opt, key=None):
   seq = {"input":x}
   # shuffle msa (randomly pick which sequence is query)
-  if x.ndim == 3 and x.shape[0] > 1:
+  if x.ndim == 3 and x.shape[0] > 1 and key is not None:
     n = jax.random.randint(key,[],0,x.shape[0])
     seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 

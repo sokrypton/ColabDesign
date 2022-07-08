@@ -16,6 +16,9 @@ from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import order_aa
 
+resname_to_idx = residue_constants.resname_to_idx
+idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
+
 #################################################
 # AF_PREP - input prep functions
 #################################################
@@ -205,7 +208,7 @@ class _af_prep:
     self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
     if self._args["use_sidechains"]:
       self._batch.update(prep_inputs.make_atom14_positions(self._batch))
-      self._sc_info = get_sc_idx(self._wt_aatype, atoms_to_exclude)
+      self._batch["sc_pos"] = get_sc_pos(self._wt_aatype, atoms_to_exclude)
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_seq"] = True
   
@@ -309,7 +312,9 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
 
-def get_sc_idx(aa_ident, atoms_to_exclude=None):
+def get_sc_pos(aa_ident, atoms_to_exclude=None):
+  '''get sidechain indices/weights for all_atom14_positions'''
+
   # decide what atoms to exclude for each residue type
   a2e = {}
   for r in resname_to_idx:
@@ -317,8 +322,9 @@ def get_sc_idx(aa_ident, atoms_to_exclude=None):
       a2e[r] = atoms_to_exclude.get(r,atoms_to_exclude.get("ALL",["N","C","O"]))
     else:
       a2e[r] = ["N","C","O"] if atoms_to_exclude is None else atoms_to_exclude
+
   # collect atom indices
-  idx,idx_alt = [],[]
+  pos,pos_alt = [],[]
   N,N_non_amb = [],[]
   for n,a in enumerate(aa_ident):
     aa = idx_to_resname[a]
@@ -327,17 +333,18 @@ def get_sc_idx(aa_ident, atoms_to_exclude=None):
     swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
     swaps.update({v:k for k,v in swaps.items()})
     for atom in atoms.difference(a2e[aa]):
-      idx.append(n * 14 + atoms14.index(atom))
+      pos.append(n * 14 + atoms14.index(atom))
       if atom in swaps:
-        idx_alt.append(n * 14 + atoms14.index(swaps[atom]))
+        pos_alt.append(n * 14 + atoms14.index(swaps[atom]))
       else:
-        idx_alt.append(idx[-1])
+        pos_alt.append(pos[-1])
         N_non_amb.append(n)
       N.append(n)
-  idx, idx_alt = np.asarray(idx), np.asarray(idx_alt)
+
+  pos, pos_alt = np.asarray(pos), np.asarray(pos_alt)
+  non_amb = pos == pos_alt
   N, N_non_amb = np.asarray(N), np.asarray(N_non_amb)
-  non_amb = idx == idx_alt
   w = np.array([1/(n == N).sum() for n in N])
   w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
   w, w_na = w/w.sum(), w_na/w_na.sum()
-  return {"idx":idx, "idx_alt":idx_alt, "non_amb":non_amb, "w":w, "w_na":w_na[:,None]}
+  return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb, "w":w, "w_na":w_na[:,None]}

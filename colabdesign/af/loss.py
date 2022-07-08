@@ -5,10 +5,6 @@ import numpy as np
 from colabdesign.shared.utils import Key
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
-from colabdesign.af.alphafold.common import residue_constants
-
-resname_to_idx = residue_constants.resname_to_idx
-idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -104,7 +100,7 @@ class _af_loss:
 
       # sc_rmsd
       true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"], self._batch)
-      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, self._sc_info)
+      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, self._batch["sc_pos"])
 
   def _get_pairwise_loss(self, inputs, outputs, opt, aux, interface=False):
     '''get pairwise loss features'''
@@ -303,8 +299,8 @@ def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
 def get_sc_rmsd(true_pos, pred_pos, sc, weighted=True):
   '''sidechain rmsd'''
   # select atoms
-  T = true_pos.reshape(-1,3)[sc["idx"]]
-  P, P_alt = pred_pos.reshape(-1,3)[sc["idx"]], pred_pos.reshape(-1,3)[sc["idx_alt"]]
+  T = true_pos.reshape(-1,3)[sc["pos"]]
+  P, P_alt = pred_pos.reshape(-1,3)[sc["pos"]], pred_pos.reshape(-1,3)[sc["pos_alt"]]
 
   # select non-ambigious atoms
   T_na, P_na = T[sc["non_amb"]], P[sc["non_amb"]]

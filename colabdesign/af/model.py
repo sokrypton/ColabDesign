@@ -28,9 +28,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-
     self._loss_callback = loss_callback
-    self._num = num_seq    
+    self._num = num_seq
+    self._copies = 1    
     self._args = {"use_templates":use_templates,
                   "recycle_mode": recycle_mode,
                   "debug":debug, "repeat": False}

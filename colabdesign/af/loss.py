@@ -103,10 +103,8 @@ class _af_loss:
       aux["losses"]["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
 
       # sc_rmsd
-      true_aa = self._batch["aatype"]
-      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa,
-                                             atoms_to_exclude=self._args["atoms_to_exclude"])    
+      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"], self._batch)
+      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, self._sc_info)
 
   def _get_pairwise_loss(self, inputs, outputs, opt, aux, interface=False):
     '''get pairwise loss features'''
@@ -302,59 +300,20 @@ def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
   folding.backbone_loss(loss, sub_batch, outputs["structure_module"], model_config.model.heads.structure_module)
   return loss["loss"]
 
-def get_sc_rmsd(true_pos, pred_pos, aa_ident, atoms_to_exclude=None, weighted=True):
+def get_sc_rmsd(true_pos, pred_pos, sc, weighted=True):
   '''sidechain rmsd'''
-
-  # decide what atoms to exclude
-  a2e = {}
-  if isinstance(atoms_to_exclude,list):
-    for r in resname_to_idx:
-      a2e[r] = atoms_to_exclude
-  elif isinstance(atoms_to_exclude,dict):
-    for r,v in atoms_to_exclude.items():
-      a2e[r] = v
-    for r in resname_to_idx:
-      if r not in a2e: a2e[r] = ["N","C","O"]
-  else:
-    for r in resname_to_idx:
-      a2e[r] = ["N","C","O"]
-  
-  # collect atom indices
-  idx,idx_alt = [],[]
-  N,N_non_amb = [],[]
-  for n,a in enumerate(aa_ident):
-    aa = idx_to_resname[a]
-    atoms = set(residue_constants.residue_atoms[aa])
-    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
-    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
-    swaps.update({v:k for k,v in swaps.items()})
-    for atom in atoms.difference(a2e[aa]):
-      idx.append(n * 14 + atoms14.index(atom))
-      if atom in swaps:
-        idx_alt.append(n * 14 + atoms14.index(swaps[atom]))
-      else:
-        idx_alt.append(idx[-1])
-        N_non_amb.append(n)
-      N.append(n)
-  idx, idx_alt = np.asarray(idx), np.asarray(idx_alt)
-  N, N_non_amb = np.asarray(N), np.asarray(N_non_amb)
-
   # select atoms
-  T = true_pos.reshape(-1,3)[idx]
-  P, P_alt = pred_pos.reshape(-1,3)[idx], pred_pos.reshape(-1,3)[idx_alt]
+  T = true_pos.reshape(-1,3)[sc["idx"]]
+  P, P_alt = pred_pos.reshape(-1,3)[sc["idx"]], pred_pos.reshape(-1,3)[sc["idx_alt"]]
 
   # select non-ambigious atoms
-  non_amb = idx == idx_alt
-  T_na, P_na = T[non_amb], P[non_amb]
+  T_na, P_na = T[sc["non_amb"]], P[sc["non_amb"]]
 
   # get alignment of non-ambigious atoms
   if weighted:
-    w = np.array([1/(n == N).sum() for n in N])
-    w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
-    w, w_na = w/w.sum(), w_na/w_na.sum()
-    T_mu_na = (T_na * w_na[:,None]).sum(0)
-    P_mu_na = (P_na * w_na[:,None]).sum(0)
-    aln = _np_kabsch((T_na-T_mu_na) * w_na[:,None], P_na-P_mu_na)
+    T_mu_na = (T_na * sc["w_na"]).sum(0)
+    P_mu_na = (P_na * sc["w_na"]).sum(0)
+    aln = _np_kabsch((T_na-T_mu_na) * sc["w_na"], P_na-P_mu_na)
   else:
     T_mu_na, P_mu_na = T_na.mean(0), P_na.mean(0)
     aln = _np_kabsch(T_na-T_mu_na, P_na-P_mu_na)
@@ -365,7 +324,7 @@ def get_sc_rmsd(true_pos, pred_pos, aa_ident, atoms_to_exclude=None, weighted=Tr
 
   # compute rmsd
   sd = jnp.minimum(jnp.square(T-P).sum(-1), jnp.square(T-P_alt).sum(-1))
-  msd = (sd * w).sum() if weighted else sd.mean()
+  msd = (sd * sc["w"]).sum() if weighted else sd.mean()
   return jnp.sqrt(msd + 1e-8)
 
 def get_6D_loss(batch, outputs, **kwargs):

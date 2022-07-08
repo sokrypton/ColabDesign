@@ -62,7 +62,6 @@ class _af_prep:
     '''
     
     self._args["redesign"] = binder_chain is not None
-    self._copies = 1
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
@@ -183,42 +182,33 @@ class _af_prep:
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
                     **kwargs):
-    '''prep input for partial hallucination'''
-    
-    # configure settings
-    if "sidechain" in kwargs:
-      use_sidechains = kwargs.pop("sidechain")
-    self._args["use_sidechains"] = use_sidechains
-    if use_sidechains:
-      fix_seq = True
-      self._args["atoms_to_exclude"] = atoms_to_exclude
-
-    self.opt["fix_seq"] = fix_seq
-    self._copies = 1    
-    
+    '''prep input for partial hallucination'''    
+    # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
-    self._len = pdb["residue_index"].shape[0]
+    self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._inputs = self._prep_features(self._len)    
+
+    # configure options/weights
+    self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})
+    self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests
     if pos is None:
-      self.opt["pos"] = np.arange(self._len)
+      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = p = self._pos_info["pos"]
-      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])
-            
+      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])        
     self._wt_aatype = self._batch["aatype"]
-    if use_sidechains:
-      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
-    self._len = pdb["residue_index"].shape[0] if length is None else length
-    self._inputs = self._prep_features(self._len)
-    
-    weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
-    if use_sidechains:
-      weights.update({"sc_rmsd":0.1, "sc_fape":0.1})
-      
-    self.opt["weights"].update(weights)
+    # configure sidechains
+    self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
+    if self._args["use_sidechains"]:
+      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
+      self._sc_info = get_sc_idx(self._wt_aatype, atoms_to_exclude)
+      self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
+      self.opt["fix_seq"] = True
+  
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
 
@@ -318,3 +308,36 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
       feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
       feat[k].set_shape(pad_size)
   return {k:np.asarray(v) for k,v in feat.items()}
+
+def get_sc_idx(aa_ident, atoms_to_exclude=None):
+  # decide what atoms to exclude for each residue type
+  a2e = {}
+  for r in resname_to_idx:
+    if isinstance(atoms_to_exclude,dict):
+      a2e[r] = atoms_to_exclude.get(r,atoms_to_exclude.get("ALL",["N","C","O"]))
+    else:
+      a2e[r] = ["N","C","O"] if atoms_to_exclude is None else atoms_to_exclude
+  # collect atom indices
+  idx,idx_alt = [],[]
+  N,N_non_amb = [],[]
+  for n,a in enumerate(aa_ident):
+    aa = idx_to_resname[a]
+    atoms = set(residue_constants.residue_atoms[aa])
+    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
+    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
+    swaps.update({v:k for k,v in swaps.items()})
+    for atom in atoms.difference(a2e[aa]):
+      idx.append(n * 14 + atoms14.index(atom))
+      if atom in swaps:
+        idx_alt.append(n * 14 + atoms14.index(swaps[atom]))
+      else:
+        idx_alt.append(idx[-1])
+        N_non_amb.append(n)
+      N.append(n)
+  idx, idx_alt = np.asarray(idx), np.asarray(idx_alt)
+  N, N_non_amb = np.asarray(N), np.asarray(N_non_amb)
+  non_amb = idx == idx_alt
+  w = np.array([1/(n == N).sum() for n in N])
+  w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
+  w, w_na = w/w.sum(), w_na/w_na.sum()
+  return {"idx":idx, "idx_alt":idx_alt, "non_amb":non_amb, "w":w, "w_na":w_na[:,None]}

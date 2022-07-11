@@ -23,21 +23,19 @@ class _af_loss:
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-    copies = 1 if self._args["repeat"] else self._copies
+    copies = self._copies
+    if self._args["repeat"] or not self._args["homooligomer"]: copies = 1      
     
     # rmsd loss
-    true = self._batch["all_atom_positions"][:,1,:]
-    pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-    weights = self._batch["all_atom_mask"][:,1]
-    aln = get_rmsd(true, pred, weights=weights, copies=copies)
+    aln = get_rmsd_loss(self._batch, outputs, copies=copies)
     rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
 
     # dgram loss
-    dgram_cce = get_dgram_cce(**dgram_F, pred=outputs["distogram"]["logits"], copies=copies)
+    aatype = inputs["aatype"][0]
+    dgram_cce = get_dgram_loss(self._batch, outputs, copies=copies, aatype=aatype)
+    
     aux["losses"].update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
-                          "rmsd": rmsd, 
-                          "dgram_cce": get_dgram_loss(self._batch, outputs, copies=copies, aatype=aatype),
-                          "plddt":plddt_loss.mean()})
+                          "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -47,16 +45,14 @@ class _af_loss:
     self._get_pairwise_loss(inputs, outputs, opt, aux, interface=True)
 
     if self._args["redesign"]:
-      aatype = inputs["aatype"][0]
-      true = self._batch["all_atom_positions"][:,1,:]
-      pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-      aln = get_rmsd(true, pred, L=self._target_len, include_L=False)
+      aln = get_rmsd_loss(self._batch, outputs, L=self._target_len, include_L=False)
       rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
       
       fape = get_fape_loss(self._batch, outputs, model_config=self._config)
       aux["losses"].update({"rmsd":rmsd, "fape":fape})
       
       # compute cce of binder + interface
+      aatype = inputs["aatype"][0]
       cce = get_dgram_loss(self._batch, outputs, aatype=aatype, return_cce=True)
       aux["losses"]["dgram_cce"] = cce[L:,:].mean()       
 
@@ -85,7 +81,7 @@ class _af_loss:
     # rmsd
     true = self._batch["all_atom_positions"]
     pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    aln = get_rmsd(true[:,1], pred[:,1])
+    aln = _get_rmsd_loss(true[:,1], pred[:,1])
     aux["losses"]["rmsd"] = aln["rmsd"]
 
     # fape
@@ -239,13 +235,13 @@ def get_dgram_loss(batch, outputs=None, copies=1, aatype=None, pred=None, return
   if aatype is None: aatype = batch["aatype"]
   x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
                                             all_atom_positions=batch["all_atom_positions"],
-                                            all_atom_mask=batch["all_atom_mask"])
+                                            all_atom_masks=batch["all_atom_mask"])
+  dm = jnp.square(x[:,None]-x[None,:]).sum(-1,keepdims=True)
   # alphafold dgram defaults
-  num_bins = 39
-  bin_edges = jnp.linspace(3.25, 50.75, num_bins)
+  num_bins = 64
+  bin_edges = jnp.linspace(2.3125, 21.6875, num_bins - 1)
   true = jax.nn.one_hot((dm > jnp.square(bin_edges)).sum(-1),num_bins)
   if pred is None: pred = outputs["distogram"]["logits"]
-
   return _get_dgram_loss(true, pred, weights, copies, return_cce=return_cce)
 
 def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
@@ -281,7 +277,13 @@ def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
     cce, cce_loss = cce_fn(**F)
     return cce if return_cce else cce_loss
 
-def get_rmsd(true, pred, weights=None, L=None, include_L=True, copies=1):
+def get_rmsd_loss(batch, outputs, L=None, include_L=True, copies=1):
+  true = batch["all_atom_positions"][:,1,:]
+  pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+  weights = batch["all_atom_mask"][:,1]
+  return = _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
+
+def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
   '''
   get rmsd + alignment function
   align based on the first L positions, computed weighted rmsd using all 

@@ -51,7 +51,7 @@ class _af_utils:
     if filename is None:
       return pdb_str, Ls
     else:
-      with open(filename, 'w') as f: f.write(pdb_lines)
+      with open(filename, 'w') as f: f.write(pdb_str)
   #-------------------------------------
   # plotting functions
   #-------------------------------------

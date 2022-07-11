@@ -127,7 +127,7 @@ class _af_prep:
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self._args.update({"repeat":repeat, "block_diag":block_diag})
+    self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
     
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})

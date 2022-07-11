@@ -27,10 +27,19 @@ class _af_loss:
     self._get_pairwise_loss(inputs, outputs, opt, aux)
 
     copies = 1 if self._args["repeat"] else self._copies
-    aatype = inputs["aatype"][0]
+    
+    # rmsd loss
+    true = self._batch["all_atom_positions"][:,1,:]
+    pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+    weights = self._batch["all_atom_mask"][:,1]
+    aln = get_rmsd(true, pred, weights=weights, copies=copies)
+    rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
+
+    # dgram loss
+    dgram_cce = get_dgram_cce(**dgram_F, pred=outputs["distogram"]["logits"], copies=copies)
     aux["losses"].update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
-                          "rmsd": get_rmsd_loss_w(self._batch, outputs, copies=copies),
-                          "dgram_cce": get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=copies),
+                          "rmsd": rmsd, 
+                          "dgram_cce": get_dgram_loss(self._batch, outputs, copies=copies, aatype=aatype),
                           "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux):
@@ -44,17 +53,15 @@ class _af_loss:
       aatype = inputs["aatype"][0]
       true = self._batch["all_atom_positions"][:,1,:]
       pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-      L = self._target_len
-      p = true - true[:L].mean(0)
-      q = pred - pred[:L].mean(0)
-      p = p @ _np_kabsch(p[:L], q[:L])
-      rmsd_binder = jnp.sqrt(jnp.square(p[L:]-q[L:]).sum(-1).mean(-1) + 1e-8)
+      aln = get_rmsd(true, pred, L=self._target_len, include_L=False)
+      rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
+      
       fape = get_fape_loss(self._batch, outputs, model_config=self._config)
-      aux["losses"].update({"rmsd":rmsd_binder, "fape":fape})
+      aux["losses"].update({"rmsd":rmsd, "fape":fape})
       
       # compute cce of binder + interface
-      errors = get_dgram_loss(self._batch, outputs, model_config=self._config, aatype=aatype, copies=1, return_errors=True)
-      aux["losses"]["dgram_cce"] = errors["errors"][L:,:].mean()       
+      cce = get_dgram_loss(self._batch, outputs, aatype=aatype, return_cce=True)
+      aux["losses"]["dgram_cce"] = cce[L:,:].mean()       
 
   def _loss_partial(self, inputs, outputs, opt, aux):
     '''get losses'''    
@@ -76,14 +83,13 @@ class _af_loss:
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
     if aatype is not None: aatype = sub(aatype,pos,0)
-    aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, outputs, model_config=self._config,
-                                         logits=dgram, aatype=aatype)
-
-    true = self._batch["all_atom_positions"]
-    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
+    aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, pred=dgram, copies=1, aatype=aatype)
 
     # rmsd
-    aux["losses"]["rmsd"] = _np_rmsd(true[:,1], pred[:,1])
+    true = self._batch["all_atom_positions"]
+    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
+    aln = get_rmsd(true[:,1], pred[:,1])
+    aux["losses"]["rmsd"] = aln["rmsd"]
 
     # fape
     fape_loss = {"loss":0.0}
@@ -102,9 +108,12 @@ class _af_loss:
       aux["losses"]["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
 
       # sc_rmsd
-      true_aa = self._batch["aatype"]
-      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"],self._batch)
-      aux["losses"]["sc_rmsd"] = get_sc_rmsd(true_pos, pred_pos, true_aa)    
+      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"], self._batch)
+      aln = get_sc_rmsd(true_pos, pred_pos, self._batch["sc_pos"], return_align_fn=True)
+      aux["losses"]["sc_rmsd"] = aln["rmsd"]
+
+    # align final atoms
+    aux["final_atom_positions"] = aln["align"](aux["final_atom_positions"])
 
   def _get_pairwise_loss(self, inputs, outputs, opt, aux, interface=False):
     '''get pairwise loss features'''
@@ -220,78 +229,6 @@ def get_pae(outputs):
 ####################
 # loss functions
 ####################
-def get_rmsd_loss_w(batch, outputs, copies=1):
-  weights = batch["all_atom_mask"][:,1]
-  true = batch["all_atom_positions"][:,1,:]
-  pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-  if copies == 1:
-    return jnp_rmsd_w(true, pred, weights)
-  else:
-    # TODO add support for weights
-    I = copies - 1
-    L = true.shape[0] // copies
-    p = true - true[:L].mean(0)
-    q = pred - pred[:L].mean(0)
-    p = p @ _np_kabsch(p[:L], q[:L])
-    rm = jnp.square(p[:L]-q[:L]).sum(-1).mean()
-    p,q = p[L:].reshape(I,1,L,-1),q[L:].reshape(1,I,L,-1)
-    rm += jnp.square(p-q).sum(-1).mean(-1).min(-1).sum()
-    return jnp.sqrt(rm / copies)
-
-def get_rmsd_loss(batch, outputs):
-  true = batch["all_atom_positions"][:,1,:]
-  pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
-  return _np_rmsd(true,pred)
-
-def _distogram_log_loss(logits, bin_edges, batch, num_bins, copies=1, return_errors=False):
-  """Log loss of a distogram."""
-  pos,mask = batch['pseudo_beta'],batch['pseudo_beta_mask']
-  sq_breaks = jnp.square(bin_edges)
-  dist2 = jnp.square(pos[:,None] - pos[None,:]).sum(-1,keepdims=True)
-  true_bins = jnp.sum(dist2 > sq_breaks, axis=-1)
-  true = jax.nn.one_hot(true_bins, num_bins)
-
-  if copies == 1:
-    errors = -(true * jax.nn.log_softmax(logits)).sum(-1)    
-    sq_mask = mask[:,None] * mask[None,:]
-    avg_error = (errors * sq_mask).sum()/(1e-6 + sq_mask.sum())
-    if return_errors:
-      return {"errors": errors, "loss": avg_error}
-    else:
-      return avg_error
-  else:
-    # TODO add support for masks
-    L = pos.shape[0] // copies
-    I = copies - 1
-    true_, pred_ = true[:L,:L], logits[:L,:L]
-    intra_errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
-    avg_error = intra_errors.mean()
-
-    true_, pred_ = true[:L,L:], logits[:L,L:]
-    true_, pred_ = true_.reshape(L,I,1,L,-1), pred_.reshape(L,1,I,L,-1)
-    inter_errors = -(true_ * jax.nn.log_softmax(pred_)).sum(-1)
-    avg_error += inter_errors.mean((0,-1)).min(-1).sum()
-    
-    if return_errors:
-      return {"intra_errors": intra_errors,
-              "inter_errors": inter_errors,
-              "loss": avg_error/copies}
-    else:
-      return avg_error/copies
-
-def get_dgram_loss(batch, outputs, model_config, logits=None, aatype=None, copies=1, return_errors=False):
-  # get cb features (ca in case of glycine)
-  if aatype is None: aatype = batch["aatype"]
-  pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
-                                             batch["all_atom_positions"],
-                                             batch["all_atom_mask"])
-  if logits is None: logits = outputs["distogram"]["logits"]
-  dgram_loss = _distogram_log_loss(logits,
-                                   outputs["distogram"]["bin_edges"],
-                                   batch={"pseudo_beta":pb,"pseudo_beta_mask":pb_mask},
-                                   num_bins=model_config.model.heads.distogram.num_bins,
-                                   copies=copies, return_errors=return_errors)
-  return dgram_loss
 
 def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
   sub_batch = jax.tree_map(lambda x: x, batch)
@@ -300,40 +237,136 @@ def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
   folding.backbone_loss(loss, sub_batch, outputs["structure_module"], model_config.model.heads.structure_module)
   return loss["loss"]
 
-def get_sc_rmsd(true_pos, pred_pos, aa_ident, atoms_to_exclude=None):
-  if atoms_to_exclude is None: atoms_to_exclude = ["N","C","O"]
+def get_dgram_loss(batch, outputs=None, copies=1, aatype=None, pred=None, return_cce=False):
+  # gather features
+  if aatype is None: aatype = batch["aatype"]
+  x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
+                                            all_atom_positions=batch["all_atom_positions"],
+                                            all_atom_mask=batch["all_atom_mask"])
+  # alphafold dgram defaults
+  num_bins = 39
+  bin_edges = jnp.linspace(3.25, 50.75, num_bins)
+  true = jax.nn.one_hot((dm > jnp.square(bin_edges)).sum(-1),num_bins)
+  if pred is None: pred = outputs["distogram"]["logits"]
+
+  return _get_dgram_loss(true, pred, weights, copies, return_cce=return_cce)
+
+def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
   
-  # collect atom indices
-  idx,idx_alt = [],[]
-  for n,a in enumerate(aa_ident):
-    aa = idx_to_resname[a]
-    atoms = set(residue_constants.residue_atoms[aa])
-    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
-    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
-    swaps.update({v:k for k,v in swaps.items()})
-    for atom in atoms.difference(atoms_to_exclude):
-      idx.append(n * 14 + atoms14.index(atom))
-      if atom in swaps:
-        idx_alt.append(n * 14 + atoms14.index(swaps[atom]))
-      else:
-        idx_alt.append(idx[-1])
-  idx, idx_alt = np.asarray(idx), np.asarray(idx_alt)
+  length = true.shape[0]
+  if weights is None: weights = jnp.ones(length)
+  F = {"t":true, "p":pred, "m":weights[:,None] * weights[None,:]}  
+
+  def cce_fn(t,p,m):
+    cce = -(t*jax.nn.log_softmax(p)).sum(-1)
+    return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
+
+  if copies > 1:
+    (L,C) = (length//copies, copies-1)
+
+    # intra (L,L,F)
+    intra = jax.tree_map(lambda x:x[:L,:L], F)
+    cce, cce_loss = cce_fn(**intra)
+
+    # inter (C,L,L,F)
+    inter = jax.tree_map(lambda x:x[:L,L:].reshape(L,C,L,-1).swapaxes(0,1),F)
+    inter = {"t":inter["t"][:,None],        # (C,1,L,L,F)
+             "p":inter["p"][None,:],        # (1,C,L,L,F)
+             "m":inter["m"][:,None,:,:,0]}  # (C,1,L,L)             
+    
+    # (C,C,L,L,F) → (C,C,L,L) → (C,C) → (C) → ()
+    i_cce, i_cce_loss = cce_fn(**inter)
+    i_cce_loss = sum([i_cce_loss.min(i).sum() for i in [0,1]]) / 2
+    total_loss = (cce_loss + i_cce_loss) / copies
+    return (cce, i_cce) if return_cce else total_loss
+
+  else:
+    cce, cce_loss = cce_fn(**F)
+    return cce if return_cce else cce_loss
+
+def get_rmsd(true, pred, weights=None, L=None, include_L=True, copies=1):
+  '''
+  get rmsd + alignment function
+  align based on the first L positions, computed weighted rmsd using all 
+  positions (if include_L=True) or remaining positions (if include_L=False).
+  '''
+  # normalize weights
+  length = true.shape[-2]
+  if weights is None:
+    weights = (jnp.ones(length)/length)[...,None]
+  else:
+    weights = (weights/(weights.sum(-1,keepdims=True) + 1e-8))[...,None]
+
+  # determine alignment [L]ength and remaining [l]ength
+  if copies > 1:
+    if L is None:
+      L = iL = length // copies; C = copies-1
+    else:
+      (iL,C) = ((length-L) // copies, copies)
+  else:
+    (L,iL,C) = (length,0,0) if L is None else (L,length-L,1)
+
+  # slice inputs
+  if iL == 0:
+    (T,P,W) = (true,pred,weights)
+  else:
+    (T,P,W) = (x[...,:L,:] for x in (true,pred,weights))
+    (iT,iP,iW) = (x[...,L:,:] for x in (true,pred,weights))
+
+  # get alignment and rmsd functions
+  (T_mu,P_mu) = ((x*W).sum(-2,keepdims=True)/W.sum((-1,-2)) for x in (T,P))
+  aln = _np_kabsch((P-P_mu)*W, T-T_mu)   
+  align_fn = lambda x: (x - P_mu) @ aln + T_mu
+  msd_fn = lambda t,p,w: (w*jnp.square(align_fn(p)-t)).sum((-1,-2))
+  
+  # compute rmsd
+  if iL == 0:
+    msd = msd_fn(true,pred,weights)
+  elif C > 1:
+    # all vs all alignment of remaining, get min RMSD
+    iT = iT.reshape(-1,C,1,iL,3).swapaxes(0,-3)
+    iP = iP.reshape(-1,1,C,iL,3).swapaxes(0,-3)
+    imsd = msd_fn(iT, iP, iW.reshape(-1,C,1,iL,1).swapaxes(0,-3))
+    imsd = (imsd.min(0).sum(0) + imsd.min(1).sum(0)) / 2 
+    imsd = imsd.reshape(jnp.broadcast_shapes(true.shape[:-2],pred.shape[:-2]))
+    msd = (imsd + msd_fn(T,P,W)) if include_L else (imsd/iW.sum((-1,-2)))
+  else:
+    msd = msd_fn(true,pred,weights) if include_L else (msd_fn(iT,iP,iW)/iW.sum((-1,-2)))
+  rmsd = jnp.sqrt(msd + 1e-8)
+
+  return {"rmsd":rmsd, "align":align_fn}
+
+def get_sc_rmsd(true, pred, sc):
+  '''get sidechain rmsd + alignment function'''
 
   # select atoms
-  T, P = true_pos.reshape(-1,3)[idx], pred_pos.reshape(-1,3)[idx]
+  (T, P) = (true.reshape(-1,3), pred.reshape(-1,3))
+  (T, T_alt, P) = (T[sc["pos"]], T[sc["pos_alt"]], P[sc["pos"]])
 
   # select non-ambigious atoms
-  non_amb = idx == idx_alt
-  t, p = T[non_amb], P[non_amb]
+  (T_na, P_na) = (T[sc["non_amb"]], P[sc["non_amb"]])
 
-  # align non-ambigious atoms
-  aln = _np_kabsch(t-t.mean(0), p-p.mean(0))
-  T,P = (T-t.mean(0)) @ aln, P-p.mean(0)
-  P_alt = pred_pos.reshape(-1,3)[idx_alt]-p.mean(0)
+  # get alignment of non-ambigious atoms
+  if "weight_non_amb" in sc:
+    T_mu_na = (T_na * sc["weight_non_amb"]).sum(0)
+    P_mu_na = (P_na * sc["weight_non_amb"]).sum(0)
+    aln = _np_kabsch((P_na-P_mu_na) * sc["weight_non_amb"], T_na-T_mu_na)
+  else:
+    T_mu_na, P_mu_na = T_na.mean(0), P_na.mean(0)
+    aln = _np_kabsch(P_na-P_mu_na, T_na-T_mu_na)
+
+  # apply alignment to all atoms
+  align_fn = lambda x: (x - P_mu_na) @ aln + T_mu_na
+  P = align_fn(P)
 
   # compute rmsd
-  msd = jnp.minimum(jnp.square(T-P).sum(-1),jnp.square(T-P_alt).sum(-1)).mean()
-  return jnp.sqrt(msd + 1e-8)
+  sd = jnp.minimum(jnp.square(P-T).sum(-1), jnp.square(P-T_alt).sum(-1))
+  if "weight" in sc:
+    msd = (sd*sc["weight"]).sum()
+  else:
+    msd = sd.mean()
+  rmsd = jnp.sqrt(msd + 1e-8)
+  return {"rmsd":rmsd, "align":align_fn}
 
 def get_6D_loss(batch, outputs, **kwargs):
   true = batch["all_atom_positions"]

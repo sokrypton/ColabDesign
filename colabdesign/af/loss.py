@@ -107,7 +107,7 @@ class _af_loss:
 
       # sc_rmsd
       true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"], self._batch)
-      aln = get_sc_rmsd(true_pos, pred_pos, self._batch["sc_pos"], return_align_fn=True)
+      aln = get_sc_rmsd(true_pos, pred_pos, self._batch["sc_pos"])
       aux["losses"]["sc_rmsd"] = aln["rmsd"]
 
     # align final atoms

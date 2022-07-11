@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 setup(
     name='colabdesign',
-    version='1.0.2',
+    version='1.0.3',
     packages=find_packages(include=['colabdesign*']),
     install_requires=['py3Dmol','absl-py','biopython',
                       'chex','dm-haiku','dm-tree',

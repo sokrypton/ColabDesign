@@ -44,17 +44,22 @@ class _af_loss:
     aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux, interface=True)
 
-    if self._args["redesign"]:
+    if self._args["redesign"]:      
       aln = get_rmsd_loss(self._batch, outputs, L=self._target_len, include_L=False)
-      rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
-      
+      align_fn = aln["align"]
+
       fape = get_fape_loss(self._batch, outputs, model_config=self._config)
-      aux["losses"].update({"rmsd":rmsd, "fape":fape})
       
       # compute cce of binder + interface
       aatype = inputs["aatype"][0]
       cce = get_dgram_loss(self._batch, outputs, aatype=aatype, return_cce=True)
-      aux["losses"]["dgram_cce"] = cce[L:,:].mean()       
+
+      aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[L:,:].mean()})
+    
+    else:
+      align_fn = get_rmsd_loss(self._batch, outputs, L=self._target_len)["align"]
+
+    aux["final_atom_positions"] = align_fn(aux["final_atom_positions"])
 
   def _loss_partial(self, inputs, outputs, opt, aux):
     '''get losses'''    

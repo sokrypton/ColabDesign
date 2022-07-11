@@ -222,26 +222,21 @@ def get_pae(outputs):
 ####################
 # loss functions
 ####################
-
-def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
-  sub_batch = jax.tree_map(lambda x: x, batch)
-  sub_batch["use_clamped_fape"] = use_clamped_fape
-  loss = {"loss":0.0}    
-  folding.backbone_loss(loss, sub_batch, outputs["structure_module"], model_config.model.heads.structure_module)
-  return loss["loss"]
-
 def get_dgram_loss(batch, outputs=None, copies=1, aatype=None, pred=None, return_cce=False):
+
   # gather features
   if aatype is None: aatype = batch["aatype"]
+  if pred is None: pred = outputs["distogram"]["logits"]
+
+  # get true features
   x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
                                             all_atom_positions=batch["all_atom_positions"],
                                             all_atom_masks=batch["all_atom_mask"])
+
   dm = jnp.square(x[:,None]-x[None,:]).sum(-1,keepdims=True)
-  # alphafold dgram defaults
-  num_bins = 64
-  bin_edges = jnp.linspace(2.3125, 21.6875, num_bins - 1)
-  true = jax.nn.one_hot((dm > jnp.square(bin_edges)).sum(-1),num_bins)
-  if pred is None: pred = outputs["distogram"]["logits"]
+  bin_edges = jnp.linspace(2.3125, 21.6875, pred.shape[-1] - 1)
+  true = jax.nn.one_hot((dm > jnp.square(bin_edges)).sum(-1), pred.shape[-1])
+
   return _get_dgram_loss(true, pred, weights, copies, return_cce=return_cce)
 
 def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
@@ -261,15 +256,22 @@ def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
     intra = jax.tree_map(lambda x:x[:L,:L], F)
     cce, cce_loss = cce_fn(**intra)
 
-    # inter (C,L,L,F)
-    inter = jax.tree_map(lambda x:x[:L,L:].reshape(L,C,L,-1).swapaxes(0,1),F)
-    inter = {"t":inter["t"][:,None],        # (C,1,L,L,F)
-             "p":inter["p"][None,:],        # (1,C,L,L,F)
-             "m":inter["m"][:,None,:,:,0]}  # (C,1,L,L)             
-    
-    # (C,C,L,L,F) → (C,C,L,L) → (C,C) → (C) → ()
-    i_cce, i_cce_loss = cce_fn(**inter)
-    i_cce_loss = sum([i_cce_loss.min(i).sum() for i in [0,1]]) / 2
+    # inter (C*L,L,F)
+    inter = jax.tree_map(lambda x:x[L:,:L], F)
+    if C == 0:
+      i_cce, i_cce_loss = cce_fn(**inter)
+
+    else:
+      # (C,L,L,F)
+      inter = jax.tree_map(lambda x:x.reshape(C,L,L,-1), inter)
+      inter = {"t":inter["t"][:,None],        # (C,1,L,L,F)
+               "p":inter["p"][None,:],        # (1,C,L,L,F)
+               "m":inter["m"][:,None,:,:,0]}  # (C,1,L,L)             
+      
+      # (C,C,L,L,F) → (C,C,L,L) → (C,C) → (C) → ()
+      i_cce, i_cce_loss = cce_fn(**inter)
+      i_cce_loss = sum([i_cce_loss.min(i).sum() for i in [0,1]]) / 2
+
     total_loss = (cce_loss + i_cce_loss) / copies
     return (cce, i_cce) if return_cce else total_loss
 
@@ -281,7 +283,7 @@ def get_rmsd_loss(batch, outputs, L=None, include_L=True, copies=1):
   true = batch["all_atom_positions"][:,1,:]
   pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
   weights = batch["all_atom_mask"][:,1]
-  return = _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
+  return _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
 
 def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
   '''
@@ -366,6 +368,16 @@ def get_sc_rmsd(true, pred, sc):
     msd = sd.mean()
   rmsd = jnp.sqrt(msd + 1e-8)
   return {"rmsd":rmsd, "align":align_fn}
+
+#--------------------------------------
+# TODO (make copies friendly)
+#--------------------------------------
+def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
+  sub_batch = jax.tree_map(lambda x: x, batch)
+  sub_batch["use_clamped_fape"] = use_clamped_fape
+  loss = {"loss":0.0}    
+  folding.backbone_loss(loss, sub_batch, outputs["structure_module"], model_config.model.heads.structure_module)
+  return loss["loss"]
 
 def get_6D_loss(batch, outputs, **kwargs):
   true = batch["all_atom_positions"]

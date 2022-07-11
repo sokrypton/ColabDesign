@@ -39,7 +39,7 @@ def pdb_to_string(pdb_file):
       lines.append(line)
   return "\n".join(lines)
 
-def renum_pdb_str(pdb_str, Ls=None):
+def renum_pdb_str(pdb_str, Ls=None, renum=True, offset=1):
   if Ls is not None:
     L_init = 0
     new_chain = {}
@@ -47,8 +47,10 @@ def renum_pdb_str(pdb_str, Ls=None):
       new_chain.update({i:c for i in range(L_init,L_init+L)})
       L_init += L  
 
-  n,pdb_out = 1,[]
-  resnum_,chain_ = None,None
+  n,num,pdb_out = 0,offset,[]
+  resnum_ = None
+  chain_ = None
+  new_chain_ = new_chain[0]
   for line in pdb_str.split("\n"):
     if line[:4] == "ATOM":
       chain = line[21:22]
@@ -56,10 +58,16 @@ def renum_pdb_str(pdb_str, Ls=None):
       if resnum_ is None: resnum_ = resnum
       if chain_ is None: chain_ = chain
       if resnum != resnum_ or chain != chain_:
-        resnum_,chain_ = resnum,chain
+        num += (resnum - resnum_)  
         n += 1
-      if Ls is None: pdb_out.append("%s%4i%s" % (line[:22],n,line[26:]))
-      else: pdb_out.append("%s%s%4i%s" % (line[:21],new_chain[n-1],n,line[26:]))        
+        resnum_,chain_ = resnum,chain
+      if Ls is not None:
+        if new_chain[n] != new_chain_:
+          num = offset
+          new_chain_ = new_chain[n]
+      N = num if renum else resnum
+      if Ls is None: pdb_out.append("%s%4i%s" % (line[:22],N,line[26:]))
+      else: pdb_out.append("%s%s%4i%s" % (line[:21],new_chain[n],N,line[26:]))        
   return "\n".join(pdb_out)
 
 #################################################################################

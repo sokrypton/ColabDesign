@@ -95,9 +95,9 @@ model.set_opt(recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
-  - *last* - use loss from last recycle. (Default)
+  - *last* - use loss from last recycle. (Not recommended, unless you increase number optimization)
   - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
-  - *average* - compute loss at each recycle and average gradients. (Recommended).
+  - *average* - compute loss at each recycle and average gradients. (Default; Recommended).
   - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
   - *backprop* - use loss from last recycle, but backprop through all recycles.
 

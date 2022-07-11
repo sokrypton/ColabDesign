@@ -146,7 +146,6 @@ class _af_prep:
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        self.opt["weights"].update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -288,7 +287,6 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
     shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
   else:
     shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
-
   num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
       shape_placeholders.NUM_RES: length,
@@ -306,11 +304,9 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
         f'Rank mismatch between shape and shape schema for {k}: '
         f'{shape} vs {schema}')
     pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
-    padding = [(0, p - tf.shape(v)[i]) for i, p in enumerate(pad_size)]
-    if padding:
-      feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
-      feat[k].set_shape(pad_size)
-  return {k:np.asarray(v) for k,v in feat.items()}
+    padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
+    feat[k] = np.pad(v, padding)
+  return feat
 
 def get_sc_pos(aa_ident, atoms_to_exclude=None):
   '''get sidechain indices/weights for all_atom14_positions'''
@@ -347,4 +343,5 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   w = np.array([1/(n == N).sum() for n in N])
   w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
   w, w_na = w/w.sum(), w_na/w_na.sum()
-  return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb, "w":w, "w_na":w_na[:,None]}
+  return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
+          "weight":w, "weight_non_amb":w_na[:,None]}

@@ -3,6 +3,8 @@ import jax.numpy as jnp
 import numpy as np
 
 from colabdesign.af.alphafold.common import residue_constants
+from string import ascii_uppercase, ascii_lowercase
+alphabet_list = list(ascii_uppercase+ascii_lowercase)
 
 MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
           'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
@@ -36,6 +38,29 @@ def pdb_to_string(pdb_file):
     if line[:4] == "ATOM":
       lines.append(line)
   return "\n".join(lines)
+
+def renum_pdb_str(pdb_str, Ls=None):
+  if Ls is not None:
+    L_init = 0
+    new_chain = {}
+    for L,c in zip(Ls, alphabet_list):
+      new_chain.update({i:c for i in range(L_init,L_init+L)})
+      L_init += L  
+
+  n,pdb_out = 1,[]
+  resnum_,chain_ = None,None
+  for line in pdb_str.split("\n"):
+    if line[:4] == "ATOM":
+      chain = line[21:22]
+      resnum = int(line[22:22+5])
+      if resnum_ is None: resnum_ = resnum
+      if chain_ is None: chain_ = chain
+      if resnum != resnum_ or chain != chain_:
+        resnum_,chain_ = resnum,chain
+        n += 1
+      if Ls is None: pdb_out.append("%s%4i%s" % (line[:22],n,line[26:]))
+      else: pdb_out.append("%s%s%4i%s" % (line[:21],new_chain[n-1],n,line[26:]))        
+  return "\n".join(pdb_out)
 
 #################################################################################
 

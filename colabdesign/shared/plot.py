@@ -1,6 +1,6 @@
 # import matplotlib
 import numpy as np
-from colabdesign.shared.protein import _np_kabsch
+from colabdesign.shared.protein import _np_kabsch, alphabet_list
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -13,9 +13,6 @@ try:
 except:
   print("py3Dmol not installed")
   
-from string import ascii_uppercase,ascii_lowercase
-
-alphabet_list = list(ascii_uppercase+ascii_lowercase)
 pymol_color_list = ["#33ff33","#00ffff","#ff33cc","#ffff00","#ff9999","#e5e5e5","#7f7fff","#ff7f00",
                     "#7fff7f","#199999","#ff007f","#ffdd5e","#8c3f99","#b2b2b2","#007fff","#c4b200",
                     "#8cb266","#00bfbf","#b27f7f","#fcd1a5","#ff7f7f","#ffbfdd","#7fffff","#ffff7f",
@@ -32,29 +29,6 @@ jalview_color_list = {"Clustal":           ["#80a0f0","#f01505","#00ff00","#c048
                       "Buried Index":      ["#00a35c","#00fc03","#00eb14","#00eb14","#0000ff","#00f10e","#00f10e","#009d62","#00d52a","#0054ab","#007b84","#00ff00","#009768","#008778","#00e01f","#00d52a","#00db24","#00a857","#00e619","#005fa0","#00eb14","#00b649","#00f10e"]}
 
 pymol_cmap = matplotlib.colors.ListedColormap(pymol_color_list)
-
-def renum_pdb_str(pdb_str, Ls=None):
-  if Ls is not None:
-    L_init = 0
-    new_chain = {}
-    for L,c in zip(Ls, alphabet_list):
-      new_chain.update({i:c for i in range(L_init,L_init+L)})
-      L_init += L  
-
-  n,pdb_out = 1,[]
-  resnum_,chain_ = None,None
-  for line in pdb_str.split("\n"):
-    if line[:4] == "ATOM":
-      chain = line[21:22]
-      resnum = int(line[22:22+5])
-      if resnum_ is None: resnum_ = resnum
-      if chain_ is None: chain_ = chain
-      if resnum != resnum_ or chain != chain_:
-        resnum_,chain_ = resnum,chain
-        n += 1
-      if Ls is None: pdb_out.append("%s%4i%s" % (line[:22],n,line[26:]))
-      else: pdb_out.append("%s%s%4i%s" % (line[:21],new_chain[n-1],n,line[26:]))        
-  return "\n".join(pdb_out)
     
 def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
              color="pLDDT", chains=None, Ls=None, vmin=50, vmax=90,
@@ -63,9 +37,8 @@ def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
   if chains is None:
     chains = 1 if Ls is None else len(Ls)
 
-  view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js', width=size[0], height=size[1])
-  pdb_str_renum = renum_pdb_str(pdb_str, Ls)
-  view.addModel(pdb_str_renum,'pdb',{'hbondCutoff':hbondCutoff})
+  view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js', width=size[0], height=size[1])  
+  view.addModel(pdb_str,'pdb',{'hbondCutoff':hbondCutoff})
   if color == "pLDDT":
     view.setStyle({'cartoon': {'colorscheme': {'prop':'b','gradient': 'roygb','min':vmin,'max':vmax}}})
   elif color == "rainbow":

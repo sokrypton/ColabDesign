@@ -16,6 +16,9 @@ from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import order_aa
 
+resname_to_idx = residue_constants.resname_to_idx
+idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
+
 #################################################
 # AF_PREP - input prep functions
 #################################################
@@ -62,7 +65,6 @@ class _af_prep:
     '''
     
     self._args["redesign"] = binder_chain is not None
-    self._copies = 1
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
@@ -180,38 +182,35 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, use_sidechains=False, **kwargs):
-    '''prep input for partial hallucination'''
-    
-    if "sidechain" in kwargs: use_sidechains = kwargs.pop("sidechain")
-    self._args["use_sidechains"] = use_sidechains
-    if use_sidechains: fix_seq = True
-    self.opt["fix_seq"] = fix_seq
-    self._copies = 1    
-    
+                    fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
+                    **kwargs):
+    '''prep input for partial hallucination'''    
+    # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
-    self._len = pdb["residue_index"].shape[0]
+    self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._inputs = self._prep_features(self._len)    
+
+    # configure options/weights
+    self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})
+    self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests
     if pos is None:
-      self.opt["pos"] = np.arange(self._len)
+      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = p = self._pos_info["pos"]
-      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])
-            
+      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])        
     self._wt_aatype = self._batch["aatype"]
-    if use_sidechains:
-      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
-    self._len = pdb["residue_index"].shape[0] if length is None else length
-    self._inputs = self._prep_features(self._len)
-    
-    weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
-    if use_sidechains:
-      weights.update({"sc_rmsd":0.1, "sc_fape":0.1})
-      
-    self.opt["weights"].update(weights)
+    # configure sidechains
+    self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
+    if self._args["use_sidechains"]:
+      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
+      self._batch["sc_pos"] = get_sc_pos(self._wt_aatype, atoms_to_exclude)
+      self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
+      self.opt["fix_seq"] = True
+  
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
 

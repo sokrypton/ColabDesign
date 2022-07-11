@@ -5,9 +5,6 @@ import numpy as np
 from colabdesign.shared.utils import Key
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
-from colabdesign.af.alphafold.common import residue_constants
-
-idx_to_resname = dict((v,k) for k,v in residue_constants.resname_to_idx.items())
 
 ####################################################
 # AF_LOSS - setup loss function

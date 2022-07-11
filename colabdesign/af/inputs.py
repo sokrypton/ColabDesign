@@ -12,7 +12,7 @@ from colabdesign.af.alphafold.model import model
 class _af_inputs:
   def _get_seq(self, params, opt, aux, key):
     '''get sequence features'''
-    seq = soft_seq(params["seq"], opt)
+    seq = soft_seq(params["seq"], opt, key)
     if "pos" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
       fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,opt["pos"],:].set(seq_ref),x)

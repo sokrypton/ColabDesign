@@ -4,10 +4,12 @@ import numpy as np
 
 def TrRosetta(bkg_model=False):  
   
-  def pseudo_mrf(seq):
-    '''single sequence'''    
+  def pseudo_mrf(inputs, prf=None):
+    '''single sequence'''
+    seq,prf = inputs["seq"],inputs["prf"]
     L,A = seq.shape[0],21
-    prf = jnp.pad(seq,[[0,0],[0,1]])
+    if prf.shape[1] == 20:
+      prf = jnp.pad(prf,[[0,0],[0,1]])
     
     # 1D features
     x_1D = jnp.concatenate([seq, prf],-1)
@@ -80,8 +82,8 @@ def TrRosetta(bkg_model=False):
       return trunk(x,model_params)
     return jax.jit(model, static_argnums=2)
   else:
-    def model(seq, model_params):
-      x = pseudo_mrf(seq)
+    def model(inputs, model_params):
+      x = pseudo_mrf(inputs)
       return trunk(x,model_params)
     return jax.jit(model)
 

@@ -28,9 +28,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-
     self._loss_callback = loss_callback
-    self._num = num_seq    
+    self._num = num_seq
+    self._copies = 1    
     self._args = {"use_templates":use_templates,
                   "recycle_mode": recycle_mode,
                   "debug":debug, "repeat": False}
@@ -63,6 +63,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       cfg.data.eval.max_templates = 1
       cfg.data.eval.max_msa_clusters = num_seq + 1
     else:
+      cfg.data.eval.max_templates = 0
       cfg.data.eval.max_msa_clusters = num_seq
     cfg.data.common.max_extra_msa = 1
     cfg.data.eval.masked_msa_replace_fraction = 0

@@ -2,9 +2,11 @@ from colabdesign.af.model import mk_af_model
 from colabdesign.tr.model import mk_tr_model
 
 class mk_af_tr_model:
-  def __init__(self, protocol="fixbb", use_templates=False):
+  def __init__(self, protocol="fixbb", use_templates=False,
+               recycle_mode="last", num_recycles=0):
     assert protocol in ["fixbb","partial","hallucination","binder"]
-    self.af = mk_af_model(protocol=protocol, use_templates=use_templates)
+    self.af = mk_af_model(protocol=protocol, use_templates=use_templates,
+                          recycle_mode=recycle_mode, num_recycles=num_recycles)
     
     if protocol == "binder":
       def _prep_inputs(pdb_filename, chain, binder_len=50, binder_chain=None, **kwargs):
@@ -25,12 +27,15 @@ class mk_af_tr_model:
         self.tr.prep_inputs(pdb_filename=pdb_filename, chain=chain)
 
     if protocol == "partial":
-      def _prep_inputs(pdb_filename, chain, pos=None, length=None, fix_seq=False, use_sidechains=False):
+      def _prep_inputs(pdb_filename, chain, pos=None, length=None,
+                       fix_seq=False, use_sidechains=False, atoms_to_exclude=None, **kwargs):
         if use_sidechains: fix_seq = True
         flags = dict(pdb_filename=pdb_filename, chain=chain, pos=pos,
                      length=length, fix_seq=fix_seq)
-        self.af.prep_inputs(**flags, use_sidechains=use_sidechains)
-        self.tr.prep_inputs(**flags)  
+        af_a2e = kwargs.pop("af_atoms_to_exclude",atoms_to_exclude)
+        tr_a2e = kwargs.pop("tr_atoms_to_exclude",atoms_to_exclude)
+        self.af.prep_inputs(**flags, use_sidechains=use_sidechains, atoms_to_exclude=af_a2e)
+        self.tr.prep_inputs(**flags, atoms_to_exclude=tr_a2e)
       
       def _rewire(order=None, offset=0, loops=0):
         self.af.rewire(order=order, offset=offset, loops=loops)

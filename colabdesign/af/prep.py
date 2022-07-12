@@ -16,6 +16,9 @@ from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import order_aa
 
+resname_to_idx = residue_constants.resname_to_idx
+idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
+
 #################################################
 # AF_PREP - input prep functions
 #################################################
@@ -62,7 +65,6 @@ class _af_prep:
     '''
     
     self._args["redesign"] = binder_chain is not None
-    self._copies = 1
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
@@ -125,7 +127,7 @@ class _af_prep:
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len)
     self._copies = copies
-    self._args.update({"repeat":repeat, "block_diag":block_diag})
+    self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
     
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
@@ -144,7 +146,6 @@ class _af_prep:
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        self.opt["weights"].update({"i_pae":0.01, "i_con":0.0})
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
 
@@ -181,38 +182,35 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, use_sidechains=False, **kwargs):
-    '''prep input for partial hallucination'''
-    
-    if "sidechain" in kwargs: use_sidechains = kwargs.pop("sidechain")
-    self._args["use_sidechains"] = use_sidechains
-    if use_sidechains: fix_seq = True
-    self.opt["fix_seq"] = fix_seq
-    self._copies = 1    
-    
+                    fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
+                    **kwargs):
+    '''prep input for partial hallucination'''    
+    # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
-    self._len = pdb["residue_index"].shape[0]
+    self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._inputs = self._prep_features(self._len)    
+
+    # configure options/weights
+    self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})
+    self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests
     if pos is None:
-      self.opt["pos"] = np.arange(self._len)
+      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = p = self._pos_info["pos"]
-      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])
-            
+      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])        
     self._wt_aatype = self._batch["aatype"]
-    if use_sidechains:
-      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
 
-    self._len = pdb["residue_index"].shape[0] if length is None else length
-    self._inputs = self._prep_features(self._len)
-    
-    weights = {"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0}
-    if use_sidechains:
-      weights.update({"sc_rmsd":0.1, "sc_fape":0.1})
-      
-    self.opt["weights"].update(weights)
+    # configure sidechains
+    self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
+    if self._args["use_sidechains"]:
+      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
+      self._batch["sc_pos"] = get_sc_pos(self._wt_aatype, atoms_to_exclude)
+      self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
+      self.opt["fix_seq"] = True
+  
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
 
@@ -289,7 +287,6 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
     shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
   else:
     shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
-
   num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
       shape_placeholders.NUM_RES: length,
@@ -307,8 +304,44 @@ def make_fixed_size(feat, model_runner, length, batch_axis=True):
         f'Rank mismatch between shape and shape schema for {k}: '
         f'{shape} vs {schema}')
     pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
-    padding = [(0, p - tf.shape(v)[i]) for i, p in enumerate(pad_size)]
-    if padding:
-      feat[k] = tf.pad(v, padding, name=f'pad_to_fixed_{k}')
-      feat[k].set_shape(pad_size)
-  return {k:np.asarray(v) for k,v in feat.items()}
+    padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
+    feat[k] = np.pad(v, padding)
+  return feat
+
+def get_sc_pos(aa_ident, atoms_to_exclude=None):
+  '''get sidechain indices/weights for all_atom14_positions'''
+
+  # decide what atoms to exclude for each residue type
+  a2e = {}
+  for r in resname_to_idx:
+    if isinstance(atoms_to_exclude,dict):
+      a2e[r] = atoms_to_exclude.get(r,atoms_to_exclude.get("ALL",["N","C","O"]))
+    else:
+      a2e[r] = ["N","C","O"] if atoms_to_exclude is None else atoms_to_exclude
+
+  # collect atom indices
+  pos,pos_alt = [],[]
+  N,N_non_amb = [],[]
+  for n,a in enumerate(aa_ident):
+    aa = idx_to_resname[a]
+    atoms = set(residue_constants.residue_atoms[aa])
+    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
+    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
+    swaps.update({v:k for k,v in swaps.items()})
+    for atom in atoms.difference(a2e[aa]):
+      pos.append(n * 14 + atoms14.index(atom))
+      if atom in swaps:
+        pos_alt.append(n * 14 + atoms14.index(swaps[atom]))
+      else:
+        pos_alt.append(pos[-1])
+        N_non_amb.append(n)
+      N.append(n)
+
+  pos, pos_alt = np.asarray(pos), np.asarray(pos_alt)
+  non_amb = pos == pos_alt
+  N, N_non_amb = np.asarray(N), np.asarray(N_non_amb)
+  w = np.array([1/(n == N).sum() for n in N])
+  w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
+  w, w_na = w/w.sum(), w_na/w_na.sum()
+  return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
+          "weight":w, "weight_non_amb":w_na[:,None]}

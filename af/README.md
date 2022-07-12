@@ -1,4 +1,4 @@
-# AfDesign (v1.0.2)
+# AfDesign (v1.0.3)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -13,6 +13,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
 - **28June2022** - v1.0.1 - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`).
 - **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
+- **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
 
 ### setup
 ```bash
@@ -95,11 +96,11 @@ model.set_opt(recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
-  - *average* - compute loss at each recycle and average gradients. (Recommend).
+  - *last* - use loss from last recycle. (Not recommended, unless you increase number optimization)
+  - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
+  - *average* - compute loss at each recycle and average gradients. (Default; Recommended).
   - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
   - *backprop* - use loss from last recycle, but backprop through all recycles.
-  - *last* - use loss from last recycle. (NOT recommended, unless you gradually increase number of recycles during optimization)
-  - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
 
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 

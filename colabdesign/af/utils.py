@@ -7,6 +7,7 @@ from matplotlib.gridspec import GridSpec
 from colabdesign.shared.protein import _np_kabsch
 from colabdesign.shared.utils import update_dict
 from colabdesign.shared.plot import plot_pseudo_3D, make_animation, show_pdb
+from colabdesign.shared.protein import renum_pdb_str
 from colabdesign.af.alphafold.common import protein
 
 ####################################################
@@ -18,30 +19,39 @@ class _af_utils:
     '''output the loss (for entire trajectory)'''
     return np.array([float(loss[x]) for loss in self._traj["log"]])
 
-  def save_pdb(self, filename=None, get_best=True):
+  def save_pdb(self, filename=None, get_best=True, renum_pdb=True):
     '''
     save pdb coordinates (if filename provided, otherwise return as string)
     - set get_best=False, to get the last sampled sequence
     '''
     aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    aux = jax.tree_map(lambda x:np.asarray(x), aux)
+    aux = jax.tree_map(np.asarray, aux)    
     aatype = aux["seq"]["hard"].argmax(-1)[0]
+
+    Ls = None    
     if self.protocol == "binder":
       aatype_target = self._batch["aatype"][:self._target_len]
       aatype = np.concatenate([aatype_target,aatype])
-    if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-      aatype = np.concatenate([aatype] * self._copies)
+      Ls = [self._target_len, self._binder_len]      
+    if self.protocol == "partial":
+      Ls = [self._len]
+    if self.protocol in ["hallucination","fixbb"]:
+      Ls = [self._len] * self._copies
+      if self._copies > 1: aatype = np.concatenate([aatype] * self._copies)
+    
     p = {"residue_index":self._inputs["residue_index"][0],
           "aatype":aatype,
           "atom_positions":aux["final_atom_positions"],
           "atom_mask":aux["final_atom_mask"]}
     b_factors = 100.0 * aux["plddt"][:,None] * p["atom_mask"]
     p = protein.Protein(**p,b_factors=b_factors)
-    pdb_lines = protein.to_pdb(p)
+    pdb_str = protein.to_pdb(p)
+    if renum_pdb:
+      pdb_str = renum_pdb_str(pdb_str, Ls)    
     if filename is None:
-      return pdb_lines
+      return pdb_str, Ls
     else:
-      with open(filename, 'w') as f: f.write(pdb_lines)
+      with open(filename, 'w') as f: f.write(pdb_str)
   #-------------------------------------
   # plotting functions
   #-------------------------------------
@@ -81,14 +91,8 @@ class _af_utils:
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    Ls = None    
-    if self.protocol == "binder":
-      Ls = [self._target_len, self._binder_len]      
-    if self.protocol == "partial":
-      Ls = [self._len]
-    if self.protocol in ["hallucination","fixbb"]:
-      Ls = [self._len] * self._copies
-    view = show_pdb(self.save_pdb(get_best=get_best),
+    pdb_str, Ls = self.save_pdb(get_best=get_best)
+    view = show_pdb(pdb_str,
                     show_sidechains=show_sidechains,
                     show_mainchains=show_mainchains,
                     color=color,

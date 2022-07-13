@@ -82,7 +82,7 @@ class mk_tr_model(design_model):
       loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
-    def _model(params, model_params, opt):
+    def _model(params, model_params, opt, key):
       seq = soft_seq(params["seq"], opt)
       if "pos" in opt:
         seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
@@ -90,7 +90,8 @@ class mk_tr_model(design_model):
         seq = jax.tree_map(fix_seq,seq)
       inputs = {"seq":seq["pseudo"][0],
                 "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]}
-      outputs = self._runner(inputs, model_params)
+      config = {"rate":jnp.where(opt["dropout"],0.15,0.0)}
+      outputs = self._runner(inputs, model_params, key, config)
       loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
@@ -136,7 +137,8 @@ class mk_tr_model(design_model):
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
-        self._bkg_feats.append(self._bkg_model(model_params, key, self._len))
+        config = {"length":self._len,"rate":0.0}
+        self._bkg_feats.append(self._bkg_model(model_params, key, config))
       self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
 
       # reweight the background
@@ -152,7 +154,7 @@ class mk_tr_model(design_model):
     if reset_opt:
       self.opt = copy_dict(self._opt)
 
-    self.key = Key(seed=seed).get
+    self.key = Key(seed=seed)
     self.set_opt(opt)
     self.set_weights(weights)
     self.set_seq(seq, **kwargs)
@@ -173,7 +175,7 @@ class mk_tr_model(design_model):
       ns = jnp.arange(5)
       m = min(self.opt["models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):
-        model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+        model_num = jax.random.choice(self.key.get(),ns,(m,),replace=False)
       else:
         model_num = ns[:m]
       model_num = np.array(model_num).tolist()
@@ -187,9 +189,9 @@ class mk_tr_model(design_model):
     for n in model_num:
       model_params = self._model_params[n]
       if backprop:
-        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt)
+        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt, self.key.get())
       else:
-        loss,aux = self._fn(self.params, model_params, self.opt)
+        loss,aux = self._fn(self.params, model_params, self.opt, self.key.get())
         grad = jax.tree_map(jnp.zeros_like, self.params)
       outs.append({"loss":loss,"aux":aux,"grad":grad})
     outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)

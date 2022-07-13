@@ -86,17 +86,17 @@ def TrRosetta(bkg_model=False):
   
   # decide which model to use
   if bkg_model:
-    def model(model_params, key, config):
+    def model(model_params, key, length):
       key, *keys = jax.random.split(key, 3)
-      x = jax.random.normal(key, (config["length"], config["length"], 64))
-      return trunk(x, model_params, keys, config["rate"])
+      x = jax.random.normal(key, (length, length, 64))
+      return trunk(x, model_params, keys, 0.0)
     return jax.jit(model, static_argnums=2)
   
   else:
-    def model(inputs, model_params, key, config):
+    def model(inputs, model_params, key, rate):
       keys = jax.random.split(key, 2)
       x = pseudo_mrf(inputs)
-      return trunk(x, model_params, keys, config["rate"])
+      return trunk(x, model_params, keys, rate)
     return jax.jit(model)
 
 def get_model_params(npy):

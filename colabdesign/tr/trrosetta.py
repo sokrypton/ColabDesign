@@ -22,81 +22,81 @@ def TrRosetta(bkg_model=False):
     x_2D = jnp.pad(x_2D,[[0,0],[0,0],[0,1]])
     return jnp.concatenate([x_1D.swapaxes(0,1), x_1D, x_2D],-1)
   
-  def instance_norm(x, p):
+  # layers
+  def instance_norm(x, params):
     mu = x.mean((0,1),keepdims=True)
     var = x.var((0,1),keepdims=True)
-    inv = jax.lax.rsqrt(var + 1e-6) * p ["scale"]
-    return x * inv + p["offset"] - mu * inv
+    inv = jax.lax.rsqrt(var + 1e-6) * params["scale"]
+    return x * inv + params["offset"] - mu * inv
 
-  def conv_2D(x, p, dilation=1, stride=1, padding="SAME"):
+  def conv_2D(x, params, dilation=1, stride=1, padding="SAME"):
     flags = dict(window_strides=(stride,stride),
                  rhs_dilation=(dilation,dilation),
                  padding=padding)
     x = x.transpose([2,0,1])
-    f = p["filters"].transpose([3,2,0,1])
+    f = params["filters"].transpose([3,2,0,1])
     x = jax.lax.conv_general_dilated(x[None], f, **flags)[0]
     x = x.transpose([1,2,0])
-    return x + p["bias"]
+    return x + params["bias"]
 
-  def dense(x, p):
-    return x @ p["filters"] + p["bias"]
+  def dense(x, params):
+    return x @ params["filters"] + params["bias"]
 
   def dropout(x, key, rate):
     keep_rate = 1.0 - rate
     keep = jax.random.bernoulli(key, keep_rate, shape=x.shape)
     return keep * x / keep_rate
   
-  def encoder(x, p):
-    x = dense(x,p)
-    x = instance_norm(x,p)
+  # meta layers
+  def encoder(x, params):
+    x = dense(x, params)
+    x = instance_norm(x, params)
     return jax.nn.elu(x)
       
-  def block(x, p, dilation, key, rate=0.15):
+  def block(x, params, dilation, key, rate=0.15):
     y = x
     for n in [0,1]:
-      q = jax.tree_map(lambda x:x[n],p)
       if n == 1: y = dropout(y, key, rate)
-      y = conv_2D(y,q,dilation)
-      y = instance_norm(y,q)
+      p = jax.tree_map(lambda x:x[n], params)
+      y = conv_2D(y, p, dilation)
+      y = instance_norm(y, p)
       y = jax.nn.elu(y if n == 0 else (x+y))
     return y  
   
-  def resnet(x, p, key, rate=0.15):
-    def body(y, sub):
-      sub_p, sub_k = sub
-      sub_k = jax.random.split(sub_k, 5)
-      for n,dilation in enumerate([1,2,4,8,16]):
-        q = jax.tree_map(lambda x:x[n], sub_p)
-        y = block(y, q, dilation, sub_k[n], rate)
-      return y, None
-    keys = jax.random.split(key, p["filters"].shape[0])
-    return jax.lax.scan(body,x,(p,keys))[0]
+  def resnet(x, params, key, rate=0.15):
+    def body(prev, sub_params):
+      (x,key) = prev
+      for n, dilation in enumerate([1,2,4,8,16]):
+        key, sub_key = jax.random.split(key)
+        p = jax.tree_map(lambda x:x[n], sub_params)
+        x = block(x, p, dilation, sub_key, rate)
+      return (x,key), None
+    return jax.lax.scan(body,(x,key),params)[0][0]
   
-  def heads(x, p):
-    o = {k:dense(x,p[k]) for k in ["theta","phi"]}
+  def heads(x, params):
+    o = {k:dense(x,params[k]) for k in ["theta","phi"]}
     x = (x + x.swapaxes(0,1)) / 2  
-    o.update({k:dense(x,p[k]) for k in ["dist","bb","omega"]})
+    o.update({k:dense(x,params[k]) for k in ["dist","bb","omega"]})
     return o    
   
-  def trunk(x, p, keys, rate=0.15):
-    x = encoder(x, p["encoder"])
-    x = resnet(x, p["resnet"], keys[0], rate)
-    x = block(x, p["block"], 1, keys[1], rate)  
-    return heads(x, p)
+  def trunk(x, params, key, rate=0.15):
+    key, sub_key = jax.random.split(key)
+    x = encoder(x, params["encoder"])
+    x = resnet(x, params["resnet"], sub_key, rate)
+    x = block(x, params["block"], 1, key, rate)  
+    return heads(x, params)
   
   # decide which model to use
   if bkg_model:
-    def model(model_params, key, length):
-      key, *keys = jax.random.split(key, 3)
-      x = jax.random.normal(key, (length, length, 64))
-      return trunk(x, model_params, keys, 0.0)
+    def model(params, key, length=100):
+      key, sub_key = jax.random.split(key)
+      x = jax.random.normal(sub_key, (length, length, 64))
+      return trunk(x, params, key, 0.0)
     return jax.jit(model, static_argnums=2)
-  
   else:
-    def model(inputs, model_params, key, rate):
-      keys = jax.random.split(key, 2)
+    def model(inputs, params, key, rate=0.15):
       x = pseudo_mrf(inputs)
-      return trunk(x, model_params, keys, rate)
+      return trunk(x, params, key, rate)
     return jax.jit(model)
 
 def get_model_params(npy):

@@ -116,7 +116,8 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=False, rm_template_seq=True, **kwargs):
+                  repeat=False, block_diag=False, rm_template_seq=True,
+                  pos=None, fix_seq=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
     self._args["rm_template_seq"] = rm_template_seq
@@ -133,7 +134,7 @@ class _af_prep:
     self._inputs = self._prep_features(self._len)
     self._copies = copies
     self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
-    
+
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
 
@@ -153,6 +154,12 @@ class _af_prep:
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
+
+    # fix certain positions
+    self.opt["fix_seq"] = fix_seq
+    if pos is not None:
+      self._pos_info = prep_pos(pos, **pdb["idx"])
+      self.opt["pos"] = self._pos_info["pos"]
 
     self._wt_aatype = self._batch["aatype"][:self._len]
     self._opt = copy_dict(self.opt)

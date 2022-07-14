@@ -86,7 +86,11 @@ class mk_tr_model(design_model):
       seq = soft_seq(params["seq"], opt)
       if "pos" in opt:
         seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
-        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,opt["pos"],:].set(seq_ref),x)
+        p = opt["pos"]
+        if self.protocol == "partial":
+          fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
+        else:
+          fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
         seq = jax.tree_map(fix_seq,seq)
       inputs = {"seq":seq["pseudo"][0],
                 "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]}
@@ -108,10 +112,12 @@ class mk_tr_model(design_model):
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
       self._batch = pdb["batch"]
 
-      if self.protocol in ["partial"] and pos is not None:
+      if pos is not None:
         self._pos_info = prep_pos(pos, **pdb["idx"])
         p = self._pos_info["pos"]
-        self._batch = jax.tree_map(lambda x:x[p], self._batch)
+        if self.protocol == "partial":
+          self._batch = jax.tree_map(lambda x:x[p], self._batch)
+
         self.opt["pos"] = p
         self.opt["fix_seq"] = fix_seq
 
@@ -229,7 +235,13 @@ class mk_tr_model(design_model):
     # normalize gradient
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.grad["seq"] *= jnp.sqrt(self._len)/(gn+1e-7)
+
+    if "pos" in self.opt and self.opt.get("fix_seq",False):
+      # note: gradients only exist in unconstrained positions
+      eff_len = self._len - self.opt["pos"].shape[0]
+    else:
+      eff_len = self._len
+    self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     self.grad = jax.tree_map(lambda x:x*self.opt["lr"], self.grad)

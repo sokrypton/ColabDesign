@@ -115,7 +115,7 @@ class _af_design:
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       aatype = self.aux["seq"]["pseudo"].argmax(-1)
-      if "pos" in self.opt:
+      if self.protocol == "partial" and "pos" in self.opt:
         aatype = aatype[...,self.opt["pos"]]
       self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
@@ -179,9 +179,9 @@ class _af_design:
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
     
-    if self.protocol == "partial" and self.opt["fix_seq"]:
+    if "pos" in self.opt and self.opt.get("fix_seq",False):
       # note: gradients only exist in unconstrained positions
-      eff_len = self._len - len(self.opt["pos"])
+      eff_len = self._len - self.opt["pos"].shape[0]
     else:
       eff_len = self._len
 

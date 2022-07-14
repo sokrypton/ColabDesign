@@ -143,6 +143,25 @@ class mk_tr_model(design_model):
 
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
+
+  def set_opt(self, *args, **kwargs):
+    '''
+    set [opt]ions
+    -------------------
+    note: model.restart() resets the [opt]ions to their defaults
+    use model.set_opt(..., set_defaults=True) 
+    or model.restart(..., reset_opt=False) to avoid this
+    -------------------    
+    model.set_opt(models=1, recycles=0)
+    model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
+    model.set_opt(lr=1, set_defaults=True)
+    '''
+
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt, *args, **kwargs)
+
+    update_dict(self.opt, *args, **kwargs)
+
   
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, reset_opt=True, **kwargs):

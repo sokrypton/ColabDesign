@@ -188,7 +188,7 @@ class _af_prep:
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
-                    rm_template_seq=True, **kwargs):
+                    rm_template_seq=False, **kwargs):
     '''prep input for partial hallucination'''    
 
     self._args["rm_template_seq"] = rm_template_seq

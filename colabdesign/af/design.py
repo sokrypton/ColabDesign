@@ -178,7 +178,14 @@ class _af_design:
     # normalize gradient
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.grad["seq"] *= jnp.sqrt(self._len)/(gn+1e-7)
+    
+    if self.protocol == "partial" and self.opt["fix_seq"]:
+      # note: gradients only exist in unconstrained positions
+      eff_len = self._len - len(self.opt["pos"])
+    else:
+      eff_len = self._len
+
+    self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     lr = self.opt["lr"] * lr_scale

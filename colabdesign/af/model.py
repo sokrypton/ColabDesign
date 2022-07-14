@@ -40,7 +40,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "debug":debug, "repeat": False,
                   "best_metric": best_metric}
     
-    self.opt = {"dropout":True, "lr":1.0,
+    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
@@ -117,7 +117,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       seq = self._get_seq(params, opt, aux, key())
             
       # update sequence features
-      update_seq(seq["pseudo"], inputs)
+      pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
+      update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
       B,L = inputs["aatype"].shape[:2]

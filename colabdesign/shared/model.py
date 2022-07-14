@@ -130,6 +130,7 @@ def soft_seq(x, opt, key=None):
 
   # straight-through/reparameterization
   seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
+  seq["pssm"] = jax.nn.softmax(seq["logits"])
   seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
   seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
   seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]

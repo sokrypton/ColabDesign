@@ -21,8 +21,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
-               use_templates=False, data_dir=".",
-               debug=False, loss_callback=None):
+               use_templates=False, best_metric="loss",
+               debug=False, loss_callback=None,
+               data_dir="."):
+    
+    assert protocol in ["fixbb","hallucination","binder","partial"]
+    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
     
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -33,14 +37,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._copies = 1    
     self._args = {"use_templates":use_templates,
                   "recycle_mode": recycle_mode,
-                  "debug":debug, "repeat": False}
+                  "debug":debug, "repeat": False,
+                  "best_metric": best_metric}
     
-    self.opt = {"dropout":True, "lr":1.0,
+    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
-                "template": {"aatype":21, "dropout":0.15},
+                "template": {"aatype":21, "dropout":0.0},
                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
     
     self.params = {}
@@ -69,7 +74,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     cfg.data.eval.masked_msa_replace_fraction = 0
 
     # number of recycles
-    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
+    
     if recycle_mode == "average": num_recycles = 0
     cfg.data.common.num_recycle = 0      # for feature processing
     cfg.model.num_recycle = num_recycles # for model configuration
@@ -112,7 +117,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       seq = self._get_seq(params, opt, aux, key())
             
       # update sequence features
-      update_seq(seq["pseudo"], inputs)
+      pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
+      update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
       B,L = inputs["aatype"].shape[:2]

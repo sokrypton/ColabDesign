@@ -17,8 +17,9 @@ class _af_loss:
     aux["losses"]["plddt"] = plddt_loss.mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-  def _loss_fixbb(self, inputs, outputs, opt, aux):
+  def _loss_fixbb(self, inputs, outputs, opt, aux, batch=None):
     '''get losses'''
+    if batch is None: batch = self._batch
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     self._get_pairwise_loss(inputs, outputs, opt, aux)
@@ -27,42 +28,44 @@ class _af_loss:
     if self._args["repeat"] or not self._args["homooligomer"]: copies = 1      
     
     # rmsd loss
-    aln = get_rmsd_loss(self._batch, outputs, copies=copies)
+    aln = get_rmsd_loss(batch, outputs, copies=copies)
     rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
 
     # dgram loss
     aatype = inputs["aatype"][0]
-    dgram_cce = get_dgram_loss(self._batch, outputs, copies=copies, aatype=aatype)
+    dgram_cce = get_dgram_loss(batch, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"fape": get_fape_loss(self._batch, outputs, model_config=self._config),
+    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._config),
                           "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
 
-  def _loss_binder(self, inputs, outputs, opt, aux):
+  def _loss_binder(self, inputs, outputs, opt, aux, batch=None):
     '''get losses'''
+    if batch is None: batch = self._batch
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux, interface=True)
 
     if self._args["redesign"]:      
-      aln = get_rmsd_loss(self._batch, outputs, L=self._target_len, include_L=False)
+      aln = get_rmsd_loss(batch, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
 
-      fape = get_fape_loss(self._batch, outputs, model_config=self._config)
+      fape = get_fape_loss(batch, outputs, model_config=self._config)
       
       # compute cce of binder + interface
       aatype = inputs["aatype"][0]
-      cce = get_dgram_loss(self._batch, outputs, aatype=aatype, return_cce=True)
+      cce = get_dgram_loss(batch, outputs, aatype=aatype, return_cce=True)
 
       aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[L:,:].mean()})
     
     else:
-      align_fn = get_rmsd_loss(self._batch, outputs, L=self._target_len)["align"]
+      align_fn = get_rmsd_loss(batch, outputs, L=self._target_len)["align"]
 
     aux["final_atom_positions"] = align_fn(aux["final_atom_positions"])
 
-  def _loss_partial(self, inputs, outputs, opt, aux):
+  def _loss_partial(self, inputs, outputs, opt, aux, batch=None):
     '''get losses'''    
+    if batch is None: batch = self._batch
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss.mean()
@@ -81,10 +84,10 @@ class _af_loss:
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
     if aatype is not None: aatype = sub(aatype,pos,0)
-    aux["losses"]["dgram_cce"] = get_dgram_loss(self._batch, pred=dgram, copies=1, aatype=aatype)
+    aux["losses"]["dgram_cce"] = get_dgram_loss(batch, pred=dgram, copies=1, aatype=aatype)
 
     # rmsd
-    true = self._batch["all_atom_positions"]
+    true = batch["all_atom_positions"]
     pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
     aln = _get_rmsd_loss(true[:,1], pred[:,1])
     aux["losses"]["rmsd"] = aln["rmsd"]
@@ -93,21 +96,21 @@ class _af_loss:
     fape_loss = {"loss":0.0}
     struct = outputs["structure_module"]
     traj = {"traj":sub(struct["traj"],pos,-2)}
-    folding.backbone_loss(fape_loss, self._batch, traj, _config)
+    folding.backbone_loss(fape_loss, batch, traj, _config)
     aux["losses"]["fape"] = fape_loss["loss"]
 
     # sidechain specific losses
     if self._args["use_sidechains"]:
       # sc_fape
       pred_pos = sub(struct["final_atom14_positions"],pos)
-      sc_struct = {**folding.compute_renamed_ground_truth(self._batch, pred_pos),
+      sc_struct = {**folding.compute_renamed_ground_truth(batch, pred_pos),
                    "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
 
-      aux["losses"]["sc_fape"] = folding.sidechain_loss(self._batch, sc_struct, _config)["loss"]
+      aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct, _config)["loss"]
 
       # sc_rmsd
-      true_pos = all_atom.atom37_to_atom14(self._batch["all_atom_positions"], self._batch)
-      aln = get_sc_rmsd(true_pos, pred_pos, self._batch["sc_pos"])
+      true_pos = all_atom.atom37_to_atom14(batch["all_atom_positions"], batch)
+      aln = get_sc_rmsd(true_pos, pred_pos, batch["sc_pos"])
       aux["losses"]["sc_rmsd"] = aln["rmsd"]
 
     # align final atoms

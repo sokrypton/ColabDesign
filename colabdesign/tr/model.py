@@ -35,7 +35,7 @@ class mk_tr_model(design_model):
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
                 "models":num_models,"sample_models":sample_models,
-                "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0}
+                "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0, "use_pssm":False}
                 
     self.params = {}
 
@@ -82,13 +82,16 @@ class mk_tr_model(design_model):
       loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
-    def _model(params, model_params, opt):
+    def _model(params, model_params, opt, key):
       seq = soft_seq(params["seq"], opt)
       if "pos" in opt:
         seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
         fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,opt["pos"],:].set(seq_ref),x)
         seq = jax.tree_map(fix_seq,seq)
-      outputs = self._runner(seq["pseudo"][0], model_params)
+      inputs = {"seq":seq["pseudo"][0],
+                "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]}
+      rate = jnp.where(opt["dropout"],0.15,0.0)
+      outputs = self._runner(inputs, model_params, key, rate)
       loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
@@ -143,6 +146,25 @@ class mk_tr_model(design_model):
 
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
+
+  def set_opt(self, *args, **kwargs):
+    '''
+    set [opt]ions
+    -------------------
+    note: model.restart() resets the [opt]ions to their defaults
+    use model.set_opt(..., set_defaults=True) 
+    or model.restart(..., reset_opt=False) to avoid this
+    -------------------    
+    model.set_opt(models=1, recycles=0)
+    model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
+    model.set_opt(lr=1, set_defaults=True)
+    '''
+
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt, *args, **kwargs)
+
+    update_dict(self.opt, *args, **kwargs)
+
   
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, reset_opt=True, **kwargs):
@@ -185,9 +207,9 @@ class mk_tr_model(design_model):
     for n in model_num:
       model_params = self._model_params[n]
       if backprop:
-        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt)
+        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt, self.key())
       else:
-        loss,aux = self._fn(self.params, model_params, self.opt)
+        loss,aux = self._fn(self.params, model_params, self.opt, self.key())
         grad = jax.tree_map(jnp.zeros_like, self.params)
       outs.append({"loss":loss,"aux":aux,"grad":grad})
     outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)
@@ -269,11 +291,10 @@ class mk_tr_model(design_model):
     
   def af_callback(self, weight=1.0, seed=None):
     
-    def callback(af_model):
-      
+    def callback(af_model):      
       # copy [opt]ions from afdesign
-      for k in ["soft","temp","hard","pos","fix_seq","bias","models","alpha"]:
-        if k in self.opt and k in af_model.opt:
+      for k,v in af_model.opt.items():
+        if k in self.opt and k not in ["weights"]:
           self.opt[k] = af_model.opt[k]
 
       # update sequence input

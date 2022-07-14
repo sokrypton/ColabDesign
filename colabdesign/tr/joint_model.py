@@ -22,8 +22,8 @@ class mk_af_tr_model:
       self.tr = mk_tr_model(protocol=protocol)
 
     if protocol == "fixbb":
-      def _prep_inputs(pdb_filename, chain):
-        self.af.prep_inputs(pdb_filename=pdb_filename, chain=chain)
+      def _prep_inputs(pdb_filename, chain, **kwargs):
+        self.af.prep_inputs(pdb_filename=pdb_filename, chain=chain, **kwargs)
         self.tr.prep_inputs(pdb_filename=pdb_filename, chain=chain)
 
     if protocol == "partial":
@@ -34,7 +34,7 @@ class mk_af_tr_model:
                      length=length, fix_seq=fix_seq)
         af_a2e = kwargs.pop("af_atoms_to_exclude",atoms_to_exclude)
         tr_a2e = kwargs.pop("tr_atoms_to_exclude",atoms_to_exclude)
-        self.af.prep_inputs(**flags, use_sidechains=use_sidechains, atoms_to_exclude=af_a2e)
+        self.af.prep_inputs(**flags, use_sidechains=use_sidechains, atoms_to_exclude=af_a2e, **kwargs)
         self.tr.prep_inputs(**flags, atoms_to_exclude=tr_a2e)
       
       def _rewire(order=None, offset=0, loops=0):
@@ -44,8 +44,8 @@ class mk_af_tr_model:
       self.rewire = _rewire
 
     if protocol == "hallucintion":
-      def _prep_inputs(length=None):
-        self.af.prep_inputs(length=length)
+      def _prep_inputs(length=None, **kwargs):
+        self.af.prep_inputs(length=length, **kwargs)
         self.tr.prep_inputs(length=length)
 
     self.prep_inputs = _prep_inputs

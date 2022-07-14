@@ -10,32 +10,6 @@ aa_order = residue_constants.restype_order
 order_aa = {b:a for a,b in aa_order.items()}
 
 class design_model:
-  def set_opt(self, *args, **kwargs):
-    '''
-    set [opt]ions
-    -------------------
-    note: model.restart() resets the [opt]ions to their defaults
-    use model.set_opt(..., set_defaults=True) 
-    or model.restart(..., reset_opt=False) to avoid this
-    -------------------    
-    model.set_opt(models=1, recycles=0)
-    model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
-    model.set_opt(lr=1, set_defaults=True)
-    '''
-    if "optimizer" in kwargs:
-      print("ERROR: use model.restart(optimizer=...) to set the optimizer")
-
-    if "recycle_mode" in kwargs and "recycle_mode" in self._args:
-      if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
-        self._args["recycle_mode"] = kwargs.pop("recycle_mode")
-      else:
-        print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
-
-    if kwargs.pop("set_defaults", False):
-      update_dict(self._opt, *args, **kwargs)
-
-    update_dict(self.opt, *args, **kwargs)
-
   def set_weights(self, *args, **kwargs):
     '''
     set weights
@@ -156,6 +130,7 @@ def soft_seq(x, opt, key=None):
 
   # straight-through/reparameterization
   seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
+  seq["pssm"] = jax.nn.softmax(seq["logits"])
   seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
   seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
   seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]

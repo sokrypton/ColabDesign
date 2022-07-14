@@ -19,7 +19,7 @@ except:
 # | \_restart
 #  \
 #   \_design
-#    \_ste
+#    \_step
 #    | \_recycle
 #     \_save_results
 #
@@ -64,7 +64,7 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best_loss = np.inf
+      self._best_metric = self._best_loss = np.inf
       self._best_aux = self._best_outs = None
       
   def run(self, model=None, backprop=True, average=True, callback=None):
@@ -178,7 +178,14 @@ class _af_design:
     # normalize gradient
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.grad["seq"] *= jnp.sqrt(self._len)/(gn+1e-7)
+    
+    if self.protocol == "partial" and self.opt["fix_seq"]:
+      # note: gradients only exist in unconstrained positions
+      eff_len = self._len - len(self.opt["pos"])
+    else:
+      eff_len = self._len
+
+    self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     lr = self.opt["lr"] * lr_scale
@@ -204,9 +211,10 @@ class _af_design:
 
     # save best result
     if save_best:
-      if self.loss < self._best_loss:
-        self._best_loss = self.loss
-        self._best_aux = self._best_outs = self.aux
+      metric = self.aux["log"][self._args["best_metric"]]
+      if metric < self._best_metric:
+        self._best_metric = self._best_loss = metric
+        self._best_aux    = self._best_outs = self.aux
     
     if verbose and (self._k % verbose) == 0:
       # preferred order

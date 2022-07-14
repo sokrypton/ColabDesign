@@ -33,20 +33,29 @@ class _af_inputs:
 
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
+
+    # aatype = is used to define template's CB coordinates (CA in case of glycine)
+    # template_aatype = is used as template's sequence
+
     if self.protocol in ["partial","fixbb","binder"]:      
       L = self._batch["aatype"].shape[0]
       
       if self.protocol in ["partial","fixbb"]:
-        aatype = jnp.zeros(L)
-        template_aatype = jnp.broadcast_to(opt["template"]["aatype"],(L,))
+        if self._args["rm_template_seq"]:
+          aatype = jnp.zeros(L) 
+          template_aatype = jnp.broadcast_to(opt["template"]["aatype"],(L,))
+        else:
+          template_aatype = aatype = self._batch["aatype"]
       
       if self.protocol == "binder":
-        if self._args["redesign"]:
-          aatype = jnp.asarray(self._batch["aatype"])
-          aatype = aatype.at[self._target_len:].set(0)
+        if self._args["redesign"] and self._args["rm_template_seq"]:
+          aatype          = jnp.asarray(self._batch["aatype"])
+          aatype          = aatype.at[self._target_len:].set(0)
           template_aatype = aatype.at[self._target_len:].set(opt["template"]["aatype"])
+        
         else:
-          aatype = template_aatype = self._batch["aatype"]
+          # target=(template_seq=True)        
+          template_aatype = aatype = self._batch["aatype"]
       
       # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
       pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
@@ -59,27 +68,26 @@ class _af_inputs:
                         "template_all_atom_masks": self._batch["all_atom_mask"],
                         "template_pseudo_beta": pb,
                         "template_pseudo_beta_mask": pb_mask}
-      
+
       # protocol specific template injection
-      if self.protocol == "fixbb":
-        for k,v in template_feats.items():
-          inputs[k] = inputs[k].at[:,0].set(v)            
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
-      
-      if self.protocol == "binder":
-        n = self._target_len
-        for k,v in template_feats.items():
+      for k,v in template_feats.items():
+        if self.protocol == "binder":
+          n = self._target_len
           inputs[k] = inputs[k].at[:,0,:n].set(v[:n])            
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
-          if k == "template_all_atom_masks":
-            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)       
-      
-      if self.protocol == "partial":
-        for k,v in template_feats.items():
+          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])          
+
+        if self.protocol == "fixbb":
+          inputs[k] = inputs[k].at[:,0].set(v)                        
+
+        if self.protocol == "partial":
           inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
-          if k == "template_all_atom_masks":
+        
+        if k == "template_all_atom_masks" and self._args["rm_template_seq"]:
+          if self.protocol == "binder":
+            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)
+          else:
             inputs[k] = inputs[k].at[:,0,:,5:].set(0)
+
 
     # dropout template input features
     L = inputs["template_aatype"].shape[2]

@@ -52,7 +52,7 @@ class _af_prep:
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, split_templates=False,
-                   hotspot=None, **kwargs):
+                   hotspot=None, rm_template_seq=True, **kwargs):
     '''
     ---------------------------------------------------
     prep inputs for binder design
@@ -62,8 +62,11 @@ class _af_prep:
     -use_binder_template = use binder coordinates as template input
     -split_templates = use target and binder coordinates as seperate template inputs
     -hotspot = define position on target
+    -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
     '''
     
+    self._args["rm_template_seq"] = rm_template_seq
+
     self._args["redesign"] = binder_chain is not None
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
@@ -113,8 +116,10 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=False, **kwargs):
+                  repeat=False, block_diag=False, rm_template_seq=True, **kwargs):
     '''prep inputs for fixed backbone design'''
+
+    self._args["rm_template_seq"] = rm_template_seq
 
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
@@ -183,8 +188,11 @@ class _af_prep:
 
   def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
                     fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
-                    **kwargs):
+                    rm_template_seq=True, **kwargs):
     '''prep input for partial hallucination'''    
+
+    self._args["rm_template_seq"] = rm_template_seq
+
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
     self._len = pdb["residue_index"].shape[0] if length is None else length
@@ -200,7 +208,7 @@ class _af_prep:
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = p = self._pos_info["pos"]
-      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])        
+      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])     
     self._wt_aatype = self._batch["aatype"]
 
     # configure sidechains

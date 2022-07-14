@@ -19,7 +19,7 @@ except:
 # | \_restart
 #  \
 #   \_design
-#    \_ste
+#    \_step
 #    | \_recycle
 #     \_save_results
 #

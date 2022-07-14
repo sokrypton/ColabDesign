@@ -21,8 +21,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
-               use_templates=False, data_dir=".",
-               debug=False, loss_callback=None):
+               use_templates=False, best_metric="loss",
+               debug=False, loss_callback=None,
+               data_dir="."):
+    
+    assert protocol in ["fixbb","hallucination","binder","partial"]
+    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
     
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -33,7 +37,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._copies = 1    
     self._args = {"use_templates":use_templates,
                   "recycle_mode": recycle_mode,
-                  "debug":debug, "repeat": False}
+                  "debug":debug, "repeat": False,
+                  "best_metric": best_metric}
     
     self.opt = {"dropout":True, "lr":1.0,
                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
@@ -69,7 +74,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     cfg.data.eval.masked_msa_replace_fraction = 0
 
     # number of recycles
-    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
+    
     if recycle_mode == "average": num_recycles = 0
     cfg.data.common.num_recycle = 0      # for feature processing
     cfg.model.num_recycle = num_recycles # for model configuration

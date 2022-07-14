@@ -64,7 +64,7 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best_loss = np.inf
+      self._best_metric = self._best_loss = np.inf
       self._best_aux = self._best_outs = None
       
   def run(self, model=None, backprop=True, average=True, callback=None):
@@ -204,9 +204,10 @@ class _af_design:
 
     # save best result
     if save_best:
-      if self.loss < self._best_loss:
-        self._best_loss = self.loss
-        self._best_aux = self._best_outs = self.aux
+      metric = self.aux["log"][self._args["best_metric"]]
+      if metric < self._best_metric:
+        self._best_metric = self._best_loss = metric
+        self._best_aux    = self._best_outs = self.aux
     
     if verbose and (self._k % verbose) == 0:
       # preferred order

@@ -1730,54 +1730,30 @@ class EmbeddingsAndEvoformer(hk.Module):
     
     # Embed extra MSA features.
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 14-16
-    extra_msa_feat = create_extra_msa_feature(batch)
-    extra_msa_activations = common_modules.Linear(
-        c.extra_msa_channel,
-        name='extra_msa_activations')(
-            extra_msa_feat)
+    if c.use_extra_msa:
+      extra_msa_feat = create_extra_msa_feature(batch)
+      extra_msa_activations = common_modules.Linear(c.extra_msa_channel,name='extra_msa_activations')(extra_msa_feat)
+      # Extra MSA Stack.
+      # Jumper et al. (2021) Suppl. Alg. 18 "ExtraMsaStack"
+      extra_msa_stack_input = {'msa': extra_msa_activations,'pair': pair_activations}
+      extra_msa_stack_iteration = EvoformerIteration(c.evoformer, gc, is_extra_msa=True, name='extra_msa_stack')
+      def extra_msa_stack_fn(x):
+        act, safe_key = x
+        safe_key, safe_subkey = safe_key.split()
+        extra_evoformer_output = extra_msa_stack_iteration(
+            activations=act,
+            masks={'msa': batch['extra_msa_mask'],'pair': mask_2d},
+            is_training=is_training,
+            safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
+        return (extra_evoformer_output, safe_key)
+      if gc.use_remat: extra_msa_stack_fn = hk.remat(extra_msa_stack_fn)
+      extra_msa_stack = layer_stack.layer_stack(c.extra_msa_stack_num_block)(extra_msa_stack_fn)
+      extra_msa_output, safe_key = extra_msa_stack((extra_msa_stack_input, safe_key))
+      pair_activations = extra_msa_output['pair']
 
-    # Extra MSA Stack.
-    # Jumper et al. (2021) Suppl. Alg. 18 "ExtraMsaStack"
-    extra_msa_stack_input = {
-        'msa': extra_msa_activations,
-        'pair': pair_activations,
-    }
-
-    extra_msa_stack_iteration = EvoformerIteration(
-        c.evoformer, gc, is_extra_msa=True, name='extra_msa_stack')
-
-    def extra_msa_stack_fn(x):
-      act, safe_key = x
-      safe_key, safe_subkey = safe_key.split()
-      extra_evoformer_output = extra_msa_stack_iteration(
-          activations=act,
-          masks={
-              'msa': batch['extra_msa_mask'],
-              'pair': mask_2d
-          },
-          is_training=is_training,
-          safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
-      return (extra_evoformer_output, safe_key)
-
-    if gc.use_remat:
-      extra_msa_stack_fn = hk.remat(extra_msa_stack_fn)
-
-    extra_msa_stack = layer_stack.layer_stack(
-        c.extra_msa_stack_num_block)(
-            extra_msa_stack_fn)
-    extra_msa_output, safe_key = extra_msa_stack(
-        (extra_msa_stack_input, safe_key))
-
-    pair_activations = extra_msa_output['pair']
-
-    evoformer_input = {
-        'msa': msa_activations,
-        'pair': pair_activations,
-    }
-
+    evoformer_input = {'msa': msa_activations,'pair': pair_activations}
     evoformer_masks = {'msa': batch['msa_mask'], 'pair': mask_2d}
     
-    ####################################################################
     ####################################################################
 
     # Append num_templ rows to msa_activations with template embeddings.
@@ -1829,34 +1805,26 @@ class EmbeddingsAndEvoformer(hk.Module):
       evoformer_masks['msa'] = jnp.concatenate([evoformer_masks['msa'], torsion_angle_mask], axis=0)    
       
     ####################################################################
-    ####################################################################
+    if c.use_msa:
+      # Main trunk of the network
+      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 17-18
+      evoformer_iteration = EvoformerIteration(c.evoformer, gc, is_extra_msa=False, name='evoformer_iteration')
+      def evoformer_fn(x):
+        act, safe_key = x
+        safe_key, safe_subkey = safe_key.split()
+        evoformer_output = evoformer_iteration(
+            activations=act,
+            masks=evoformer_masks,
+            is_training=is_training,
+            safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
+        return (evoformer_output, safe_key)
+      if gc.use_remat: evoformer_fn = hk.remat(evoformer_fn)
+      evoformer_stack = layer_stack.layer_stack(c.evoformer_num_block)(evoformer_fn)
+      evoformer_output, safe_key = evoformer_stack((evoformer_input, safe_key))
+      msa_activations = evoformer_output['msa']
+      pair_activations = evoformer_output['pair']
 
-    # Main trunk of the network
-    # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 17-18
-    evoformer_iteration = EvoformerIteration(
-        c.evoformer, gc, is_extra_msa=False, name='evoformer_iteration')
-
-    def evoformer_fn(x):
-      act, safe_key = x
-      safe_key, safe_subkey = safe_key.split()
-      evoformer_output = evoformer_iteration(
-          activations=act,
-          masks=evoformer_masks,
-          is_training=is_training,
-          safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
-      return (evoformer_output, safe_key)
-
-    if gc.use_remat:
-      evoformer_fn = hk.remat(evoformer_fn)
-
-    evoformer_stack = layer_stack.layer_stack(c.evoformer_num_block)(evoformer_fn)
-    evoformer_output, safe_key = evoformer_stack((evoformer_input, safe_key))
-
-    msa_activations = evoformer_output['msa']
-    pair_activations = evoformer_output['pair']
-
-    single_activations = common_modules.Linear(
-        c.seq_channel, name='single_activations')(msa_activations[0])
+    single_activations = common_modules.Linear(c.seq_channel, name='single_activations')(msa_activations[0])
 
     num_sequences = batch['msa_feat'].shape[0]
     output = {

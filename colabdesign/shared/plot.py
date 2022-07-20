@@ -152,45 +152,52 @@ def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
     ticks = np.cumsum([0]+Ls)
     ticks = (ticks[1:] + ticks[:-1])/2
     ax.yticks(ticks,alphabet_list[:len(ticks)])
-  
+
+def _align(P, Q, P_trim=None):
+  if P_trim is None: P_trim = P
+  p_trim = P_trim - P_trim.mean(0,keepdims=True)
+  p = P - P_trim.mean(0,keepdims=True)
+  q = Q - Q.mean(0,keepdims=True)
+  return p @ _np_kabsch(p_trim, q, use_jax=False)
+
 def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    losses=None, pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
-                   length=None, **kwargs):
-
-  def align(P, Q, P_trim=None):
-    if P_trim is None: P_trim = P
-    p_trim = P_trim - P_trim.mean(0,keepdims=True)
-    p = P - P_trim.mean(0,keepdims=True)
-    q = Q - Q.mean(0,keepdims=True)
-    return p @ _np_kabsch(p_trim, q, use_jax=False)
+                   length=None, align_xyz=True, **kwargs):
 
   if xyz is not None:
-    # compute reference position
-    if pos_ref is None: pos_ref = xyz[-1]
+    if pos_ref is None:
+      pos_ref = xyz[-1]
     
+    if align_xyz:
+      # align to reference
+      if length is None:
+        L = len(pos_ref)
+      elif isinstance(length, list):
+        L = length[0]
+      else:
+        L = length
+        
+      pos_ref_trim = pos_ref[:L]
+      # align to reference position
+      new_positions = []
+      for i in range(len(xyz)):
+        new_positions.append(_align(xyz[i],pos_ref_trim,xyz[i][:L]))
+      pos = np.array(new_positions)
 
-    # align to reference
-    if length is None:
-      L = len(pos_ref)
-    elif isinstance(length, list):
-      L = length[0]
+      # rotate for best view
+      pos_mean = np.concatenate(pos,0)
+      m = pos_mean.mean(0)
+      rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+      pos = (pos - m) @ rot_mtx + m
+      pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
+    
     else:
-      L = length
-      
-    pos_ref_trim = pos_ref[:L]
-    # align to reference position
-    new_positions = []
-    for i in range(len(xyz)):
-      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:L]))
-    pos = np.asarray(new_positions)
-
-    # rotate for best view
-    pos_mean = np.concatenate(pos,0)
-    m = pos_mean.mean(0)
-    rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
-    pos = (pos - m) @ rot_mtx + m
-    pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
+      # get best view of reference
+      m = pos_ref.mean(0)
+      aln = _np_kabsch(pos_ref - m, pos_ref - m, return_v=True, use_jax=False)
+      pos = np.array([(x - m) @ aln for x in xyz])
+      pos_ref_full = (pos_ref - m) @ aln
 
   # initialize figure
   if pae is not None and len(pae) == 0: pae = None

@@ -22,11 +22,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
+               max_len=None, max_len_mode="crop",
                debug=False, loss_callback=None,
                data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
+    assert max_len_mode in ["crop","roll","random"]
     
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -36,9 +38,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._num = num_seq
     self._copies = 1    
     self._args = {"use_templates":use_templates,
-                  "recycle_mode": recycle_mode,
-                  "debug":debug, "repeat": False,
-                  "best_metric": best_metric}
+                  "recycle_mode":recycle_mode,
+                  "debug":debug, "repeat":False,
+                  "best_metric":best_metric,
+                  "max_len":max_len, "max_len_mode":max_len_mode}
     
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
@@ -136,33 +139,65 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if self._args["recycle_mode"] in ["last","sample"]:
         inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
 
+      # subsample inputs according to sub_pos (if defined)
+      if "sub_pos" in opt:
+        inputs = subfeat(inputs, opt["sub_pos"], self._runner, add_batch=True)
+        if hasattr(self,"_batch"):
+          batch = subfeat(self._batch, opt["sub_pos"], self._runner, add_batch=False)
+      elif hasattr(self,"_batch"):
+        batch = self._batch
+      else:
+        batch = None
+
       #######################################################################
       # OUTPUTS
       #######################################################################
       outputs = self._runner.apply(model_params, key(), inputs)
 
       # add aux outputs
-      aux.update({"final_atom_positions":outputs["structure_module"]["final_atom_positions"],
-                  "final_atom_mask":outputs["structure_module"]["final_atom_mask"],
-                  "plddt":get_plddt(outputs),"pae":get_pae(outputs),
-                  "prev":outputs["prev"]})
+      aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
+                  "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
+                  "residue_index":inputs["residue_index"][0], "aatype":inputs["aatype"][0],
+                  "plddt":get_plddt(outputs), "pae":get_pae(outputs)})
 
-      if self._args["debug"]:
-        aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
+      if self._args["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
+      if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       #######################################################################
       # LOSS
       #######################################################################
       aux["losses"] = {}
-      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
+      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux, batch=batch)
 
       if self._loss_callback is not None:
         aux["losses"].update(self._loss_callback(inputs, outputs, opt))
 
       # weighted loss
       w = opt["weights"]
-      loss = sum([v*w[k] if k in w else v for k,v in aux["losses"].items()])
+      loss = sum([v * w[k] if k in w else v for k,v in aux["losses"].items()])
             
       return loss, aux
     
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
+
+
+def subfeat(feat, pos, model_runner, add_batch=True):  
+  def find(x,k):
+    i = []
+    for j,y in enumerate(x):
+      if y == k: i.append(j)
+    return i
+  
+  cfg = model_runner.config
+  shapes = cfg.data.eval.feat
+  NUM_RES = "num residues placeholder"
+  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
+
+  new_feat = {}
+  for k,v in feat.items():
+    v_ = v.copy()
+    if k in idx:
+      for i in idx[k]:
+        v_ = jnp.take(v_, pos, i + add_batch)
+    new_feat[k] = v_
+  return new_feat

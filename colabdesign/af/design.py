@@ -69,6 +69,22 @@ class _af_design:
       
   def run(self, model=None, backprop=True, average=True, callback=None):
     '''run model to get outputs, losses and gradients'''
+
+    # crop inputs 
+    L = self._inputs["residue_index"].shape[-1]
+    use_crop = self._args["max_len"] is not None and self._args["max_len"] < L
+    if use_crop:
+      max_L = self._args["max_len"]
+      if self._args["max_len_mode"] == "crop":
+        i = jax.random.randint(self.key(),[],0,L-max_L)
+        ps = jnp.arange(i,i+max_L)
+      if self._args["max_len_mode"] == "roll":
+        i = jax.random.randint(self.key(),[],0,L)
+        ps = jnp.roll(jnp.arange(L),L-i)[:max_L]      
+      if self._args["max_len_mode"] == "random":
+        ps = jnp.sort(jax.random.choice(self.key(),jnp.arange(L),(max_L,),replace=False))
+
+      self.opt["sub_pos"] = ps
     
     # decide which model params to use
     if model is None:
@@ -87,7 +103,9 @@ class _af_design:
     for n in model_num:
       p = self._model_params[n]
       outs.append(self._recycle(p, backprop=backprop))
-    outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)    
+    outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)
+
+    if use_crop: self.opt.pop("sub_pos")
 
     if average:
       # update gradients
@@ -137,8 +155,8 @@ class _af_design:
 
   def _recycle(self, model_params, backprop=True):   
     '''multiple passes through the model (aka recycle)'''
-    mode = self._args["recycle_mode"]             
 
+    mode = self._args["recycle_mode"]
     if mode in ["backprop","add_prev"]:
       recycles = self.opt["recycles"] = self._runner.config.model.num_recycle
       out = self._single(model_params, backprop)
@@ -146,7 +164,8 @@ class _af_design:
     else:
       recycles = self.opt["recycles"]
       if mode == "average":
-        L = self._inputs["residue_index"].shape[-1]
+        if "sub_pos" in self.opt: L = self.opt["sub_pos"].shape[0]
+        else: L = self._inputs["residue_index"].shape[-1]
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                                 'prev_pair': np.zeros([L,L,128]),
                                 'prev_pos': np.zeros([L,37,3])}
@@ -179,12 +198,7 @@ class _af_design:
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
     
-    if "pos" in self.opt and self.opt.get("fix_seq",False):
-      # note: gradients only exist in unconstrained positions
-      eff_len = self._len - self.opt["pos"].shape[0]
-    else:
-      eff_len = self._len
-
+    eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
     self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
@@ -204,7 +218,7 @@ class _af_design:
   def save_results(self, save_best=False, verbose=1):
     # save trajectory
     traj = {"log":self.aux["log"], "seq":np.asarray(self.aux["seq"]["pseudo"])}
-    traj["xyz"] = np.asarray(self.aux["final_atom_positions"][:,1,:])
+    traj["xyz"] = np.asarray(self.aux["atom_positions"][:,1,:])
     traj["plddt"] = np.asarray(self.aux["plddt"])
     if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     for k,v in traj.items(): self._traj[k].append(v)

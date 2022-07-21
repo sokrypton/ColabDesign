@@ -79,12 +79,18 @@ class _af_design:
     (L, max_L) = (self._inputs["residue_index"].shape[-1], self._args["crop_len"])
     if crop and max_L < L:
       crop_mode = self._args["crop_mode"]
+    
       if crop_mode == "slide":
         i = jax.random.randint(self.key(),[],0,L-max_L)
         p = np.arange(i,i+max_L)
+      
       if crop_mode == "roll":
         i = jax.random.randint(self.key(),[],0,L)
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
+
+      # if crop_mode == "dist":
+      # TODO: shihao
+    
     else:
       p = np.arange(L) 
     

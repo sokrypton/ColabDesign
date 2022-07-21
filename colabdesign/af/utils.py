@@ -27,15 +27,11 @@ class _af_utils:
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
-    if "best_metric" in kwargs:
-      self._args["best_metric"] = kwargs.pop("best_metric")
+    for k in ["best_metric","crop_mode","crop_len"]:
+      if k in kwargs: self._args[k] = kwargs.pop(k)
 
     if "optimizer" in kwargs:
       print("ERROR: use model.restart(optimizer=...) to set the optimizer")
-
-    if "crop_mode" in kwargs:
-      assert kwargs["crop_mode"] in ["slide","roll"]
-      self._args["crop_mode"] = kwargs.pop("crop_mode")
 
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:

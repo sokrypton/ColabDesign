@@ -11,7 +11,7 @@ from colabdesign.af.prep   import _af_prep
 from colabdesign.af.loss   import _af_loss, get_plddt, get_pae
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
-from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype 
+from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_feat
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
@@ -22,13 +22,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
-               max_len=None, max_len_mode="crop",
+               crop_len=None, crop_mode="slide",
                debug=False, loss_callback=None,
                data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
-    assert max_len_mode in ["crop","roll","random"]
+    assert crop_mode in ["slide","roll","random"]
     
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -41,7 +41,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "recycle_mode":recycle_mode,
                   "debug":debug, "repeat":False,
                   "best_metric":best_metric,
-                  "max_len":max_len, "max_len_mode":max_len_mode}
+                  "crop":{"len":crop_len,"mode":crop_mode}}
     
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
@@ -139,15 +139,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if self._args["recycle_mode"] in ["last","sample"]:
         inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
 
-      # subsample inputs according to sub_pos (if defined)
-      if "sub_pos" in opt:
-        inputs = subfeat(inputs, opt["sub_pos"], self._runner, add_batch=True)
-        if hasattr(self,"_batch"):
-          batch = subfeat(self._batch, opt["sub_pos"], self._runner, add_batch=False)
-      elif hasattr(self,"_batch"):
-        batch = self._batch
-      else:
-        batch = None
+      # batch
+      batch = self._batch if hasattr(self,"_batch") else None
+
+      # crop inputs
+      if opt["crop_pos"].shape[0] < L:
+        inputs = crop_feat(inputs, opt["crop_pos"], self._runner, add_batch=True)    
+        batch = crop_feat(batch, opt["crop_pos"], self._runner, add_batch=False)
 
       #######################################################################
       # OUTPUTS
@@ -179,25 +177,3 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       return loss, aux
     
     return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
-
-
-def subfeat(feat, pos, model_runner, add_batch=True):  
-  def find(x,k):
-    i = []
-    for j,y in enumerate(x):
-      if y == k: i.append(j)
-    return i
-  
-  cfg = model_runner.config
-  shapes = cfg.data.eval.feat
-  NUM_RES = "num residues placeholder"
-  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
-
-  new_feat = {}
-  for k,v in feat.items():
-    v_ = v.copy()
-    if k in idx:
-      for i in idx[k]:
-        v_ = jnp.take(v_, pos, i + add_batch)
-    new_feat[k] = v_
-  return new_feat

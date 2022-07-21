@@ -57,6 +57,7 @@ class _af_design:
       if optimizer == "adam": (optimizer,lr) = (adam,0.02)
       if optimizer == "sgd":  (optimizer,lr) = (sgd,0.1)
       self.opt["lr"] = lr
+
     self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
     self._state = self._init_fun(self.params)
     self._k = 0
@@ -66,25 +67,28 @@ class _af_design:
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best_metric = self._best_loss = np.inf
       self._best_aux = self._best_outs = None
+
+    # set crop length
+    L = self._inputs["residue_index"].shape[-1]
+    if self._args["crop_len"] is None: self._args["crop_len"] = L 
+    self.opt["crop_pos"] = jnp.arange(min(L,self._args["crop_len"]))
       
   def run(self, model=None, backprop=True, average=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
     # crop inputs 
-    L = self._inputs["residue_index"].shape[-1]
-    use_crop = self._args["max_len"] is not None and self._args["max_len"] < L
-    if use_crop:
-      max_L = self._args["max_len"]
-      if self._args["max_len_mode"] == "crop":
+    (L, max_L) = (self._inputs["residue_index"].shape[-1], self._args["crop_len"])
+    if max_L < L:
+      crop_mode = self._args["crop_mode"]
+      if crop_mode == "slide":
         i = jax.random.randint(self.key(),[],0,L-max_L)
-        ps = jnp.arange(i,i+max_L)
-      if self._args["max_len_mode"] == "roll":
+        p = jnp.arange(i,i+max_L)
+      if crop_mode == "roll":
         i = jax.random.randint(self.key(),[],0,L)
-        ps = jnp.roll(jnp.arange(L),L-i)[:max_L]      
-      if self._args["max_len_mode"] == "random":
-        ps = jnp.sort(jax.random.choice(self.key(),jnp.arange(L),(max_L,),replace=False))
-
-      self.opt["sub_pos"] = ps
+        p = jnp.sort(jnp.roll(jnp.arange(L),L-i)[:max_L])
+      if crop_mode == "random":
+        p = jnp.sort(jax.random.choice(self.key(),jnp.arange(L),(max_L,),replace=False))
+      self.opt["crop_pos"] = p
     
     # decide which model params to use
     if model is None:
@@ -104,8 +108,6 @@ class _af_design:
       p = self._model_params[n]
       outs.append(self._recycle(p, backprop=backprop))
     outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)
-
-    if use_crop: self.opt.pop("sub_pos")
 
     if average:
       # update gradients

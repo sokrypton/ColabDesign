@@ -23,8 +23,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
                crop_len=None, crop_mode="slide",
-               debug=False, loss_callback=None,
-               data_dir="."):
+               subbatch_size=None, debug=False,
+               loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
@@ -65,7 +65,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     
     cfg = config.model_config(model_name)
     cfg.model.global_config.use_remat = True  
-    cfg.model.global_config.subbatch_size = None    
+    cfg.model.global_config.subbatch_size = subbatch_size
     # number of sequences
     if use_templates:
       cfg.data.eval.max_templates = 1

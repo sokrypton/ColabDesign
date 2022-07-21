@@ -33,6 +33,10 @@ class _af_utils:
     if "optimizer" in kwargs:
       print("ERROR: use model.restart(optimizer=...) to set the optimizer")
 
+    if "crop_mode" in kwargs:
+      assert kwargs["crop_mode"] in ["slide","roll"]
+      self._args["crop_mode"] = kwargs.pop("crop_mode")
+
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")
@@ -88,15 +92,12 @@ class _af_utils:
     '''
     aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     pos_ref = aux["atom_positions"][:,1,:]
-
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
     if self.protocol == "hallucintion":
-      pos_ref = aux["atom_positions"][:,1,:]
       length = [self._len] * self._copies
       return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, align_xyz=False, dpi=dpi)
-      
+      return make_animation(**sub_traj, pos_ref=pos_ref, align_xyz=False, dpi=dpi)  
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), get_best=True):

@@ -28,7 +28,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
-    assert crop_mode in ["slide","roll","random"]
+    assert crop_mode in ["slide","roll"]
     
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -41,7 +41,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "recycle_mode":recycle_mode,
                   "debug":debug, "repeat":False,
                   "best_metric":best_metric,
-                  "crop":{"len":crop_len,"mode":crop_mode}}
+                  "crop_len":crop_len,"crop_mode":crop_mode}
     
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "recycles":num_recycles, "models":num_models, "sample_models":sample_models,

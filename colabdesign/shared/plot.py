@@ -193,10 +193,11 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
       pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
     
     else:
-      # get best view of reference
-      m = pos_ref.mean(0)
-      aln = _np_kabsch(pos_ref - m, pos_ref - m, return_v=True, use_jax=False)
-      pos = np.array([(x - m) @ aln for x in xyz])
+      # rotate for best view
+      pos_mean = np.concatenate(xyz,0)
+      m = pos_mean.mean(0)
+      aln = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+      pos = [((x - m) @ aln + m) for x in xyz]
       pos_ref_full = (pos_ref - m) @ aln
 
   # initialize figure
@@ -225,8 +226,8 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
 
   # set bounderies
   if xyz is not None:
-    x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
-    x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
+    x_min,y_min,z_min = np.minimum(np.mean([x.min(0) for x in pos],0),pos_ref_full.min(0)) - 5
+    x_max,y_max,z_max = np.maximum(np.mean([x.max(0) for x in pos],0),pos_ref_full.max(0)) + 5
 
     x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
     y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2

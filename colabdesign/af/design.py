@@ -69,26 +69,26 @@ class _af_design:
       self._best_aux = self._best_outs = None
 
     # set crop length
-    L = self._inputs["residue_index"].shape[-1]
-    if self._args["crop_len"] is None: self._args["crop_len"] = L 
-    self.opt["crop_pos"] = jnp.arange(min(L,self._args["crop_len"]))
+    if self._args["crop_len"] is None:
+      self._args["crop_len"] = self._inputs["residue_index"].shape[-1]
       
-  def run(self, model=None, backprop=True, average=True, callback=None):
+  def run(self, model=None, backprop=True, crop=True, average=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
     # crop inputs 
     (L, max_L) = (self._inputs["residue_index"].shape[-1], self._args["crop_len"])
-    if max_L < L:
+    if crop and max_L < L:
       crop_mode = self._args["crop_mode"]
       if crop_mode == "slide":
         i = jax.random.randint(self.key(),[],0,L-max_L)
-        p = jnp.arange(i,i+max_L)
+        p = np.arange(i,i+max_L)
       if crop_mode == "roll":
         i = jax.random.randint(self.key(),[],0,L)
-        p = jnp.sort(jnp.roll(jnp.arange(L),L-i)[:max_L])
-      if crop_mode == "random":
-        p = jnp.sort(jax.random.choice(self.key(),jnp.arange(L),(max_L,),replace=False))
-      self.opt["crop_pos"] = p
+        p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
+    else:
+      p = np.arange(L) 
+    
+    self.opt["crop_pos"] = p
     
     # decide which model params to use
     if model is None:
@@ -166,7 +166,7 @@ class _af_design:
     else:
       recycles = self.opt["recycles"]
       if mode == "average":
-        if "sub_pos" in self.opt: L = self.opt["sub_pos"].shape[0]
+        if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
         else: L = self._inputs["residue_index"].shape[-1]
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                                 'prev_pair': np.zeros([L,L,128]),
@@ -189,12 +189,12 @@ class _af_design:
     out["aux"]["recycles"] = recycles
     return out
 
-  def step(self, lr_scale=1.0, model=None, backprop=True,
+  def step(self, lr_scale=1.0, model=None, backprop=True, crop=True,
            callback=None, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(model=model, backprop=backprop, callback=callback)
+    self.run(model=model, backprop=backprop, crop=crop, callback=callback)
 
     # normalize gradient
     g = self.grad["seq"]
@@ -247,7 +247,7 @@ class _af_design:
              soft=None, e_soft=None,
              temp=None, e_temp=None,
              hard=None, e_hard=None,
-             opt=None, weights=None, dropout=None,
+             opt=None, weights=None, dropout=None, crop=True,
              backprop=True, callback=None, save_best=False, verbose=1):
       
     # update options/settings (if defined)
@@ -269,8 +269,8 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
       
-      self.step(lr_scale=lr_scale, backprop=backprop, callback=callback,
-                save_best=save_best, verbose=verbose)
+      self.step(lr_scale=lr_scale, backprop=backprop, crop=crop,
+                callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
     '''optimize logits'''
@@ -313,7 +313,7 @@ class _af_design:
     self.set_opt(hard=True, dropout=False,
                  models=models, sample_models=False)
     if self._k == 0:
-      self.run(backprop=False)
+      self.run(backprop=False, crop=False)
 
     def mut(seq, plddt=None):
       '''mutate random position'''
@@ -348,7 +348,7 @@ class _af_design:
       buff = []
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
-        self.run(backprop=False)
+        self.run(backprop=False, crop=False)
         buff.append({"aux":self.aux, "loss":self.loss, "seq":self.params["seq"]})
       
       # accept best      

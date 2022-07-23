@@ -41,7 +41,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._args = {"use_templates":use_templates,
                   "recycle_mode":recycle_mode,
                   "debug":debug, "repeat":False,
-                  "best_metric":best_metric, 'use_openfold'=use_openfold,
+                  "best_metric":best_metric, 'use_openfold':use_openfold,
                   "crop_len":crop_len,"crop_mode":crop_mode}
     
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,

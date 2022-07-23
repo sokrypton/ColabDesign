@@ -101,7 +101,7 @@ class _af_design:
     if model is None:
 
       if self._args["use_openfold"]: ns = jnp.arange(len(self._model_params))
-      else: ns = jnp.arange(5) if self._args["use_templates"] else jnp.arange(2)
+      else: ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
 
       m = min(self.opt["models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):

@@ -1,3 +1,4 @@
+import os
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -23,7 +24,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
                crop_len=None, crop_mode="slide",
-               subbatch_size=None, debug=False,
+               subbatch_size=None, debug=False, use_openfold=True,
                loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
@@ -88,11 +89,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     # load the other model_params
     if use_templates:
       model_names = ["model_2_ptm"]
+      if use_openfold: model_names += ["openfold_model_ptm_1","openfold_model_ptm_2"]
     else:
       model_names = ["model_1_ptm","model_2_ptm","model_4_ptm","model_5_ptm"]
+      if use_openfold: model_names += ["openfold_model_ptm_1","openfold_model_ptm_2","openfold_model_no_templ_ptm_1"]
+
     for model_name in model_names:
-      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
-      self._model_params.append({k: params[k] for k in self._runner.params.keys()})
+      if os.path.isfile(f"{data_dir}/params/params_{model_name}.npz"):
+        params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
+        self._model_params.append({k: params[k] for k in self._runner.params.keys()})
 
     # define gradient function
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]

@@ -89,7 +89,7 @@ class _af_utils:
     aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     pos_ref = aux["atom_positions"][:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
-    if self.protocol == "hallucintion":
+    if self.protocol == "hallucination":
       length = [self._len] * self._copies
       return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
     else:

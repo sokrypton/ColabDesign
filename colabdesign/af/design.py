@@ -99,7 +99,7 @@ class _af_design:
     
     # decide which model params to use
     if model is None:
-      ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
+      ns = jnp.arange(len(self._model_params))
       m = min(self.opt["models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):
         model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
@@ -301,7 +301,7 @@ class _af_design:
     self.set_opt(models=models, sample_models=True) # sample models
     self.design(soft_iters, soft=1, temp=1, dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
-    self.set_opt(models=5) # use all models
+    self.set_opt(models=len(self._model_params)) # use all models
     self.design(hard_iters, soft=1, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
@@ -310,7 +310,7 @@ class _af_design:
     self.set_opt(models=models, sample_models=True) # sample models
     self.design(soft_iters, soft=0, temp=1,    hard=0, e_soft=1,    dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1,    hard=0, e_temp=1e-2, dropout=dropout, **kwargs)
-    self.set_opt(models=5) # use all models
+    self.set_opt(models=len(self._model_params)) # use all models
     self.design(hard_iters, soft=1, temp=1e-2, hard=1, dropout=False, save_best=True, **kwargs)
 
   def design_semigreedy(self, iters=100, tries=20, models=1,

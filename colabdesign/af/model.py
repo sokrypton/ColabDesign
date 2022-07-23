@@ -24,7 +24,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
                crop_len=None, crop_mode="slide",
-               subbatch_size=None, debug=False, use_openfold=False,
+               subbatch_size=None, debug=False,
+               use_alphafold=True, use_openfold=False,
                loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
@@ -41,7 +42,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._args = {"use_templates":use_templates,
                   "recycle_mode":recycle_mode,
                   "debug":debug, "repeat":False,
-                  "best_metric":best_metric, 'use_openfold':use_openfold,
+                  "best_metric":best_metric,
+                  'use_alphafold':use_alphafold, 'use_openfold':use_openfold,
                   "crop_len":crop_len,"crop_mode":crop_mode}
     
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
@@ -94,11 +96,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
       model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
 
-    self._model_params = []
+    self._model_params, self._model_names = [],[]
     for model_name in model_names:
       params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
       if params is not None:
-        self._model_params.append({k: params[k] for k in self._runner.params.keys()})
+        if not use_templates:
+          params = {k:v for k,v in params.items() if "template" not in k}
+        self._model_params.append(params)
+        self._model_names.append(model_name)
 
     # define gradient function
     self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]

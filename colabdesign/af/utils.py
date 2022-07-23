@@ -27,7 +27,7 @@ class _af_utils:
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
-    for k in ["best_metric","crop_mode","crop_len","use_openfold"]:
+    for k in ["best_metric","crop_mode","crop_len","use_openfold","use_alphafold"]:
       if k in kwargs: self._args[k] = kwargs.pop(k)
 
     if "optimizer" in kwargs:

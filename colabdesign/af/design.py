@@ -98,21 +98,24 @@ class _af_design:
     self.opt["crop_pos"] = p
     
     # decide which model params to use
-    if model is None:
+    ns,ns_name = [],[]
+    for n,name in enumerate(self._model_names):
+      if "openfold" in name:
+        if self._args["use_openfold"]:  ns.append(n); ns_name.append(name)
+      elif self._args["use_alphafold"]: ns.append(n); ns_name.append(name)
 
-      if self._args["use_openfold"]: ns = jnp.arange(len(self._model_params))
-      else: ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
-
-      m = min(self.opt["models"],len(ns))
-      if self.opt["sample_models"] and m != len(ns):
-        model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
-      else:
-        model_num = ns[:m]
-      
-      model_num = np.array(model_num).tolist()
+    # sub select number of model params
+    if model is not None:
+      model = [model] if isinstance(model,int) else list(model)
+      ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in model]
     
+    ns = jnp.array(ns)
+    m = min(self.opt["models"],len(ns))
+    if self.opt["sample_models"] and m != len(ns):
+      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
-      model_num = [model] if isinstance(model,int) else list(model)
+      model_num = ns[:m]      
+    model_num = np.array(model_num).tolist()
 
     # loop through model params
     outs = []

@@ -99,7 +99,10 @@ class _af_design:
     
     # decide which model params to use
     if model is None:
-      ns = jnp.arange(len(self._model_params))
+
+      if self._args["use_openfold"]: ns = jnp.arange(len(self._model_params))
+      else: ns = jnp.arange(5) if self._args["use_templates"] else jnp.arange(2)
+
       m = min(self.opt["models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):
         model_num = jax.random.choice(self.key(),ns,(m,),replace=False)

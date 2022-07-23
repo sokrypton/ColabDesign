@@ -1,4 +1,4 @@
-# AfDesign (v1.0.3)
+# AfDesign (v1.0.4)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -14,6 +14,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **28June2022** - v1.0.1 - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`).
 - **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
+- **23July2022** - v1.0.4 - Refactoring... Adding support for openfold weights. To disable set `mk_afdesign_model(...,use_openfold=False)`.
 
 ### setup
 ```bash

@@ -108,7 +108,9 @@ class _af_design:
         model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
       else:
         model_num = ns[:m]
+      
       model_num = np.array(model_num).tolist()
+    
     else:
       model_num = [model] if isinstance(model,int) else list(model)
 

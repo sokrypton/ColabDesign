@@ -35,7 +35,7 @@ class _af_loss:
     aatype = inputs["aatype"][0]
     dgram_cce = get_dgram_loss(batch, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._config),
+    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._runner.config),
                           "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux, batch=None):
@@ -50,7 +50,7 @@ class _af_loss:
       aln = get_rmsd_loss(batch, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
 
-      fape = get_fape_loss(batch, outputs, model_config=self._config)
+      fape = get_fape_loss(batch, outputs, model_config=self._runner.config)
       
       # compute cce of binder + interface
       aatype = inputs["aatype"][0]
@@ -78,7 +78,7 @@ class _af_loss:
 
     pos = opt["pos"]
     aatype = inputs["aatype"][0]
-    _config = self._config.model.heads.structure_module
+    _config = self._runner.config.model.heads.structure_module
 
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)

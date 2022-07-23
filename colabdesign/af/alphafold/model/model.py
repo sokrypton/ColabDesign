@@ -54,9 +54,9 @@ class RunModel:
                is_training=True,
                return_representations=True,
                recycle_mode=None):
-    self.config = config
-    self.params = params
 
+    self.config = config
+    self.params = self.init_params(params)
     
     self.mode = recycle_mode
     if self.mode is None:

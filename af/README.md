@@ -22,7 +22,7 @@ pip install git+https://github.com/sokrypton/ColabDesign.git
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
 for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
-do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -O params/params_${W}.npz; done
+do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -P params; done
 ```
 ### import
 ```python

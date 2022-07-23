@@ -56,7 +56,7 @@ class RunModel:
                recycle_mode=None):
 
     self.config = config
-    self.params = self.init_params(params)
+    self.params = params
     
     self.mode = recycle_mode
     if self.mode is None:

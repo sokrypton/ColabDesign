@@ -53,18 +53,20 @@ class _af_utils:
     save pdb coordinates (if filename provided, otherwise return as string)
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = self.aux_full if (self._best_aux_full is None or not get_best) else self._best_aux_full
     aux = jax.tree_map(np.asarray, aux)
 
     Ls = None    
-    if self.protocol == "binder":
-      Ls = [self._target_len, self._binder_len]      
-    if self.protocol == "partial":
-      Ls = [self._len]
+    if self.protocol == "binder":   Ls = [self._target_len, self._binder_len]      
+    if self.protocol == "partial":  Ls = [self._len]
     if self.protocol in ["hallucination","fixbb"]:
-      Ls = [self._len] * self._copies
+      if self._args["repeat"]:
+        Ls = [self._len * self._copies]
+      else:
+        Ls = [self._len] * self._copies
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
+    if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
     p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
 
     def to_pdb_str(x, n=None):
@@ -75,15 +77,11 @@ class _af_utils:
         p_str = f"MODEL{n:8}\n{p_str}\nENDMDL\n"
       return p_str
 
-    if p["atom_positions"].ndim == 4:
-      if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
-      p_str = ""
-      for n in range(p["atom_positions"].shape[0]):
-        p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
-      p_str += "END\n"
-    else:
-      if p["aatype"].ndim == 2: p["aatype"] = p["aatype"].argmax(-1)
-      p_str = to_pdb_str(p)
+    p_str = ""
+    for n in range(p["atom_positions"].shape[0]):
+      p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
+    p_str += "END\n"
+    
     if filename is None: 
       return p_str, Ls
     else: 
@@ -99,8 +97,8 @@ class _af_utils:
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
     '''
-    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    pos_ref = aux["atom_positions"][:,1,:]
+    aux = self.aux_full if (self._best_aux_full is None or not get_best) else self._best_aux_full
+    pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
     if self.protocol == "hallucination":
       length = [self._len] * self._copies

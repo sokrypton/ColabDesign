@@ -152,45 +152,51 @@ def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
     ticks = np.cumsum([0]+Ls)
     ticks = (ticks[1:] + ticks[:-1])/2
     ax.yticks(ticks,alphabet_list[:len(ticks)])
-  
+
 def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    losses=None, pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
-                   length=None, **kwargs):
-
-  def align(P, Q, P_trim=None):
-    if P_trim is None: P_trim = P
-    p_trim = P_trim - P_trim.mean(0,keepdims=True)
-    p = P - P_trim.mean(0,keepdims=True)
-    q = Q - Q.mean(0,keepdims=True)
-    return p @ _np_kabsch(p_trim, q, use_jax=False)
+                   length=None, align_xyz=True, **kwargs):
 
   if xyz is not None:
-    # compute reference position
-    if pos_ref is None: pos_ref = xyz[-1]
+    if pos_ref is None:
+      pos_ref = xyz[-1]
     
+    if align_xyz:
+      # align to reference
+      if length is None:
+        L = len(pos_ref)
+      elif isinstance(length, list):
+        L = length[0]
+      else:
+        L = length
+        
+      pos_ref_trim = pos_ref[:L]
+      pos_ref_trim = pos_ref_trim - pos_ref_trim.mean(0)
 
-    # align to reference
-    if length is None:
-      L = len(pos_ref)
-    elif isinstance(length, list):
-      L = length[0]
+      # align to reference position
+      new_pos = []
+      for x in xyz:
+        x_mu = x[:L].mean(0)
+        aln = _np_kabsch(x[:L]-x_mu, pos_ref_trim, use_jax=False)
+        new_pos.append((x-x_mu) @ aln)
+
+      pos = np.array(new_pos)
+
+      # rotate for best view
+      pos_mean = np.concatenate(pos,0)
+      m = pos_mean.mean(0)
+      rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+      pos = (pos - m) @ rot_mtx
+      pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx
+    
     else:
-      L = length
-      
-    pos_ref_trim = pos_ref[:L]
-    # align to reference position
-    new_positions = []
-    for i in range(len(xyz)):
-      new_positions.append(align(xyz[i],pos_ref_trim,xyz[i][:L]))
-    pos = np.asarray(new_positions)
-
-    # rotate for best view
-    pos_mean = np.concatenate(pos,0)
-    m = pos_mean.mean(0)
-    rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
-    pos = (pos - m) @ rot_mtx + m
-    pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx + m
+      # rotate for best view
+      pos_mean = np.concatenate(xyz,0)
+      m = pos_mean.mean(0)
+      aln = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+      pos = [(x - m) @ aln for x in xyz]
+      pos_ref_full = (pos_ref - m) @ aln
 
   # initialize figure
   if pae is not None and len(pae) == 0: pae = None
@@ -218,8 +224,8 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
 
   # set bounderies
   if xyz is not None:
-    x_min,y_min,z_min = np.minimum(np.mean(pos.min(1),0),pos_ref_full.min(0)) - 5
-    x_max,y_max,z_max = np.maximum(np.mean(pos.max(1),0),pos_ref_full.max(0)) + 5
+    x_min,y_min,z_min = np.minimum(np.mean([x.min(0) for x in pos],0),pos_ref_full.min(0)) - 5
+    x_max,y_max,z_max = np.maximum(np.mean([x.max(0) for x in pos],0),pos_ref_full.max(0)) + 5
 
     x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
     y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2

@@ -27,8 +27,8 @@ class _af_utils:
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
-    if "best_metric" in kwargs:
-      self._args["best_metric"] = kwargs.pop("best_metric")
+    for k in ["best_metric","crop_mode","crop_len","use_openfold","use_alphafold"]:
+      if k in kwargs: self._args[k] = kwargs.pop(k)
 
     if "optimizer" in kwargs:
       print("ERROR: use model.restart(optimizer=...) to set the optimizer")
@@ -54,33 +54,42 @@ class _af_utils:
     - set get_best=False, to get the last sampled sequence
     '''
     aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    aux = jax.tree_map(np.asarray, aux)    
-    aatype = aux["seq"]["hard"].argmax(-1)[0]
+    aux = jax.tree_map(np.asarray, aux)
 
     Ls = None    
     if self.protocol == "binder":
-      aatype_target = self._batch["aatype"][:self._target_len]
-      aatype = np.concatenate([aatype_target,aatype])
       Ls = [self._target_len, self._binder_len]      
     if self.protocol == "partial":
       Ls = [self._len]
     if self.protocol in ["hallucination","fixbb"]:
       Ls = [self._len] * self._copies
-      if self._copies > 1: aatype = np.concatenate([aatype] * self._copies)
     
-    p = {"residue_index":self._inputs["residue_index"][0],
-          "aatype":aatype,
-          "atom_positions":aux["final_atom_positions"],
-          "atom_mask":aux["final_atom_mask"]}
-    b_factors = 100.0 * aux["plddt"][:,None] * p["atom_mask"]
-    p = protein.Protein(**p,b_factors=b_factors)
-    pdb_str = protein.to_pdb(p)
-    if renum_pdb:
-      pdb_str = renum_pdb_str(pdb_str, Ls)    
-    if filename is None:
-      return pdb_str, Ls
+    p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
+    p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
+
+    def to_pdb_str(x, n=None):
+      p_str = protein.to_pdb(protein.Protein(**x))
+      p_str = "\n".join(p_str.splitlines()[1:-2])
+      if renum_pdb: p_str = renum_pdb_str(p_str, Ls)
+      if n is not None:
+        p_str = f"MODEL{n:8}\n{p_str}\nENDMDL\n"
+      return p_str
+
+    if p["atom_positions"].ndim == 4:
+      if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
+      p_str = ""
+      for n in range(p["atom_positions"].shape[0]):
+        p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
+      p_str += "END\n"
     else:
-      with open(filename, 'w') as f: f.write(pdb_str)
+      if p["aatype"].ndim == 2: p["aatype"] = p["aatype"].argmax(-1)
+      p_str = to_pdb_str(p)
+    if filename is None: 
+      return p_str, Ls
+    else: 
+      with open(filename, 'w') as f:
+        f.write(p_str)
+
   #-------------------------------------
   # plotting functions
   #-------------------------------------
@@ -91,28 +100,13 @@ class _af_utils:
     - use dpi to specify the resolution of animation
     '''
     aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    
-    sub_traj = {k:v[s:e] for k,v in self._traj.items()}
-    length = None    
-    if self.protocol == "binder":
-      length = [self._target_len, self._binder_len]      
-    if self.protocol == "partial":
-      length = [self._len]
-    if self.protocol in ["hallucination","fixbb"]:
+    pos_ref = aux["atom_positions"][:,1,:]
+    sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
+    if self.protocol == "hallucination":
       length = [self._len] * self._copies
-      
-    if self.protocol == "fixbb":
-      pos_ref = self._batch["all_atom_positions"][:,1,:]
       return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
-    
-    if self.protocol == "binder":
-      pos_ref = aux["final_atom_positions"][:,1,:]
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
-    
-    if self.protocol in ["hallucination","partial"]:
-      pos_ref = aux["final_atom_positions"][:,1,:]
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)      
-      
+    else:
+      return make_animation(**sub_traj, pos_ref=pos_ref, align_xyz=False, dpi=dpi)  
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), get_best=True):

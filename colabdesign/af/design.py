@@ -20,8 +20,9 @@ except:
 #  \
 #   \_design
 #    \_step
-#    | \_recycle
-#     \_save_results
+#     \_run
+#      \_recycle
+#       \_single
 #
 ####################################################
 
@@ -57,6 +58,7 @@ class _af_design:
       if optimizer == "adam": (optimizer,lr) = (adam,0.02)
       if optimizer == "sgd":  (optimizer,lr) = (sgd,0.1)
       self.opt["lr"] = lr
+
     self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
     self._state = self._init_fun(self.params)
     self._k = 0
@@ -66,28 +68,61 @@ class _af_design:
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best_metric = self._best_loss = np.inf
       self._best_aux = self._best_outs = None
+
+    # set crop length
+    if self._args["crop_len"] is None:
+      self._args["crop_len"] = self._inputs["residue_index"].shape[-1]
       
-  def run(self, model=None, backprop=True, average=True, callback=None):
+  def run(self, model=None, backprop=True, crop=True, average=True, callback=None):
     '''run model to get outputs, losses and gradients'''
+
+    # crop inputs 
+    (L, max_L) = (self._inputs["residue_index"].shape[-1], self._args["crop_len"])
+    if crop and max_L < L:
+      crop_mode = self._args["crop_mode"]
+    
+      if crop_mode == "slide":
+        i = jax.random.randint(self.key(),[],0,L-max_L)
+        p = np.arange(i,i+max_L)
+      
+      if crop_mode == "roll":
+        i = jax.random.randint(self.key(),[],0,L)
+        p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
+
+      # if crop_mode == "dist":
+      # TODO: shihao
+    
+    else:
+      p = np.arange(L) 
+    
+    self.opt["crop_pos"] = p
     
     # decide which model params to use
-    if model is None:
-      ns = jnp.arange(2) if self._args["use_templates"] else jnp.arange(5)
-      m = min(self.opt["models"],len(ns))
-      if self.opt["sample_models"] and m != len(ns):
-        model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
-      else:
-        model_num = ns[:m]
-      model_num = np.array(model_num).tolist()
+    ns,ns_name = [],[]
+    for n,name in enumerate(self._model_names):
+      if "openfold" in name:
+        if self._args["use_openfold"]:  ns.append(n); ns_name.append(name)
+      elif self._args["use_alphafold"]: ns.append(n); ns_name.append(name)
+
+    # sub select number of model params
+    if model is not None:
+      model = [model] if isinstance(model,int) else list(model)
+      ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in model]
+    
+    ns = jnp.array(ns)
+    m = min(self.opt["models"],len(ns))
+    if self.opt["sample_models"] and m != len(ns):
+      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
-      model_num = [model] if isinstance(model,int) else list(model)
+      model_num = ns[:m]      
+    model_num = np.array(model_num).tolist()
 
     # loop through model params
     outs = []
     for n in model_num:
       p = self._model_params[n]
       outs.append(self._recycle(p, backprop=backprop))
-    outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)    
+    outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)
 
     if average:
       # update gradients
@@ -137,8 +172,8 @@ class _af_design:
 
   def _recycle(self, model_params, backprop=True):   
     '''multiple passes through the model (aka recycle)'''
-    mode = self._args["recycle_mode"]             
 
+    mode = self._args["recycle_mode"]
     if mode in ["backprop","add_prev"]:
       recycles = self.opt["recycles"] = self._runner.config.model.num_recycle
       out = self._single(model_params, backprop)
@@ -146,7 +181,8 @@ class _af_design:
     else:
       recycles = self.opt["recycles"]
       if mode == "average":
-        L = self._inputs["residue_index"].shape[-1]
+        if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
+        else: L = self._inputs["residue_index"].shape[-1]
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                                 'prev_pair': np.zeros([L,L,128]),
                                 'prev_pos': np.zeros([L,37,3])}
@@ -168,23 +204,18 @@ class _af_design:
     out["aux"]["recycles"] = recycles
     return out
 
-  def step(self, lr_scale=1.0, model=None, backprop=True,
+  def step(self, lr_scale=1.0, model=None, backprop=True, crop=True,
            callback=None, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(model=model, backprop=backprop, callback=callback)
+    self.run(model=model, backprop=backprop, crop=crop, callback=callback)
 
     # normalize gradient
     g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
     
-    if "pos" in self.opt and self.opt.get("fix_seq",False):
-      # note: gradients only exist in unconstrained positions
-      eff_len = self._len - self.opt["pos"].shape[0]
-    else:
-      eff_len = self._len
-
+    eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
     self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
@@ -204,7 +235,7 @@ class _af_design:
   def save_results(self, save_best=False, verbose=1):
     # save trajectory
     traj = {"log":self.aux["log"], "seq":np.asarray(self.aux["seq"]["pseudo"])}
-    traj["xyz"] = np.asarray(self.aux["final_atom_positions"][:,1,:])
+    traj["xyz"] = np.asarray(self.aux["atom_positions"][:,1,:])
     traj["plddt"] = np.asarray(self.aux["plddt"])
     if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
     for k,v in traj.items(): self._traj[k].append(v)
@@ -231,7 +262,7 @@ class _af_design:
              soft=None, e_soft=None,
              temp=None, e_temp=None,
              hard=None, e_hard=None,
-             opt=None, weights=None, dropout=None,
+             opt=None, weights=None, dropout=None, crop=True,
              backprop=True, callback=None, save_best=False, verbose=1):
       
     # update options/settings (if defined)
@@ -253,8 +284,8 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
       
-      self.step(lr_scale=lr_scale, backprop=backprop, callback=callback,
-                save_best=save_best, verbose=verbose)
+      self.step(lr_scale=lr_scale, backprop=backprop, crop=crop,
+                callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
     '''optimize logits'''
@@ -278,7 +309,7 @@ class _af_design:
     self.set_opt(models=models, sample_models=True) # sample models
     self.design(soft_iters, soft=1, temp=1, dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
-    self.set_opt(models=5) # use all models
+    self.set_opt(models=len(self._model_params)) # use all models
     self.design(hard_iters, soft=1, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
@@ -287,7 +318,7 @@ class _af_design:
     self.set_opt(models=models, sample_models=True) # sample models
     self.design(soft_iters, soft=0, temp=1,    hard=0, e_soft=1,    dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1,    hard=0, e_temp=1e-2, dropout=dropout, **kwargs)
-    self.set_opt(models=5) # use all models
+    self.set_opt(models=len(self._model_params)) # use all models
     self.design(hard_iters, soft=1, temp=1e-2, hard=1, dropout=False, save_best=True, **kwargs)
 
   def design_semigreedy(self, iters=100, tries=20, models=1,
@@ -297,7 +328,7 @@ class _af_design:
     self.set_opt(hard=True, dropout=False,
                  models=models, sample_models=False)
     if self._k == 0:
-      self.run(backprop=False)
+      self.run(backprop=False, crop=False)
 
     def mut(seq, plddt=None):
       '''mutate random position'''
@@ -332,7 +363,7 @@ class _af_design:
       buff = []
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
-        self.run(backprop=False)
+        self.run(backprop=False, crop=False)
         buff.append({"aux":self.aux, "loss":self.loss, "seq":self.params["seq"]})
       
       # accept best      

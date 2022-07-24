@@ -247,6 +247,8 @@ CONFIG = ml_collections.ConfigDict({
                     'shared_dropout': True
                 }
             },
+            'use_msa': True,
+            'use_extra_msa': True,
             'extra_msa_channel': 64,
             'extra_msa_stack_num_block': 4,
             'max_relative_feature': 32,

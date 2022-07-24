@@ -11,7 +11,7 @@ from colabdesign.af.alphafold.model import model, folding, all_atom
 ####################################################
 class _af_loss:
   # protocol specific loss functions
-  def _loss_hallucination(self, inputs, outputs, opt, aux):
+  def _loss_hallucination(self, inputs, outputs, opt, aux, batch=None):
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss.mean()
@@ -29,13 +29,13 @@ class _af_loss:
     
     # rmsd loss
     aln = get_rmsd_loss(batch, outputs, copies=copies)
-    rmsd, aux["final_atom_positions"] = aln["rmsd"], aln["align"](aux["final_atom_positions"])
+    rmsd, aux["atom_positions"] = aln["rmsd"], aln["align"](aux["atom_positions"])
 
     # dgram loss
     aatype = inputs["aatype"][0]
     dgram_cce = get_dgram_loss(batch, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._config),
+    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._runner.config),
                           "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux, batch=None):
@@ -50,7 +50,7 @@ class _af_loss:
       aln = get_rmsd_loss(batch, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
 
-      fape = get_fape_loss(batch, outputs, model_config=self._config)
+      fape = get_fape_loss(batch, outputs, model_config=self._runner.config)
       
       # compute cce of binder + interface
       aatype = inputs["aatype"][0]
@@ -61,7 +61,7 @@ class _af_loss:
     else:
       align_fn = get_rmsd_loss(batch, outputs, L=self._target_len)["align"]
 
-    aux["final_atom_positions"] = align_fn(aux["final_atom_positions"])
+    aux["atom_positions"] = align_fn(aux["atom_positions"])
 
   def _loss_partial(self, inputs, outputs, opt, aux, batch=None):
     '''get losses'''    
@@ -71,7 +71,6 @@ class _af_loss:
     aux["losses"]["plddt"] = plddt_loss.mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-
     def sub(x, p, axis=0):
       fn = lambda y:jnp.take(y,p,axis)
       # fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
@@ -79,7 +78,7 @@ class _af_loss:
 
     pos = opt["pos"]
     aatype = inputs["aatype"][0]
-    _config = self._config.model.heads.structure_module
+    _config = self._runner.config.model.heads.structure_module
 
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
@@ -114,7 +113,7 @@ class _af_loss:
       aux["losses"]["sc_rmsd"] = aln["rmsd"]
 
     # align final atoms
-    aux["final_atom_positions"] = aln["align"](aux["final_atom_positions"])
+    aux["atom_positions"] = aln["align"](aux["atom_positions"])
 
   def _get_pairwise_loss(self, inputs, outputs, opt, aux, interface=False):
     '''get pairwise loss features'''
@@ -138,16 +137,23 @@ class _af_loss:
                             "helix":get_helix_loss(dgram, dgram_bins, offset=offset, **opt["con"]),
                             "pae":pae.mean()})
     else:
-      # split pae/con into inter/intra      
-      L = self._target_len if self.protocol == "binder" else self._len
-      H = self._hotspot if hasattr(self,"_hotspot") else None
+      # split pae/con into inter/intra
+      if self.protocol == "binder":
+        (L,H) = (self._target_len, opt.get("pos",None))
+      else:
+        (L,H) = (self._len, None)
       
       def split_feats(v):
         '''split pairwise features into intra and inter features'''
-        if v is None: return None,None
-        aa,bb = v[:L,:L], v[L:,L:]
-        ab = v[:L,L:] if H is None else v[H,L:]
-        ba = v[L:,:L] if H is None else v[L:,H]
+        if v is None: 
+          return None,None
+        
+        (aa,bb) =   (v[:L,:L],v[L:,L:])
+        if H is None:
+          (ab,ba) = (v[:L,L:],v[L:,:L])
+        else:
+          (ab,ba) = (v[H, L:],v[L:, H])
+
         abba = (ab + ba.swapaxes(0,1)) / 2
         if self.protocol == "binder":
           return bb,abba.swapaxes(0,1)
@@ -159,7 +165,6 @@ class _af_loss:
         x, ix = split_feats(v)        
         if k == "con":
           aux["losses"]["helix"] = get_helix_loss(x, dgram_bins, x_offset)
-          # dgram, dgram_bins, cutoff=None, num=1, seqsep=0, binary=True, offset=None
           x = get_con_loss(x, dgram_bins, offset=x_offset, **opt["con"])
           ix = get_con_loss(ix, dgram_bins, offset=ix_offset, **opt["i_con"])
 

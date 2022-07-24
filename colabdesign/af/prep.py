@@ -23,63 +23,46 @@ idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
 # AF_PREP - input prep functions
 #################################################
 class _af_prep:
+
   def _prep_features(self, length, num_templates=1, template_features=None):
     '''process features'''
-    sequence = "A" * length
-    feature_dict = {
-        **pipeline.make_sequence_features(sequence=sequence, description="none", num_res=length),
-        **pipeline.make_msa_features(msas=[length*[sequence]], deletion_matrices=[self._num*[[0]*length]])
-    }
-    if self._args["use_templates"]:
-      # reconfigure model
-      self._runner.config.data.eval.max_templates = num_templates
-      self._runner.config.data.eval.max_msa_clusters = self._num + num_templates
-      if template_features is None:
-        feature_dict.update({'template_aatype': np.zeros([num_templates,length,22]),
-                             'template_all_atom_masks': np.zeros([num_templates,length,37]),
-                             'template_all_atom_positions': np.zeros([num_templates,length,37,3]),
-                             'template_domain_names': np.zeros(num_templates)})
-      else:
-        feature_dict.update(template_features)
-      
-    inputs = self._runner.process_features(feature_dict, random_seed=0)
-    if self._num > 1:
-      inputs["msa_row_mask"] = jnp.ones_like(inputs["msa_row_mask"])
-      inputs["msa_mask"] = jnp.ones_like(inputs["msa_mask"])
-    return inputs
+    return prep_input_features(L=length, N=self._num, T=num_templates,
+                               use_templates=self._args["use_templates"])
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, split_templates=False,
-                   hotspot=None, rm_template_seq=True, **kwargs):
+                   pos=None, rm_template_seq=True, **kwargs):
     '''
-    ---------------------------------------------------
     prep inputs for binder design
     ---------------------------------------------------
     -binder_len = length of binder to hallucinate (option ignored if binder_chain is defined)
     -binder_chain = chain of binder to redesign
     -use_binder_template = use binder coordinates as template input
     -split_templates = use target and binder coordinates as seperate template inputs
-    -hotspot = define position on target
+    -pos = define position/hotspots on target
     -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
     '''
     
-    self._args["rm_template_seq"] = rm_template_seq
+    redesign = binder_chain is not None
 
-    self._args["redesign"] = binder_chain is not None
+    self._args.update({"rm_template_seq":rm_template_seq,
+                       "redesign":redesign})
+
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
 
     # get pdb info
-    chains = f"{chain},{binder_chain}" if self._args["redesign"] else chain
+    chains = f"{chain},{binder_chain}" if redesign else chain
     pdb = prep_pdb(pdb_filename, chain=chains)
-    if self._args["redesign"]:
+    if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
       if split_templates: num_templates = 2      
       # get input features
       self._inputs = self._prep_features(target_len + binder_len, num_templates=num_templates)
+
     else:
       target_len = pdb["residue_index"].shape[0]
       self._inputs = self._prep_features(target_len)
@@ -87,16 +70,15 @@ class _af_prep:
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
     # gather hotspot info
-    if hotspot is None:
-      self._hotspot = None
-    else:
-      self._hotspot = prep_pos(hotspot, **pdb["idx"])["pos"]
+    hotspot = kwargs.pop("hotspot", pos)
+    if hotspot is not None:
+      self.opt["pos"] = prep_pos(hotspot, **pdb["idx"])["pos"]
 
-    if self._args["redesign"]:      
+    if redesign:      
       self._batch = pdb["batch"]
       self._wt_aatype = self._batch["aatype"][target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
-                                    "con":0.0, "i_pae":0.01, "i_con":0.0})      
+                                  "con":0.0, "i_pae":0.01, "i_con":0.0})      
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
@@ -116,7 +98,8 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=False, rm_template_seq=True, **kwargs):
+                  repeat=False, block_diag=False, rm_template_seq=True,
+                  pos=None, fix_seq=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
     self._args["rm_template_seq"] = rm_template_seq
@@ -133,7 +116,7 @@ class _af_prep:
     self._inputs = self._prep_features(self._len)
     self._copies = copies
     self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
-    
+
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
 
@@ -153,6 +136,12 @@ class _af_prep:
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
+
+    # fix certain positions
+    self.opt["fix_seq"] = fix_seq
+    if pos is not None:
+      self._pos_info = prep_pos(pos, **pdb["idx"])
+      self.opt["pos"] = self._pos_info["pos"]
 
     self._wt_aatype = self._batch["aatype"][:self._len]
     self._opt = copy_dict(self.opt)
@@ -186,8 +175,8 @@ class _af_prep:
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
 
-  def _prep_partial(self, pdb_filename, chain=None, pos=None, length=None,
-                    fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
+  def _prep_partial(self, pdb_filename, chain=None, length=None,
+                    pos=None, fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
                     rm_template_seq=False, **kwargs):
     '''prep input for partial hallucination'''    
 
@@ -353,3 +342,35 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   w, w_na = w/w.sum(), w_na/w_na.sum()
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
+
+def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
+  '''
+  given [L]ength, [N]umber of sequences and number of [T]emplates
+  return dictionary of blank features
+  '''
+  inputs = {'aatype': np.zeros(L,int),
+            'target_feat': np.zeros((L,22)),
+            'msa_feat': np.zeros((N,L,49)),
+            'seq_mask': np.ones(L),
+            'msa_mask': np.ones((N,L)),
+            'msa_row_mask': np.ones(N),
+            'atom14_atom_exists': np.zeros((L,14)),
+            'atom37_atom_exists': np.zeros((L,37)),
+            'residx_atom14_to_atom37': np.zeros((L,14),int),
+            'residx_atom37_to_atom14': np.zeros((L,37),int),            
+            'residue_index': np.arange(L),
+            'extra_deletion_value': np.zeros((eN,L)),
+            'extra_has_deletion': np.zeros((eN,L)),
+            'extra_msa': np.zeros((eN,L),int),
+            'extra_msa_mask': np.zeros((eN,L)),
+            'extra_msa_row_mask': np.zeros(eN)}
+                   
+  if use_templates:
+    inputs.update({'template_aatype': np.zeros((T,L),int),
+                   'template_all_atom_masks': np.zeros((T,L,37)),
+                   'template_all_atom_positions': np.zeros((T,L,37,3)),
+                   'template_mask': np.ones(T),
+                   'template_pseudo_beta': np.zeros((T,L,3)),
+                   'template_pseudo_beta_mask': np.zeros((T,L))})
+
+  return jax.tree_map(lambda x:x[None], inputs)

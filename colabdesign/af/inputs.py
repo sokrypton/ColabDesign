@@ -13,9 +13,13 @@ class _af_inputs:
   def _get_seq(self, params, opt, aux, key):
     '''get sequence features'''
     seq = soft_seq(params["seq"], opt, key)
-    if "pos" in opt:
+    if "pos" in opt and "fix_seq" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,opt["pos"],:].set(seq_ref),x)
+      p = opt["pos"]
+      if self.protocol == "partial":
+        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
+      else:
+        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
       seq = jax.tree_map(fix_seq,seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
@@ -73,11 +77,11 @@ class _af_inputs:
       for k,v in template_feats.items():
         if self.protocol == "binder":
           n = self._target_len
-          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])            
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])          
-
+          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])
+          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
+        
         if self.protocol == "fixbb":
-          inputs[k] = inputs[k].at[:,0].set(v)                        
+          inputs[k] = inputs[k].at[:,0].set(v)
 
         if self.protocol == "partial":
           inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
@@ -87,7 +91,6 @@ class _af_inputs:
             inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)
           else:
             inputs[k] = inputs[k].at[:,0,:,5:].set(0)
-
 
     # dropout template input features
     L = inputs["template_aatype"].shape[2]
@@ -147,3 +150,28 @@ def expand_copies(x, copies, block_diag=True):
     return jnp.concatenate([x,y],0)
   else:
     return x
+
+def crop_feat(feat, pos, model_runner, add_batch=True):  
+  def find(x,k):
+    i = []
+    for j,y in enumerate(x):
+      if y == k: i.append(j)
+    return i
+  
+  if feat is None:
+    return None
+
+  else:
+    cfg = model_runner.config
+    shapes = cfg.data.eval.feat
+    NUM_RES = "num residues placeholder"
+    idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
+
+    new_feat = {}
+    for k,v in feat.items():
+      v_ = v.copy()
+      if k in idx:
+        for i in idx[k]:
+          v_ = jnp.take(v_, pos, i + add_batch)
+      new_feat[k] = v_
+    return new_feat

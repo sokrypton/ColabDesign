@@ -79,6 +79,8 @@ class design_model:
           seq = jnp.asarray(seq)
       
       if kwargs.pop("add_seq",False):
+        print("WARNING: option 'add_seq' will soon be deprecated. To fix the sequence use:")
+        print('         model.prep_model(pos="1-10,12,20", fix_seq=True)')
         b = b + seq * 1e7
         set_bias = True
       

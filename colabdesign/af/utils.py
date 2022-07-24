@@ -65,17 +65,30 @@ class _af_utils:
       Ls = [self._len] * self._copies
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
-    if p["aatype"].ndim == 2: p["aatype"] = p["aatype"].argmax(-1)
+    p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
 
-    b_factors = 100.0 * aux["plddt"][:,None] * p["atom_mask"]
-    p = protein.Protein(**p,b_factors=b_factors)
-    pdb_str = protein.to_pdb(p)
-    if renum_pdb:
-      pdb_str = renum_pdb_str(pdb_str, Ls)    
-    if filename is None:
-      return pdb_str, Ls
+    def to_pdb_str(x, n=None):
+      p_str = protein.to_pdb(protein.Protein(**x))
+      p_str = "\n".join(p_str.splitlines()[1:-2])
+      if renum_pdb: p_str = renum_pdb_str(p_str, Ls)
+      if n is not None:
+        p_str = f"MODEL{n:8}\n{p_str}\nENDMDL\n"
+      return p_str
+
+    if p["atom_positions"].ndim == 4:
+      if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
+      p_str = ""
+      for n in range(p["atom_positions"].shape[0]):
+        p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
+      p_str += "END\n"
     else:
-      with open(filename, 'w') as f: f.write(pdb_str)
+      if p["aatype"].ndim == 2: p["aatype"] = p["aatype"].argmax(-1)
+      p_str = to_pdb_str(p)
+    if filename is None: 
+      return p_str, Ls
+    else: 
+      with open(filename, 'w') as f:
+        f.write(p_str)
 
   #-------------------------------------
   # plotting functions

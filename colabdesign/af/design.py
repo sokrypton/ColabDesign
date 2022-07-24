@@ -124,38 +124,27 @@ class _af_design:
       outs.append(self._recycle(p, backprop=backprop))
     outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)
 
-    if average:
-      # update gradients
-      self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
-
-      # update [aux]iliary outputs
-      self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
-
-      # update loss (take mean across models)
-      self.loss = outs["loss"].mean()      
-      self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
-
-    else:
-      self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]
+    # update gradients
+    self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
+    self.loss, self.aux = outs["loss"], outs["aux"]
 
     # callback
     if callback is not None: callback(self)
 
     # update log
-    self.aux["log"] = copy_dict(self.aux["losses"])
-    self.aux["log"].update({"hard": self.opt["hard"], "soft": self.opt["soft"],
-                            "temp": self.opt["temp"], "loss": self.loss,
-                            "recycles": self.aux["recycles"]})
+    self.log = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
+    self.log.update({"hard": self.opt["hard"], "soft": self.opt["soft"],
+                     "temp": self.opt["temp"], "loss": self.loss.mean()})
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       aatype = self.aux["seq"]["pseudo"].argmax(-1)
       if self.protocol == "partial" and "pos" in self.opt:
         aatype = aatype[...,self.opt["pos"]]
-      self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
+      self.log["seqid"] = (aatype == self._wt_aatype).mean()
 
-    self.aux["log"] = to_float(self.aux["log"])
-    self.aux["log"]["models"] = model_num
+    self.log = to_float(self.log)
+    self.log.update({"recycles":self.aux["recycles"][0], "models":model_num})
     
     # backward compatibility
     self._outs = self.aux
@@ -233,16 +222,20 @@ class _af_design:
     self.save_results(save_best=save_best, verbose=verbose)
 
   def save_results(self, save_best=False, verbose=1):
+    
     # save trajectory
-    traj = {"log":self.aux["log"], "seq":np.asarray(self.aux["seq"]["pseudo"])}
-    traj["xyz"] = np.asarray(self.aux["atom_positions"][:,1,:])
-    traj["plddt"] = np.asarray(self.aux["plddt"])
-    if "pae" in self.aux: traj["pae"] = np.asarray(self.aux["pae"])
+    aux0 = jax.tree_map(lambda x:x[0], self.aux)
+    traj = {"seq":aux0["seq"]["pseudo"],
+            "xyz":aux0["atom_positions"][:,1,:],
+            "plddt":aux0["plddt"], "pae":aux0["pae"]}
+    traj = jax.tree_map(np.array, traj)
+    traj["log"] = self.log
+    
     for k,v in traj.items(): self._traj[k].append(v)
 
     # save best result
     if save_best:
-      metric = self.aux["log"][self._args["best_metric"]]
+      metric = self.log[self._args["best_metric"]]
       if metric < self._best_metric:
         self._best_metric = self._best_loss = metric
         self._best_aux    = self._best_outs = self.aux
@@ -252,7 +245,7 @@ class _af_design:
       keys = ["models","recycles","hard","soft","temp","seqid","loss",
               "msa_ent","plddt","pae","helix","con","i_pae","i_con",
               "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]        
-      print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
+      print(dict_to_str(self.log, filt=self.opt["weights"],
                         print_str=f"{self._k}", keys=keys, ok="rmsd"))
 
   # ---------------------------------------------------------------------------------
@@ -354,7 +347,7 @@ class _af_design:
       seq = get_seq()
       plddt = None
       if use_plddt:
-        plddt = np.asarray(self.aux["plddt"])
+        plddt = np.asarray(self.aux["plddt"].mean(0))
         if self.protocol == "binder":
           plddt = plddt[self._target_len:]
         else:
@@ -364,7 +357,7 @@ class _af_design:
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
         self.run(backprop=False, crop=False)
-        buff.append({"aux":self.aux, "loss":self.loss, "seq":self.params["seq"]})
+        buff.append({"aux":self.aux, "loss":self.loss.mean(), "seq":self.params["seq"]})
       
       # accept best      
       buff = buff[np.argmin([x["loss"] for x in buff])]

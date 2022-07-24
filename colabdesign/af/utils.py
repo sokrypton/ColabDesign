@@ -109,7 +109,8 @@ class _af_utils:
       return make_animation(**sub_traj, pos_ref=pos_ref, align_xyz=False, dpi=dpi)  
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
-               color="pLDDT", color_HP=False, size=(800,480), get_best=True):
+               color="pLDDT", color_HP=False, size=(800,480),
+               animate=False, get_best=True):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
@@ -121,7 +122,8 @@ class _af_utils:
                     color=color,
                     Ls=Ls,
                     color_HP=color_HP,
-                    size=size)
+                    size=size,
+                    animate=animate)
     view.show()
   
   def plot_traj(self, dpi=100):

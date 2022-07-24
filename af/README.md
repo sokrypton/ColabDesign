@@ -49,7 +49,7 @@ model = mk_afdesign_model(protocol="hallucination")
 model.prep_inputs(length=100)
 model.restart(seq_init="gumbel")
 model.design(50, soft=True)
-model.restart(seq_init=model._aux["seq"]["pseudo"], keep_history=True)
+model.restart(seq_init=model.aux["seq"]["pseudo"], keep_history=True)
 model.design_3stage(50,50,10)
 ```
 ### binder hallucination

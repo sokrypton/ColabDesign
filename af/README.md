@@ -19,8 +19,12 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git
+
+# download alphafold weights
 mkdir params
 curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
+
+# download openfold weights (optional)
 for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
 do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -P params; done
 ```
@@ -115,6 +119,12 @@ model = mk_afdesign_model(num_models=1, sample_models=True)
 - `sample_models`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
+#### Can I use OpenFold model params for design instead of AlphaFold?
+```python
+model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
+# OR
+model.set_opt(use_openfold=True, use_alphafold=False)
+```
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
 ```python

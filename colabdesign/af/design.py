@@ -117,39 +117,38 @@ class _af_design:
     model_num = np.array(model_num).tolist()
 
     # loop through model params
-    outs = []
+    aux = []
     for n in model_num:
       p = self._model_params[n]
-      outs.append(self._recycle(p, backprop=backprop))
-    outs = jax.tree_map(lambda *x: jnp.stack(x), *outs)
+      aux.append(self._recycle(p, backprop=backprop))
+    aux = jax.tree_map(lambda *x: jnp.stack(x), *aux)
 
-    # update gradients
-    self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
-    self.loss = outs["loss"].mean(0)
-    self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
-    self.aux["all"] = outs["aux"]
+    # update aux
+    self.aux = jax.tree_map(lambda x:x[0], aux)
+    self.aux["all"] = aux
+
+    # average losses and gradients
+    self.aux["loss"] = aux["loss"].mean()
+    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), aux["losses"])
+    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), aux["grad"])
 
     # callback
     if callback is not None: callback(self)
 
     # update log
-    self.log = jax.tree_map(lambda x: x.mean(0), outs["aux"]["losses"])
-    self.log.update({"hard": self.opt["hard"], "soft": self.opt["soft"],
-                     "temp": self.opt["temp"], "loss": self.loss.mean()})
+    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
+    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       aatype = self.aux["seq"]["pseudo"].argmax(-1)
       if self.protocol == "partial" and "pos" in self.opt:
         aatype = aatype[...,self.opt["pos"]]
-      self.log["seqid"] = (aatype == self._wt_aatype).mean()
+      self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
-    self.log = to_float(self.log)
-    self.log.update({"recycles":self.aux["recycles"], "models":model_num})
+    self.aux["log"] = to_float(self.aux["log"])
+    self.aux["log"].update({"recycles":self.aux["recycles"], "models":model_num})
     
-    # backward compatibility
-    self._outs = self.aux
-
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
     flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
@@ -158,19 +157,23 @@ class _af_design:
     else:
       loss, aux = self._fn(*flags)
       grad = jax.tree_map(jnp.zeros_like, self.params)
-    return {"loss":loss, "aux":aux, "grad":grad}
+    aux.update({"loss":loss,"grad":grad})
+    return aux
 
   def _recycle(self, model_params, backprop=True):   
     '''multiple passes through the model (aka recycle)'''
 
     mode = self._args["recycle_mode"]
     if mode in ["backprop","add_prev"]:
+      # recycles compiled into model, only need single-pass
       recycles = self.opt["recycles"] = self._runner.config.model.num_recycle
-      out = self._single(model_params, backprop)
+      aux = self._single(model_params, backprop)
     
     else:
+      # configure number of recycle to run
       recycles = self.opt["recycles"]
       if mode == "average":
+        # run recycles manually, average gradients
         if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
         else: L = self._inputs["residue_index"].shape[-1]
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
@@ -178,21 +181,22 @@ class _af_design:
                                 'prev_pos': np.zeros([L,37,3])}
         grad = []
         for _ in range(recycles+1):
-          out = self._single(model_params, backprop)
-          grad.append(out["grad"])
-          self._inputs["prev"] = out["aux"]["prev"]
-        out["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
+          aux = self._single(model_params, backprop)
+          grad.append(aux["grad"])
+          self._inputs["prev"] = aux["prev"]
+        aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
       
       elif mode == "sample":
+        # randomly select number of recycles to run
         self.set_opt(recycles=jax.random.randint(self.key(),[],0,recycles+1))
-        out = self._single(model_params, backprop)
+        aux = self._single(model_params, backprop)
         (self.opt["recycles"],recycles) = (recycles,self.opt["recycles"])
       
       else:
-        out = self._single(model_params, backprop)
+        aux = self._single(model_params, backprop)
     
-    out["aux"]["recycles"] = recycles
-    return out
+    aux["recycles"] = recycles
+    return aux
 
   def step(self, lr_scale=1.0, model=None, backprop=True, crop=True,
            callback=None, save_best=False, verbose=1):
@@ -202,18 +206,18 @@ class _af_design:
     self.run(model=model, backprop=backprop, crop=crop, callback=callback)
 
     # normalize gradient
-    g = self.grad["seq"]
+    g = self.aux["grad"]["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
     
     eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
-    self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
+    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     lr = self.opt["lr"] * lr_scale
-    self.grad = jax.tree_map(lambda x:x*lr, self.grad)
+    self.aux["grad"] = jax.tree_map(lambda x:x*lr, self.aux["grad"])
 
     # apply gradient
-    self._state = self._update_fun(self._k, self.grad, self._state)
+    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
     self.params = self._get_params(self._state)
 
     # increment
@@ -230,13 +234,13 @@ class _af_design:
             "plddt": self.aux["plddt"],
             "pae":   self.aux["pae"]}
     traj = jax.tree_map(np.array, traj)
-    traj["log"] = self.log
+    traj["log"] = self.aux["log"]
     
     for k,v in traj.items(): self._traj[k].append(v)
 
     # save best result
     if save_best:
-      metric = self.log[self._args["best_metric"]]
+      metric = self.aux["log"][self._args["best_metric"]]
       if metric < self._best["metric"]:
         self._best = {"metric":metric, "aux":self.aux}
 
@@ -244,8 +248,9 @@ class _af_design:
       # preferred order
       keys = ["models","recycles","hard","soft","temp","seqid","loss",
               "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-              "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]        
-      print(dict_to_str(self.log, filt=self.opt["weights"],
+              "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
+
+      print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
                         print_str=f"{self._k}", keys=keys, ok="rmsd"))
 
   # ---------------------------------------------------------------------------------
@@ -357,11 +362,11 @@ class _af_design:
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
         self.run(backprop=False, crop=False)
-        buff.append({"aux":self.aux, "loss":self.loss.mean(), "seq":self.params["seq"]})
+        buff.append({"aux":self.aux, "seq":self.params["seq"]})
       
       # accept best      
-      buff = buff[np.argmin([x["loss"] for x in buff])]
-      self.loss, self.params["seq"], self.aux = buff["loss"], buff["seq"], buff["aux"]
+      buff = buff[np.argmin([x["aux"]["loss"] for x in buff])]
+      self.params["seq"], self.aux = buff["seq"], buff["aux"]
       self._k += 1
       self.save_results(save_best=save_best, verbose=verbose)
 

@@ -189,7 +189,7 @@ class mk_tr_model(design_model):
     self._state = self._init_fun(self.params)
 
     # clear previous best
-    self._best = {"loss":np.inf, "aux":None}
+    self._best = {"aux":{"loss":np.inf}}
     
   def run(self, model=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -209,7 +209,7 @@ class mk_tr_model(design_model):
       model_num = list(model)
 
     # run in serial
-    outs = []
+    aux_all = []
     for n in model_num:
       model_params = self._model_params[n]
       if backprop:
@@ -217,14 +217,11 @@ class mk_tr_model(design_model):
       else:
         loss,aux = self._fn(self.params, model_params, self.opt, self.key())
         grad = jax.tree_map(jnp.zeros_like, self.params)
-      outs.append({"loss":loss,"aux":aux,"grad":grad})
-    outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)
+      aux.update({"loss":loss, "grad":grad})
+      aux_all.append(aux)
     
     # average results
-    outs = jax.tree_map(lambda x:x.mean(0), outs)
-
-    # update
-    self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]
+    self.aux = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *aux_all)
     self.aux["model_num"] = model_num
 
   def step(self, model=None, backprop=True,
@@ -233,7 +230,7 @@ class mk_tr_model(design_model):
     if callback is not None: callback(self)
 
     # normalize gradient
-    g = self.grad["seq"]
+    g = self.aux["grad"]["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
 
     if "pos" in self.opt and self.opt.get("fix_seq",False):
@@ -241,21 +238,21 @@ class mk_tr_model(design_model):
       eff_len = self._len - self.opt["pos"].shape[0]
     else:
       eff_len = self._len
-    self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
+    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
-    self.grad = jax.tree_map(lambda x:x*self.opt["lr"], self.grad)
+    self.aux["grad"] = jax.tree_map(lambda x:x*self.opt["lr"], self.aux["grad"])
 
     # apply gradient
-    self._state = self._update_fun(self._k, self.grad, self._state)
+    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
     self.params = self._get_params(self._state)    
 
     # increment
     self._k += 1
 
     # save results
-    if save_best and self.loss < self._best["loss"]:
-      self._best = {"loss":self.loss,"aux":self.aux}
+    if save_best and self.aux["loss"] < self._best["aux"]["loss"]:
+      self._best["aux"] = self.aux
 
     # print
     if verbose and (self._k % verbose) == 0:
@@ -315,10 +312,10 @@ class mk_tr_model(design_model):
       self.run(backprop = weight > 0)
       
       # add gradients
-      af_model.grad["seq"] += weight * self.grad["seq"]
+      af_model.aux["grad"]["seq"] += weight * self.aux["grad"]["seq"]
       
       # add loss
-      af_model.loss += weight * self.loss
+      af_model.aux["loss"] += weight * self.aux["loss"]
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:

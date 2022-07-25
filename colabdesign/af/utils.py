@@ -105,7 +105,7 @@ class _af_utils:
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    pdb_str, self.save_pdb(get_best=get_best)
+    pdb_str = self.save_pdb(get_best=get_best)
     view = show_pdb(pdb_str,
                     show_sidechains=show_sidechains,
                     show_mainchains=show_mainchains,

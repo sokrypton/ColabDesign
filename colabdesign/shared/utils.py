@@ -5,7 +5,8 @@ import jax.numpy as jnp
 
 def clear_mem():
   backend = jax.lib.xla_bridge.get_backend()
-  for buf in backend.live_buffers(): buf.delete()
+  if hasattr(backend,'live_buffers'):
+    for buf in backend.live_buffers(): buf.delete()
 
 def update_dict(D, *args, **kwargs):
   '''robust function for updating dictionary'''

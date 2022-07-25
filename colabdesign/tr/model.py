@@ -189,9 +189,9 @@ class mk_tr_model(design_model):
     self._state = self._init_fun(self.params)
 
     # clear previous best
-    self._best_loss, self._best_aux = np.inf, None
+    self._best = {"loss":np.inf, "aux":None}
     
-  def run(self, model=None, backprop=True, average=True):
+  def run(self, model=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
     
     if model is None:
@@ -221,7 +221,7 @@ class mk_tr_model(design_model):
     outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)
     
     # average results
-    if average: outs = jax.tree_map(lambda x:x.mean(0), outs)
+    outs = jax.tree_map(lambda x:x.mean(0), outs)
 
     # update
     self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]
@@ -254,9 +254,8 @@ class mk_tr_model(design_model):
     self._k += 1
 
     # save results
-    if save_best and self.loss < self._best_loss:
-      self._best_loss = self.loss
-      self._best_aux = self.aux
+    if save_best and self.loss < self._best["loss"]:
+      self._best = {"loss":self.loss,"aux":self.aux}
 
     # print
     if verbose and (self._k % verbose) == 0:
@@ -275,7 +274,7 @@ class mk_tr_model(design_model):
 
     assert mode in ["preds","feats","bkg_feats"]
     if mode == "preds":
-      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+      aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
       x = aux["outputs"]
     elif mode == "feats":
       x = self._feats
@@ -293,7 +292,7 @@ class mk_tr_model(design_model):
     plt.show()
     
   def get_loss(self, k=None, get_best=True):
-    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
+    aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
     if k is None:
       return {k:self.get_loss(k,get_best=get_best) for k in aux["losses"].keys()}
     losses = aux["losses"][k]

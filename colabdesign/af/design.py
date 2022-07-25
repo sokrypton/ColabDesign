@@ -66,15 +66,13 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best_metric = self._best_loss = np.inf
-      self._best_aux = self._best_outs = None
-      self._best_aux_all = None
+      self._best = {"metric":np.inf, "aux":None}
 
     # set crop length
     if self._args["crop_len"] is None:
       self._args["crop_len"] = self._inputs["residue_index"].shape[-1]
       
-  def run(self, model=None, backprop=True, crop=True, average=True, callback=None):
+  def run(self, model=None, backprop=True, crop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
     # crop inputs 
@@ -127,8 +125,9 @@ class _af_design:
 
     # update gradients
     self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
-    self.loss, self.aux_all = outs["loss"], outs["aux"]
+    self.loss = outs["loss"].mean(0)
     self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
+    self.aux["all"] = outs["aux"]
 
     # callback
     if callback is not None: callback(self)
@@ -226,10 +225,10 @@ class _af_design:
   def save_results(self, save_best=False, verbose=1):
     
     # save trajectory
-    traj = {"seq":self.aux["seq"]["pseudo"],
-            "xyz":self.aux["atom_positions"][:,1,:],
-            "plddt":self.aux["plddt"],
-            "pae":self.aux["pae"]}
+    traj = {"seq":   self.aux["seq"]["pseudo"],
+            "xyz":   self.aux["atom_positions"][:,1,:],
+            "plddt": self.aux["plddt"],
+            "pae":   self.aux["pae"]}
     traj = jax.tree_map(np.array, traj)
     traj["log"] = self.log
     
@@ -238,11 +237,9 @@ class _af_design:
     # save best result
     if save_best:
       metric = self.log[self._args["best_metric"]]
-      if metric < self._best_metric:
-        self._best_metric = self._best_loss = metric
-        self._best_aux    = self._best_outs = self.aux
-        self._best_aux_all = self.aux_all
-    
+      if metric < self._best["metric"]:
+        self._best = {"metric":metric, "aux":self.aux}
+
     if verbose and (self._k % verbose) == 0:
       # preferred order
       keys = ["models","recycles","hard","soft","temp","seqid","loss",
@@ -350,7 +347,7 @@ class _af_design:
       seq = get_seq()
       plddt = None
       if use_plddt:
-        plddt = np.asarray(self.aux_all["plddt"].mean(0))
+        plddt = np.asarray(self.aux["all"]["plddt"].mean(0))
         if self.protocol == "binder":
           plddt = plddt[self._target_len:]
         else:
@@ -360,13 +357,11 @@ class _af_design:
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
         self.run(backprop=False, crop=False)
-        buff.append({"aux":self.aux, "aux_all":self.aux_all,
-                     "loss":self.loss.mean(), "seq":self.params["seq"]})
+        buff.append({"aux":self.aux, "loss":self.loss.mean(), "seq":self.params["seq"]})
       
       # accept best      
       buff = buff[np.argmin([x["loss"] for x in buff])]
-      self.loss, self.params["seq"] = buff["loss"], buff["seq"]
-      self.aux, self.aux_all = buff["aux"], buff["aux_all"]
+      self.loss, self.params["seq"], self.aux = buff["loss"], buff["seq"], buff["aux"]
       self._k += 1
       self.save_results(save_best=save_best, verbose=verbose)
 

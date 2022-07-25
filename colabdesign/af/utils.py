@@ -55,15 +55,6 @@ class _af_utils:
     '''
     aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
     aux = jax.tree_map(np.asarray, aux["all"])
-
-    Ls = None    
-    if self.protocol == "binder":   Ls = [self._target_len, self._binder_len]      
-    if self.protocol == "partial":  Ls = [self._len]
-    if self.protocol in ["hallucination","fixbb"]:
-      if self._args["repeat"]:
-        Ls = [self._len * self._copies]
-      else:
-        Ls = [self._len] * self._copies
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
     if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
@@ -72,7 +63,7 @@ class _af_utils:
     def to_pdb_str(x, n=None):
       p_str = protein.to_pdb(protein.Protein(**x))
       p_str = "\n".join(p_str.splitlines()[1:-2])
-      if renum_pdb: p_str = renum_pdb_str(p_str, Ls)
+      if renum_pdb: p_str = renum_pdb_str(p_str, self._lengths)
       if n is not None:
         p_str = f"MODEL{n:8}\n{p_str}\nENDMDL\n"
       return p_str
@@ -82,8 +73,7 @@ class _af_utils:
       p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
     p_str += "END\n"
     
-    if filename is None: 
-      return p_str, Ls
+    if filename is None: return p_str
     else: 
       with open(filename, 'w') as f:
         f.write(p_str)
@@ -102,20 +92,11 @@ class _af_utils:
     
     pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
-    
-    Ls = None    
-    if self.protocol == "binder":   Ls = [self._target_len, self._binder_len]      
-    if self.protocol == "partial":  Ls = [self._len]
-    if self.protocol in ["hallucination","fixbb"]:
-      if self._args["repeat"]:
-        Ls = [self._len * self._copies]
-      else:
-        Ls = [self._len] * self._copies
-    
+        
     if self.protocol == "hallucination":
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=Ls, dpi=dpi)
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, dpi=dpi)
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=Ls, align_xyz=False, dpi=dpi)  
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi)  
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480),
@@ -124,12 +105,12 @@ class _af_utils:
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    pdb_str, Ls = self.save_pdb(get_best=get_best)
+    pdb_str, self.save_pdb(get_best=get_best)
     view = show_pdb(pdb_str,
                     show_sidechains=show_sidechains,
                     show_mainchains=show_mainchains,
                     color=color,
-                    Ls=Ls,
+                    Ls=self._lengths,
                     color_HP=color_HP,
                     size=size,
                     animate=animate)

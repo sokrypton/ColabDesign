@@ -94,6 +94,7 @@ class _af_prep:
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
+    self._lengths = [self._target_len, self._binder_len]
 
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
@@ -128,6 +129,7 @@ class _af_prep:
       if repeat:
         self._len = self._len // copies
         block_diag = False
+        self._lengths = [self._len * copies]
       else:
         if homooligomer:
           self._len = self._len // copies
@@ -137,8 +139,10 @@ class _af_prep:
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+        self._lengths = [self._len] * copies
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
+      self._lengths = [self._len]
 
     # fix certain positions
     self.opt["fix_seq"] = fix_seq
@@ -172,9 +176,11 @@ class _af_prep:
     if copies > 1:
       if repeat:
         offset = 1
+        self._lengths = [self._len * copies]
       else:
         offset = 50
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
+        self._lengths = [self._len] * copies
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
 
     self._opt = copy_dict(self.opt)
@@ -190,7 +196,8 @@ class _af_prep:
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
     self._len = pdb["residue_index"].shape[0] if length is None else length
-    self._inputs = self._prep_features(self._len)    
+    self._inputs = self._prep_features(self._len)
+    self._lengths = [self._len]
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})

@@ -189,7 +189,7 @@ class mk_tr_model(design_model):
     self._state = self._init_fun(self.params)
 
     # clear previous best
-    self._best = {"aux":{"loss":np.inf}}
+    self._best = {}
     
   def run(self, model=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -251,7 +251,7 @@ class mk_tr_model(design_model):
     self._k += 1
 
     # save results
-    if save_best and self.aux["loss"] < self._best["aux"]["loss"]:
+    if save_best and "aux" in self._best and self.aux["loss"] < self._best["aux"]["loss"]:
       self._best["aux"] = self.aux
 
     # print
@@ -266,12 +266,12 @@ class mk_tr_model(design_model):
     for _ in range(iters):
       self.step(save_best=save_best, verbose=verbose)
   
-  def plot(self, mode="preds", get_best=True, dpi=100):
+  def plot(self, mode="preds", dpi=100, get_best=True):
     '''plot predictions'''
 
     assert mode in ["preds","feats","bkg_feats"]
     if mode == "preds":
-      aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
+      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
       x = aux["outputs"]
     elif mode == "feats":
       x = self._feats
@@ -289,9 +289,9 @@ class mk_tr_model(design_model):
     plt.show()
     
   def get_loss(self, k=None, get_best=True):
-    aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
+    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
     if k is None:
-      return {k:self.get_loss(k,get_best=get_best) for k in aux["losses"].keys()}
+      return {k:self.get_loss(k, get_best=get_best) for k in aux["losses"].keys()}
     losses = aux["losses"][k]
     weights = aux["opt"]["weights"][k]
     weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
@@ -319,9 +319,9 @@ class mk_tr_model(design_model):
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:
-        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg")
+        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg", get_best=False)
       if self.protocol in ["fixbb","partial"]:
-        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce")
+        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce", get_best=False)
       
     self.restart(seed=seed)
     return callback

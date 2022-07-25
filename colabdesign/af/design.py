@@ -66,7 +66,7 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best = {"metric":np.inf, "aux":None}
+      self._best = {"metric":np.inf}
 
     # set crop length
     if self._args["crop_len"] is None:
@@ -242,7 +242,7 @@ class _af_design:
     if save_best:
       metric = self.aux["log"][self._args["best_metric"]]
       if metric < self._best["metric"]:
-        self._best = {"metric":metric, "aux":self.aux}
+        self._best.update({"metric":metric, "aux":self.aux})
 
     if verbose and (self._k % verbose) == 0:
       # preferred order

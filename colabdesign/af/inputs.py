@@ -134,7 +134,7 @@ def update_aatype(aatype, inputs):
 
 def expand_copies(x, copies, block_diag=True):
   '''
-  given msa (N,L,20) expand to (N*(1+copies),L*copies,22) if block_diag else (N,L*copies,22)
+  given msa (N,L,20) expand to (1+N*copies,L*copies,22) if block_diag else (N,L*copies,22)
   '''
   if x.shape[-1] < 22:
     x = jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
@@ -147,7 +147,7 @@ def expand_copies(x, copies, block_diag=True):
     seq = block_diag_mask * y
     gap_seq = (1-block_diag_mask) * jax.nn.one_hot(jnp.repeat(21,sub_L),22)  
     y = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
-    return jnp.concatenate([x,y],0)
+    return jnp.concatenate([x[:1],y],0)
   else:
     return x
 

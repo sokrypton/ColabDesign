@@ -24,9 +24,10 @@ idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
 #################################################
 class _af_prep:
 
-  def _prep_features(self, length, num_templates=1, template_features=None):
+  def _prep_features(self, length, num_seq=None, num_templates=1, template_features=None):
     '''process features'''
-    return prep_input_features(L=length, N=self._num, T=num_templates,
+    if num_seq is None: num_seq = self._num
+    return prep_input_features(L=length, N=num_seq, T=num_templates,
                                use_templates=self._args["use_templates"])
   
   # prep functions specific to protocol
@@ -98,7 +99,7 @@ class _af_prep:
     self.restart(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=False, rm_template_seq=True,
+                  repeat=False, block_diag=True, rm_template_seq=True,
                   pos=None, fix_seq=False, **kwargs):
     '''prep inputs for fixed backbone design'''
 
@@ -106,14 +107,16 @@ class _af_prep:
 
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
+      max_msa_clusters = 1 + self._num * copies
+      self._runner.config.data.eval.max_msa_clusters = max_msa_clusters
     else:
+      max_msa_clusters = self._num
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
     self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len)
+    self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)
     self._copies = copies
     self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
 
@@ -128,7 +131,7 @@ class _af_prep:
       else:
         if homooligomer:
           self._len = self._len // copies
-          self._inputs["residue_index"] = pdb["residue_index"][None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)[None]
         else:
           self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
           self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
@@ -148,18 +151,20 @@ class _af_prep:
     self.restart(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1,
-                          repeat=False, block_diag=False, **kwargs):
+                          repeat=False, block_diag=True, **kwargs):
     '''prep inputs for hallucination'''
     
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
+      max_msa_clusters = 1 + self._num * copies
+      self._runner.config.data.eval.max_msa_clusters = max_msa_clusters
     else:
+      max_msa_clusters = self._num
       block_diag = False
       
     self._len = length
     self._copies = copies
-    self._inputs = self._prep_features(length * copies)
+    self._inputs = self._prep_features(length * copies, num_seq=max_msa_clusters)
     self._args.update({"block_diag":block_diag, "repeat":repeat})
     
     # set weights

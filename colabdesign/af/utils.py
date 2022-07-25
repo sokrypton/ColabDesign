@@ -100,11 +100,20 @@ class _af_utils:
     aux = self.aux_full if (self._best_aux_full is None or not get_best) else self._best_aux_full
     pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
+    
+    Ls = None    
+    if self.protocol == "binder":   Ls = [self._target_len, self._binder_len]      
+    if self.protocol == "partial":  Ls = [self._len]
+    if self.protocol in ["hallucination","fixbb"]:
+      if self._args["repeat"]:
+        Ls = [self._len * self._copies]
+      else:
+        Ls = [self._len] * self._copies
+    
     if self.protocol == "hallucination":
-      length = [self._len] * self._copies
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=Ls, dpi=dpi)
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, align_xyz=False, dpi=dpi)  
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=Ls, align_xyz=False, dpi=dpi)  
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480),

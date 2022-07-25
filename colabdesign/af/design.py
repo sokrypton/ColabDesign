@@ -68,7 +68,7 @@ class _af_design:
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best_metric = self._best_loss = np.inf
       self._best_aux = self._best_outs = None
-      self._best_aux_full = None
+      self._best_aux_all = None
 
     # set crop length
     if self._args["crop_len"] is None:
@@ -127,7 +127,7 @@ class _af_design:
 
     # update gradients
     self.grad = jax.tree_map(lambda x: x.mean(0), outs["grad"])
-    self.loss, self.aux_full = outs["loss"], outs["aux"]
+    self.loss, self.aux_all = outs["loss"], outs["aux"]
     self.aux = jax.tree_map(lambda x:x[0], outs["aux"])
 
     # callback
@@ -241,7 +241,7 @@ class _af_design:
       if metric < self._best_metric:
         self._best_metric = self._best_loss = metric
         self._best_aux    = self._best_outs = self.aux
-        self._best_aux_full = self._aux_full
+        self._best_aux_all = self.aux_all
     
     if verbose and (self._k % verbose) == 0:
       # preferred order
@@ -350,7 +350,7 @@ class _af_design:
       seq = get_seq()
       plddt = None
       if use_plddt:
-        plddt = np.asarray(self.aux_full["plddt"].mean(0))
+        plddt = np.asarray(self.aux_all["plddt"].mean(0))
         if self.protocol == "binder":
           plddt = plddt[self._target_len:]
         else:
@@ -360,13 +360,13 @@ class _af_design:
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
         self.run(backprop=False, crop=False)
-        buff.append({"aux":self.aux, "aux_full":self.aux_full,
+        buff.append({"aux":self.aux, "aux_all":self.aux_all,
                      "loss":self.loss.mean(), "seq":self.params["seq"]})
       
       # accept best      
       buff = buff[np.argmin([x["loss"] for x in buff])]
       self.loss, self.params["seq"] = buff["loss"], buff["seq"]
-      self.aux, self.aux_full = buff["aux"], buff["aux_full"]
+      self.aux, self.aux_all = buff["aux"], buff["aux_all"]
       self._k += 1
       self.save_results(save_best=save_best, verbose=verbose)
 

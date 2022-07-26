@@ -94,7 +94,7 @@ class _af_design:
       self.opt["crop_pos"] = p    
 
     else:
-      self.opt["crop_pos"] = np.arange(L) 
+      self.opt["crop_pos"] = np.arange(sum(self._lengths)) 
     
     # decide which model params to use
     ns,ns_name = [],[]
@@ -243,7 +243,7 @@ class _af_design:
 
   def _save_results(self, repredict=False, save_best=False, verbose=True):
     
-    if repredict: self.predict()
+    if repredict: self.predict(verbose=False)
     # save trajectory
     traj = {"seq":   self.aux["seq"]["pseudo"],
             "xyz":   self.aux["atom_positions"][:,1,:],
@@ -257,11 +257,14 @@ class _af_design:
     if verbose and (self._k % verbose) == 0: self._print_log(f"{self._k}")
   
   def predict(self, seq=None, model=0, save_best=False, verbose=True):
-    if seq is not None: self.set_seq(seq)
+    if seq is not None:
+      params = copy_dict(self.params)
+      self.set_seq(seq)
     opt = copy_dict(self.opt)
     self.set_opt(hard=True, dropout=False, sample_models=False)
     self.run(model=model, backprop=False, crop=False)
     self.set_opt(opt)
+    if seq is not None: self.params = params
     if save_best: self._save_best()
     if verbose: self._print_log("predict")
 

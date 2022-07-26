@@ -38,10 +38,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._loss_callback = loss_callback
     self._num = num_seq
-    self._copies = 1    
     self._args = {"use_templates":use_templates,
                   "recycle_mode":recycle_mode,
-                  "debug":debug, "repeat":False,
+                  "debug":debug,
+                  "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
                   'use_alphafold':use_alphafold, 'use_openfold':use_openfold,
                   "crop_len":crop_len,"crop_mode":crop_mode}

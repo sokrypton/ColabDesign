@@ -66,35 +66,35 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best = {"metric":np.inf}
+      self._best = {}
 
     # set crop length
     if self._args["crop_len"] is None:
-      self._args["crop_len"] = self._inputs["residue_index"].shape[-1]
+      self._args["crop_len"] = sum(self._lengths)
       
   def run(self, model=None, backprop=True, crop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
-    # crop inputs 
-    (L, max_L) = (self._inputs["residue_index"].shape[-1], self._args["crop_len"])
-    if crop and max_L < L:
+    # crop inputs
+    if self._args["copies"] > 1 and not self._args["repeat"]: crop = False
+    if self.protocol in ["partial","binder"]: crop = False
+    if sum(self._lengths) < self._args["crop_len"]: crop = False
+    if crop:
+      (L, max_L) = (sum(self._lengths), self._args["crop_len"])
       crop_mode = self._args["crop_mode"]
     
       if crop_mode == "slide":
         i = jax.random.randint(self.key(),[],0,L-max_L)
-        p = np.arange(i,i+max_L)
-      
+        p = np.arange(i,i+max_L)      
+
       if crop_mode == "roll":
         i = jax.random.randint(self.key(),[],0,L)
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
 
-      # if crop_mode == "dist":
-      # TODO: shihao
-    
+      self.opt["crop_pos"] = p    
+
     else:
-      p = np.arange(L) 
-    
-    self.opt["crop_pos"] = p
+      self.opt["crop_pos"] = np.arange(L) 
     
     # decide which model params to use
     ns,ns_name = [],[]
@@ -184,6 +184,7 @@ class _af_design:
           aux = self._single(model_params, backprop)
           grad.append(aux["grad"])
           self._inputs["prev"] = aux["prev"]
+        # average gradients across
         aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
       
       elif mode == "sample":
@@ -234,14 +235,13 @@ class _af_design:
             "plddt": self.aux["plddt"],
             "pae":   self.aux["pae"]}
     traj = jax.tree_map(np.array, traj)
-    traj["log"] = self.aux["log"]
-    
+    traj["log"] = self.aux["log"]    
     for k,v in traj.items(): self._traj[k].append(v)
 
     # save best result
     if save_best:
       metric = self.aux["log"][self._args["best_metric"]]
-      if metric < self._best["metric"]:
+      if "metric" not in self._best or metric < self._best["metric"]:
         self._best.update({"metric":metric, "aux":self.aux})
 
     if verbose and (self._k % verbose) == 0:

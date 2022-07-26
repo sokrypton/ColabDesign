@@ -118,8 +118,10 @@ class _af_prep:
     self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)
-    self._copies = copies
-    self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
+    self._args.update({"repeat":repeat,
+                       "block_diag":block_diag,
+                       "homooligomer":homooligomer,
+                       "copies":copies})
 
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
@@ -167,9 +169,8 @@ class _af_prep:
       block_diag = False
       
     self._len = length
-    self._copies = copies
     self._inputs = self._prep_features(length * copies, num_seq=max_msa_clusters)
-    self._args.update({"block_diag":block_diag, "repeat":repeat})
+    self._args.update({"block_diag":block_diag, "repeat":repeat, "copies":copies})
     
     # set weights
     self.opt["weights"].update({"con":1.0})

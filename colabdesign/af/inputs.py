@@ -30,8 +30,8 @@ class _af_inputs:
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
-    if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-      seq = jax.tree_map(lambda x:expand_copies(x, self._copies, self._args["block_diag"]), seq)
+    if self.protocol in ["fixbb","hallucination"] and self._args["copies"] > 1:
+      seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
 
     return seq
 

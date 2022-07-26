@@ -24,7 +24,7 @@ class _af_loss:
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-    copies = self._copies
+    copies = self._args["copies"]
     if self._args["repeat"] or not self._args["homooligomer"]: copies = 1      
     
     # rmsd loss

@@ -124,6 +124,10 @@ class _af_prep:
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
+    
+    if chain is not None and homooligomer and copies == 1:
+      copies = len(chain.split(","))
+
     self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)

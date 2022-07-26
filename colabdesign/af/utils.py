@@ -53,7 +53,7 @@ class _af_utils:
     save pdb coordinates (if filename provided, otherwise return as string)
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
+    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
     aux = jax.tree_map(np.asarray, aux["all"])
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
@@ -87,7 +87,7 @@ class _af_utils:
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
     '''
-    aux = self.aux if (self._best["aux"] is None or not get_best) else self._best["aux"]
+    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
     aux = jax.tree_map(np.asarray, aux["all"])
     
     pos_ref = aux["atom_positions"][0,:,1,:]

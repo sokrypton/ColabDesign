@@ -199,7 +199,7 @@ class _af_design:
     aux["recycles"] = recycles
     return aux
 
-  def step(self, lr_scale=1.0, model=None, backprop=True, crop=True,
+  def step(self, lr_scale=1.0, model=None, backprop=True, crop=True, repredict=False,
            callback=None, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
@@ -225,10 +225,25 @@ class _af_design:
     self._k += 1
 
     # save results
-    self.save_results(save_best=save_best, verbose=verbose)
+    self._save_results(repredict=repredict, save_best=save_best, verbose=verbose)
 
-  def save_results(self, save_best=False, verbose=1):
+  def _print_log(self, print_str=None):
+    # preferred order
+    keys = ["models","recycles","hard","soft","temp","seqid","loss",
+            "msa_ent","plddt","pae","helix","con","i_pae","i_con",
+            "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
+
+    print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
+                      print_str=print_str, keys=keys, ok="rmsd"))
+
+  def _save_best(self):
+    metric = self.aux["log"][self._args["best_metric"]]
+    if "metric" not in self._best or metric < self._best["metric"]:
+      self._best.update({"metric":metric, "aux":self.aux})
+
+  def _save_results(self, repredict=False, save_best=False, verbose=True):
     
+    if repredict: self.predict()
     # save trajectory
     traj = {"seq":   self.aux["seq"]["pseudo"],
             "xyz":   self.aux["atom_positions"][:,1,:],
@@ -238,20 +253,17 @@ class _af_design:
     traj["log"] = self.aux["log"]    
     for k,v in traj.items(): self._traj[k].append(v)
 
-    # save best result
-    if save_best:
-      metric = self.aux["log"][self._args["best_metric"]]
-      if "metric" not in self._best or metric < self._best["metric"]:
-        self._best.update({"metric":metric, "aux":self.aux})
-
-    if verbose and (self._k % verbose) == 0:
-      # preferred order
-      keys = ["models","recycles","hard","soft","temp","seqid","loss",
-              "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-              "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
-
-      print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
-                        print_str=f"{self._k}", keys=keys, ok="rmsd"))
+    if save_best: self._save_best()
+    if verbose and (self._k % verbose) == 0: self._print_log(f"{self._k}")
+  
+  def predict(self, seq=None, model=0, save_best=False, verbose=True):
+    if seq is not None: self.set_seq(seq)
+    opt = copy_dict(self.opt)
+    self.set_opt(hard=True, dropout=False, sample_models=False)
+    self.run(model=model, backprop=False, crop=False)
+    self.set_opt(opt)
+    if save_best: self._save_best()
+    if verbose: self._print_log("predict")
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -260,7 +272,7 @@ class _af_design:
              soft=None, e_soft=None,
              temp=None, e_temp=None,
              hard=None, e_hard=None,
-             opt=None, weights=None, dropout=None, crop=True,
+             opt=None, weights=None, dropout=None, crop=True, repredict=False,
              backprop=True, callback=None, save_best=False, verbose=1):
       
     # update options/settings (if defined)
@@ -282,7 +294,7 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
       
-      self.step(lr_scale=lr_scale, backprop=backprop, crop=crop,
+      self.step(lr_scale=lr_scale, backprop=backprop, crop=crop, repredict=repredict,
                 callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
@@ -368,7 +380,7 @@ class _af_design:
       buff = buff[np.argmin([x["aux"]["loss"] for x in buff])]
       self.params["seq"], self.aux = buff["seq"], buff["aux"]
       self._k += 1
-      self.save_results(save_best=save_best, verbose=verbose)
+      self._save_results(save_best=save_best, verbose=verbose)
 
   # ---------------------------------------------------------------------------------
 

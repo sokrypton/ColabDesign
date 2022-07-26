@@ -117,12 +117,6 @@ class design_model:
     if hasattr(self,"_opt"):
       self._opt["pos"] = self.opt["pos"]
 
-  def predict(self, seq=None, model=0):
-    self.set_seq(seq)
-    self.set_opt(dropout=False)
-    self.run(model=model, backprop=False, average=False)
-    return self.aux
-
 def soft_seq(x, opt, key=None):
   seq = {"input":x}
   # shuffle msa (randomly pick which sequence is query)

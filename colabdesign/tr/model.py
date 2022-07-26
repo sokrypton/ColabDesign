@@ -260,6 +260,11 @@ class mk_tr_model(design_model):
       x["models"] = self.aux["model_num"]
       print(dict_to_str(x, print_str=f"{self._k}", keys=["models"]))
 
+  def predict(self, seq=None, model=0):
+    self.set_seq(seq)
+    self.set_opt(dropout=False)
+    self.run(model=model, backprop=False)
+
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):
     self.set_opt(opt)
     self.set_weights(weights)

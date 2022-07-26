@@ -24,9 +24,8 @@ idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
 #################################################
 class _af_prep:
 
-  def _prep_model(self, kwargs):
+  def _prep_model(self, **kwargs):
     '''prep model'''
-
     self._model = self._get_model(self._cfg)
     if sum(self._lengths) > 384:
       self._cfg.model.global_config.subbatch_size = 4
@@ -192,7 +191,8 @@ class _af_prep:
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
         self._lengths = [self._len] * copies
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
-
+    else:
+      self._lengths = [self._len]
     self._prep_model(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,

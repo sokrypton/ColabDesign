@@ -40,15 +40,14 @@ class mk_tr_model(design_model):
     self.params = {}
 
     # setup model
-    self._runner = TrRosetta()
+    self._model = self._get_model()
     self._model_params = [get_model_params(f"{self._data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
-    self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
     if protocol in ["hallucination","partial"]:
       self._bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
-    
+    runner = TrRosetta()    
     def _get_loss(outputs, opt):
       aux = {"outputs":outputs, "losses":{}}
       log_p = jax.tree_map(jax.nn.log_softmax, outputs)
@@ -95,12 +94,13 @@ class mk_tr_model(design_model):
       inputs = {"seq":seq["pseudo"][0],
                 "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]}
       rate = jnp.where(opt["dropout"],0.15,0.0)
-      outputs = self._runner(inputs, model_params, key, rate)
+      outputs = runner(inputs, model_params, key, rate)
       loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
 
-    return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
+    return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),
+            "fn":jax.jit(_model)}
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None,
                   pos=None, fix_seq=True, atoms_to_exclude=None, **kwargs):
@@ -213,9 +213,9 @@ class mk_tr_model(design_model):
     for n in model_num:
       model_params = self._model_params[n]
       if backprop:
-        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt, self.key())
+        (loss,aux),grad = self._model["grad_fn"](self.params, model_params, self.opt, self.key())
       else:
-        loss,aux = self._fn(self.params, model_params, self.opt, self.key())
+        loss,aux = self._model["fn"](self.params, model_params, self.opt, self.key())
         grad = jax.tree_map(jnp.zeros_like, self.params)
       aux.update({"loss":loss, "grad":grad})
       aux_all.append(aux)

@@ -153,9 +153,9 @@ class _af_design:
     '''single pass through the model'''
     flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
     if backprop:
-      (loss, aux), grad = self._grad_fn(*flags)
+      (loss, aux), grad = self._model["grad_fn"](*flags)
     else:
-      loss, aux = self._fn(*flags)
+      loss, aux = self._model["fn"](*flags)
       grad = jax.tree_map(jnp.zeros_like, self.params)
     aux.update({"loss":loss,"grad":grad})
     return aux
@@ -225,14 +225,22 @@ class _af_design:
     self._k += 1
 
     # save results
-    self._save_results(repredict=repredict, save_best=save_best, verbose=verbose)
+    if repredict: self.predict(verbose=False)
+    self._save_results(save_best=save_best, verbose=verbose)
+
+  def _update_traj(self):
+    traj = {"seq":   self.aux["seq"]["pseudo"],
+            "xyz":   self.aux["atom_positions"][:,1,:],
+            "plddt": self.aux["plddt"],
+            "pae":   self.aux["pae"]}
+    traj = jax.tree_map(np.array, traj)
+    traj["log"] = self.aux["log"]
+    for k,v in traj.items(): self._traj[k].append(v)
 
   def _print_log(self, print_str=None):
-    # preferred order
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "msa_ent","plddt","pae","helix","con","i_pae","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
-
     print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
                       print_str=print_str, keys=keys, ok="rmsd"))
 
@@ -241,20 +249,11 @@ class _af_design:
     if "metric" not in self._best or metric < self._best["metric"]:
       self._best.update({"metric":metric, "aux":self.aux})
 
-  def _save_results(self, repredict=False, save_best=False, verbose=True):
-    
-    if repredict: self.predict(verbose=False)
-    # save trajectory
-    traj = {"seq":   self.aux["seq"]["pseudo"],
-            "xyz":   self.aux["atom_positions"][:,1,:],
-            "plddt": self.aux["plddt"],
-            "pae":   self.aux["pae"]}
-    traj = jax.tree_map(np.array, traj)
-    traj["log"] = self.aux["log"]    
-    for k,v in traj.items(): self._traj[k].append(v)
-
+  def _save_results(self, save_best=False, verbose=True):    
+    self._update_traj()
     if save_best: self._save_best()
-    if verbose and (self._k % verbose) == 0: self._print_log(f"{self._k}")
+    if verbose and (self._k % verbose) == 0:
+      self._print_log(f"{self._k}")
   
   def predict(self, seq=None, model=0, save_best=False, verbose=True):
     if seq is not None:

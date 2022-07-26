@@ -24,6 +24,17 @@ idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
 #################################################
 class _af_prep:
 
+  def _prep_model(self, kwargs):
+    '''prep model'''
+
+    self._model = self._get_model(self._cfg)
+    if sum(self._lengths) > 384:
+      self._cfg.model.global_config.subbatch_size = 4
+      self._model["fn"] = self._get_model(self._cfg)["fn"]
+
+    self._opt = copy_dict(self.opt)  
+    self.restart(**kwargs)
+
   def _prep_features(self, length, num_seq=None, num_templates=1, template_features=None):
     '''process features'''
     if num_seq is None: num_seq = self._num
@@ -83,8 +94,8 @@ class _af_prep:
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
-      self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
-      self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+      self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
+      self._batch = make_fixed_size(pdb["batch"], self._cfg, total_len, batch_axis=False)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
@@ -96,8 +107,7 @@ class _af_prep:
     self._binder_len = self._len = binder_len
     self._lengths = [self._target_len, self._binder_len]
 
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
                   repeat=False, block_diag=True, rm_template_seq=True,
@@ -109,7 +119,7 @@ class _af_prep:
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
       max_msa_clusters = 1 + self._num * copies
-      self._runner.config.data.eval.max_msa_clusters = max_msa_clusters
+      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
     else:
       max_msa_clusters = self._num
       block_diag = False
@@ -137,8 +147,8 @@ class _af_prep:
           self._len = self._len // copies
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)[None]
         else:
-          self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
-          self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
+          self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
+          self._batch = make_fixed_size(self._batch, self._cfg, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
@@ -153,8 +163,7 @@ class _af_prep:
       self.opt["pos"] = self._pos_info["pos"]
 
     self._wt_aatype = self._batch["aatype"][:self._len]
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=True, **kwargs):
@@ -163,7 +172,7 @@ class _af_prep:
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
       max_msa_clusters = 1 + self._num * copies
-      self._runner.config.data.eval.max_msa_clusters = max_msa_clusters
+      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
     else:
       max_msa_clusters = self._num
       block_diag = False
@@ -184,8 +193,7 @@ class _af_prep:
         self._lengths = [self._len] * copies
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
 
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     pos=None, fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
@@ -221,8 +229,7 @@ class _af_prep:
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_seq"] = True
   
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
 
 #######################
 # utils
@@ -290,9 +297,8 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
 
-def make_fixed_size(feat, model_runner, length, batch_axis=True):
+def make_fixed_size(feat, cfg, length, batch_axis=True):
   '''pad input features'''
-  cfg = model_runner.config
   if batch_axis:
     shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
   else:

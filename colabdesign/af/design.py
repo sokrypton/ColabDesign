@@ -254,7 +254,7 @@ class _af_design:
     if save_best: self._save_best()
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}")
-  
+
   def predict(self, seq=None, model=0, save_best=False, verbose=True):
     if seq is not None:
       params = copy_dict(self.params)

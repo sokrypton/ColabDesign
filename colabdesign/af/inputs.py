@@ -151,18 +151,15 @@ def expand_copies(x, copies, block_diag=True):
   else:
     return x
 
-def crop_feat(feat, pos, model_runner, add_batch=True):  
+def crop_feat(feat, pos, cfg, add_batch=True):  
   def find(x,k):
     i = []
     for j,y in enumerate(x):
       if y == k: i.append(j)
     return i
-  
   if feat is None:
     return None
-
   else:
-    cfg = model_runner.config
     shapes = cfg.data.eval.feat
     NUM_RES = "num residues placeholder"
     idx = {k:find(v,NUM_RES) for k,v in shapes.items()}

@@ -70,11 +70,10 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
 you can use partial hallucination.
 ```python
-model = mk_afdesign_model(protocol="partial")
-model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
-# TODO
+af_model = mk_afdesign_model(protocol="partial")
+af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68"length=100)
+af_model.rewire(loops=[36])
 ```
-
 # FAQ
 #### How do I fixed the FileNotFoundError error?
 By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:

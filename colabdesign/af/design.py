@@ -315,7 +315,7 @@ class _af_design:
   # experimental
   # ---------------------------------------------------------------------------------
 
-  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=50,
+  def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10,
                     models=1, dropout=True, **kwargs):
     '''two stage design (soft→hard)'''
     self.set_opt(models=models, sample_models=True) # sample models

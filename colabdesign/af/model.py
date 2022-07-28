@@ -152,8 +152,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # crop inputs
       if opt["crop_pos"].shape[0] < L:
-        inputs = crop_feat(inputs, opt["crop_pos"], runner, add_batch=True)    
-        batch = crop_feat(batch, opt["crop_pos"], runner, add_batch=False)
+        inputs = crop_feat(inputs, opt["crop_pos"], self._cfg, add_batch=True)    
+        batch = crop_feat(batch, opt["crop_pos"], self._cfg, add_batch=False)
 
       #######################################################################
       # OUTPUTS

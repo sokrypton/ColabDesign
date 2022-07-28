@@ -68,6 +68,7 @@ class _af_prep:
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
     pdb = prep_pdb(pdb_filename, chain=chains)
+    
     if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
@@ -137,7 +138,7 @@ class _af_prep:
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
-    
+
     if chain is not None and homooligomer and copies == 1:
       copies = len(chain.split(","))
 
@@ -242,7 +243,15 @@ class _af_prep:
     pdb = prep_pdb(pdb_filename, chain=chain)
     self._len = pdb["residue_index"].shape[0] if length is None else length
     self._inputs = self._prep_features(self._len)
-    self._lengths = [self._len]
+
+    # undocumented: experimental repeat support
+    if kwargs.pop("repeat",False):
+      copies = kwargs.pop("copies",1)
+      self._len = self._len // copies
+      self._lengths = [self._len * copies]
+      self._args.update({"copies":copies, "repeat":True})
+    else:
+      self._lengths = [self._len]
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})

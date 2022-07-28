@@ -92,24 +92,24 @@ class _af_design:
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
 
       if crop_mode == "dist":
-        # from Shihao
-        dist = self._dist < 10.0
+        # pick random pair of interactig crops
         max_L = max_L // 2
         while True:
           # pick first segment
-          iseg_start = jax.random.randint(self.key(),[],0,L-max_L)
-          margin = iseg_start - max_L
+          i = int(jax.random.randint(self.key(),[],0,L-max_L))
+          margin = i - max_L
           left = [] if margin < 0 else list(range(margin))
-          margin = L - (iseg_start + max_L) - max_L
-          right = [] if margin < 0 else list(range(iseg_start + max_L, L - max_L))
-          if len(left + right) != 0:
-            # pick second segment within dist threshold
-            jseg_start = jax.random.choice(self.key(), jnp.array(left + right), [])
-            if dist[iseg_start:iseg_start + max_L, jseg_start:jseg_start + max_L].sum() != 0:
-              break
+          margin = L - (i + max_L) - max_L
+          right = [] if margin < 0 else list(range(i + max_L, L - max_L))
+          j_range = left + right
+          if len(j_range) > 0:
+            # pick second segment
+            w = np.array([self._cmap[i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
+            print(np.array([self._cmap[i:i+max_L,j:j+max_L].sum() for j in j_range]))
+            j = int(jax.random.choice(self.key(), np.array(j_range),[], p=w/w.sum()))
+            break
         
-        p = np.array(list(range(iseg_start, iseg_start + max_L))
-                     + list(range(jseg_start, jseg_start + max_L)))
+        p = np.sort(np.array(list(range(i, i + max_L)) + list(range(j, j + max_L))))
 
 
       self.opt["crop_pos"] = p    

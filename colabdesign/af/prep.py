@@ -183,8 +183,8 @@ class _af_prep:
     self._prep_model(**kwargs)
 
     # undocumented: for dist cropping (for Shihao)
-    cb_atoms = self._batch["cb"]["atoms"]
-    cb_atoms[self._batch["cb"]["mask"] == 0,:] = np.nan
+    cb_atoms = pdb["cb_feat"]["atoms"]
+    cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
     self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1)) 
 
     
@@ -303,7 +303,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
     cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
     batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
     batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
-    batch["cb"] = {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
+    return {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
 
   # go through each defined chain
   chains = [None] if chain is None else chain.split(",")
@@ -315,7 +315,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
              'all_atom_positions': protein_obj.atom_positions,
              'all_atom_mask': protein_obj.atom_mask}
 
-    add_cb(batch) # add in missing cb (in the case of glycine)
+    cb_feat = add_cb(batch) # add in missing cb (in the case of glycine)
 
     has_ca = batch["all_atom_mask"][:,0] == 1
     batch = jax.tree_map(lambda x:x[has_ca], batch)
@@ -331,10 +331,12 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
                            "template_all_atom_positions":batch["all_atom_positions"]}
       o.append({"batch":batch,
                 "template_features":template_features,
-                "residue_index": residue_index})
+                "residue_index": residue_index,
+                "cb_feat":cb_feat})
     else:        
       o.append({"batch":batch,
-                "residue_index": residue_index})
+                "residue_index": residue_index,
+                "cb_feat":cb_feat})
     
     residue_idx.append(protein_obj.residue_index[has_ca])
     chain_idx.append([chain] * len(residue_idx[-1]))

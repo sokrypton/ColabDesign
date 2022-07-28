@@ -68,7 +68,7 @@ class _af_prep:
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
     pdb = prep_pdb(pdb_filename, chain=chains)
-    
+
     if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
@@ -241,27 +241,27 @@ class _af_prep:
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
+    
+    self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._lengths = [self._len]
     self._inputs = self._prep_features(self._len)
 
     # undocumented: experimental repeat support
     if kwargs.pop("repeat",False):
       copies = kwargs.pop("copies",1)
-      self._len = self._len // copies
-      self._lengths = [self._len * copies]
-      self._args.update({"copies":copies, "repeat":True})
-    else:
-      self._lengths = [self._len]
+      if copies > 1:
+        self._len = self._len // copies
+        self._lengths = [self._len * copies]
+        self._args.update({"copies":copies, "repeat":True, "block_diag":False})
 
     # configure options/weights
+    self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
     self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})
     self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests
-    if pos is None:
-      self.opt["pos"] = np.arange(sum(self._lengths))
-      self._batch = pdb["batch"]
-    else:
+    if pos is not None:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = self._pos_info["pos"]
       self._batch = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     

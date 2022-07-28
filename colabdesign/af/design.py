@@ -141,9 +141,10 @@ class _af_design:
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      aatype = self.aux["seq"]["pseudo"].argmax(-1)
       if self.protocol == "partial" and "pos" in self.opt:
-        aatype = aatype[...,self.opt["pos"]]
+        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+      else:
+        aatype = self.aux["seq"]["pseudo"].argmax(-1)
       self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
@@ -225,7 +226,7 @@ class _af_design:
     self._k += 1
 
     # save results
-    if repredict: self.predict(verbose=False)
+    if repredict: self.predict(model=None, verbose=False)
     self._save_results(save_best=save_best, verbose=verbose)
 
   def _update_traj(self):
@@ -322,16 +323,19 @@ class _af_design:
     self.design(soft_iters, soft=1, temp=1, dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
     self.set_opt(models=len(self._model_params)) # use all models
-    self.design(hard_iters, soft=1, temp=1e-2, dropout=False, hard=True, save_best=True, **kwargs)
+    self.design(hard_iters, soft=1, temp=1e-2, dropout=False, hard=1, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
-                    models=1, dropout=True, **kwargs):
+                    models=1, dropout=True, pseudo_hard=False, **kwargs):
     '''three stage design (logits→soft→hard)'''
     self.set_opt(models=models, sample_models=True) # sample models
     self.design(soft_iters, soft=0, temp=1,    hard=0, e_soft=1,    dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1,    hard=0, e_temp=1e-2, dropout=dropout, **kwargs)
     self.set_opt(models=len(self._model_params)) # use all models
-    self.design(hard_iters, soft=1, temp=1e-2, hard=1, dropout=False, save_best=True, **kwargs)
+    if pseudo_hard:
+      self.design(hard_iters, soft=1, temp=1e-2, hard=0, repredict=True, dropout=False, save_best=True, **kwargs)
+    else:
+      self.design(hard_iters, soft=1, temp=1e-2, hard=1, dropout=False, save_best=True, **kwargs)
 
   def design_semigreedy(self, iters=100, tries=20, models=1,
                         use_plddt=True, save_best=True,

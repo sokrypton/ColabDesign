@@ -181,6 +181,12 @@ class _af_prep:
 
     self._wt_aatype = self._batch["aatype"][:self._len]
     self._prep_model(**kwargs)
+
+    # undocumented: for dist cropping (for Shihao)
+    cb_atoms = self._batch["cb"]["atoms"]
+    cb_atoms[self._batch["cb"]["mask"] == 0,:] = np.nan
+    self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1)) 
+
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=True, **kwargs):
@@ -297,6 +303,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
     cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
     batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
     batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
+    batch["cb"] = {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
 
   # go through each defined chain
   chains = [None] if chain is None else chain.split(",")

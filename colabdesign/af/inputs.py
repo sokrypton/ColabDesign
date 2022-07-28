@@ -152,23 +152,23 @@ def expand_copies(x, copies, block_diag=True):
     return x
 
 def crop_feat(feat, pos, cfg, add_batch=True):  
+  '''
+  crop features to specified [pos]itions
+  '''
+  if feat is None: return None
+
   def find(x,k):
     i = []
     for j,y in enumerate(x):
       if y == k: i.append(j)
     return i
-  if feat is None:
-    return None
-  else:
-    shapes = cfg.data.eval.feat
-    NUM_RES = "num residues placeholder"
-    idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
 
-    new_feat = {}
-    for k,v in feat.items():
-      v_ = v.copy()
-      if k in idx:
-        for i in idx[k]:
-          v_ = jnp.take(v_, pos, i + add_batch)
-      new_feat[k] = v_
-    return new_feat
+  shapes = cfg.data.eval.feat
+  NUM_RES = "num residues placeholder"
+  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
+  new_feat = copy_dict(feat)
+  for k in new_feat.keys():
+    if k in idx:
+      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
+  
+  return new_feat

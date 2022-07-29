@@ -75,47 +75,50 @@ class _af_design:
   def run(self, model=None, backprop=True, crop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
-    # crop inputs
+
+    # experimental: crop inputs
     if self._args["copies"] > 1 and not self._args["repeat"]: crop = False
     if self.protocol in ["partial","binder"]: crop = False
     if sum(self._lengths) < self._args["crop_len"]: crop = False
+    
     if crop:
       (L, max_L) = (sum(self._lengths), self._args["crop_len"])
       crop_mode = self._args["crop_mode"]
+
+      if hasattr(self,"_dist"):
+        self._cmap = self._dist < self.opt["cmap_cutoff"]
     
       if crop_mode == "slide":
-        i = jax.random.randint(self.key(),[],0,L-max_L)
+        i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
         p = np.arange(i,i+max_L)      
 
       if crop_mode == "roll":
         i = jax.random.randint(self.key(),[],0,L)
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
 
-      if crop_mode == "dist":
+      if crop_mode == "pair":
         # pick random pair of interactig crops
         max_L = max_L // 2
-        while True:
-          # pick first segment
-          i = int(jax.random.randint(self.key(),[],0,L-max_L))
-          margin = i - max_L
-          left = [] if margin < 0 else list(range(margin))
-          margin = L - (i + max_L) - max_L
-          right = [] if margin < 0 else list(range(i + max_L, L - max_L))
-          j_range = left + right
-          if len(j_range) > 0:
-            # pick second segment
-            w = np.array([self._cmap[i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
-            print(np.array([self._cmap[i:i+max_L,j:j+max_L].sum() for j in j_range]))
-            j = int(jax.random.choice(self.key(), np.array(j_range),[], p=w/w.sum()))
-            break
+
+        # pick first crop
+        i_range = np.append(np.arange(0,(L-2*max_L)+1),np.arange(max_L,(L-max_L)+1))
+        i = jax.random.choice(self.key(),i_range,[])
         
-        p = np.sort(np.array(list(range(i, i + max_L)) + list(range(j, j + max_L))))
-
-
-      self.opt["crop_pos"] = p    
+        # pick second crop
+        j_range = np.append(np.arange(0,(i-max_L)+1),np.arange(i+max_L,(L-max_L)+1))
+        if hasattr(self,"_cmap"):
+          # if contact map defined, bias to interacting pairs
+          w = np.array([self._cmap[i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
+          j = jax.random.choice(self.key(), j_range, [], p=w/w.sum())
+        else:
+          j = jax.random.choice(self.key(), j_range, [])
+             
+        p = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))
 
     else:
-      self.opt["crop_pos"] = np.arange(sum(self._lengths)) 
+      p = np.arange(sum(self._lengths))
+    
+    self.opt["crop_pos"] = p
     
     # decide which model params to use
     ns,ns_name = [],[]
@@ -170,6 +173,15 @@ class _af_design:
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":self.aux["recycles"], "models":model_num})
+
+    # experimental: cmap update
+    if self.protocol == "hallucination":
+      _cmap = np.array(self.aux["cmap"])
+      _mask = np.isnan(self.aux["pae"])
+      if not hasattr(self,"_cmap"):
+        self._cmap = _cmap
+      else:
+        self._cmap = np.where(_mask, self._cmap, (_cmap + self._cmap) / 2)
     
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''

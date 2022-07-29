@@ -185,7 +185,7 @@ class _af_prep:
     # undocumented: for dist cropping (for Shihao)
     cb_atoms = pdb["cb_feat"]["atoms"]
     cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
-    self._cmap = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1)) < 10.0
+    self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
 
     
   def _prep_hallucination(self, length=100, copies=1,

@@ -9,7 +9,7 @@ from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_feat
@@ -23,13 +23,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
-               crop_len=None, crop_mode="slide",
+               crop_len=None, crop_mode="pair",
                debug=False, use_alphafold=True, use_openfold=False,
                loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
-    assert crop_mode in ["slide","roll","dist"]
+    assert crop_mode in ["slide","roll","pair"]
     
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -51,7 +51,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                 "template": {"aatype":21, "dropout":0.0},
-                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01}}
+                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
+                "cmap_cutoff":10.0}
     
     self.params = {}
 
@@ -164,7 +165,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
                   "residue_index":inputs["residue_index"][0], "aatype":inputs["aatype"][0],
-                  "plddt":get_plddt(outputs), "pae":get_pae(outputs)})
+                  "plddt":get_plddt(outputs),"pae":get_pae(outputs),
+                  "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
+
+      # experimental
+      # crop outputs (TODO)
+      if opt["crop_pos"].shape[0] < L:
+        p = opt["crop_pos"]
+        aux["cmap"] = jnp.zeros((L,L)).at[p[:,None],p[None,:]].set(aux["cmap"])
+        aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
 
       if self._args["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
       if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}

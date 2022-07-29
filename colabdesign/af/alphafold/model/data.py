@@ -32,8 +32,8 @@ def get_model_haiku_params(model_name: str, data_dir: str) -> hk.Params:
   """Get the Haiku parameters from a model name."""
 
   path = os.path.join(data_dir, 'params', f'params_{model_name}.npz')
+  if not os.path.isfile(path): path = os.path.join(data_dir, f'params_{model_name}.npz')
   if not os.path.isfile(path): path = os.path.join(data_dir, 'params', f'{model_name}.npz')
-  if not os.path.isfile(path): path = os.path.join(data_dir, 'params', f'params_{model_name}.npz')
   if not os.path.isfile(path): path = os.path.join(data_dir, f'{model_name}.npz')
   if os.path.isfile(path):
     with open(path, 'rb') as f:

@@ -179,18 +179,15 @@ class _af_design:
       _cmap = np.array(self.aux["cmap"])
       _pae = np.array(self.aux["pae"])
       _mask = np.isnan(_pae)
+      b = 0.9
       if not hasattr(self,"_pae"):
-        self._pae = np.where(_mask, 31.0, _pae)
-      else:
-        self._pae = np.where(_mask, self._pae, (_pae + self._pae) / 2)      
-      self.aux["pae"] = self._pae    
+        self._pae = np.full_like(_pae, 31.0)
+      self._pae = self.aux["pae"] = np.where(_mask, self._pae, (1-b)*_pae + b*self._pae)
 
       if self.protocol == "hallucination":
         if not hasattr(self,"_cmap"):
-          self._cmap = _cmap
-        else:
-          self._cmap = np.where(_mask, self._cmap, (_cmap + self._cmap) / 2)
-        self.aux["cmap"] = self._cmap          
+          self._cmap = np.zeros_like(_cmap)
+        self._cmap = self.aux["cmap"] = np.where(_mask, self._cmap, (1-b)*_cmap + b*self._cmap)
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''

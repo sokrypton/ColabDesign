@@ -40,4 +40,5 @@ def get_model_haiku_params(model_name: str, data_dir: str) -> hk.Params:
       params = np.load(io.BytesIO(f.read()), allow_pickle=False)
     return utils.flat_params_to_haiku(params)
   else:
+    print(f"WARNING: params: '{model_name}' not found in '{data_dir}'")
     return None

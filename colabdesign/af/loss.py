@@ -56,7 +56,7 @@ class _af_loss:
       aatype = inputs["aatype"][0]
       cce = get_dgram_loss(batch, outputs, aatype=aatype, return_cce=True)
 
-      aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[L:,:].mean()})
+      aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[self._target_len:,:].mean()})
     
     else:
       align_fn = get_rmsd_loss(batch, outputs, L=self._target_len)["align"]

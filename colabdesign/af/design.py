@@ -85,7 +85,7 @@ class _af_design:
       (L, max_L) = (sum(self._lengths), self._args["crop_len"])
       crop_mode = self._args["crop_mode"]
 
-      if hasattr(self,"_dist"):
+      if self.protocol == "fixbb":
         self._cmap = self._dist < self.opt["cmap_cutoff"]
     
       if crop_mode == "slide":
@@ -174,15 +174,24 @@ class _af_design:
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":self.aux["recycles"], "models":model_num})
 
-    # experimental: cmap update
-    if self.protocol == "hallucination":
+    # experimental: pae/cmap update for crop
+    if crop:
       _cmap = np.array(self.aux["cmap"])
-      _mask = np.isnan(self.aux["pae"])
-      if not hasattr(self,"_cmap"):
-        self._cmap = _cmap
+      _pae = np.array(self.aux["pae"])
+      _mask = np.isnan(_pae)
+      if not hasattr(self,"_pae"):
+        self._pae = np.where(_mask, 31.0, _pae)
       else:
-        self._cmap = np.where(_mask, self._cmap, (_cmap + self._cmap) / 2)
-    
+        self._pae = np.where(_mask, self._pae, (_pae + self._pae) / 2)      
+      self.aux["pae"] = self._pae    
+
+      if self.protocol == "hallucination":
+        if not hasattr(self,"_cmap"):
+          self._cmap = _cmap
+        else:
+          self._cmap = np.where(_mask, self._cmap, (_cmap + self._cmap) / 2)
+        self.aux["cmap"] = self._cmap          
+
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
     flags  = [self.params, model_params, self._inputs, self.key(), self.opt]

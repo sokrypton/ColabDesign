@@ -66,7 +66,7 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best = {}
+      self._best, self._tmp = {}, {}
 
     # set crop length
     if self._args["crop_len"] is None:
@@ -253,7 +253,7 @@ class _af_design:
       crop_mode = self._args["crop_mode"]
 
       if self.protocol == "fixbb":
-        self._cmap = self._dist < self.opt["cmap_cutoff"]
+        self._tmp["cmap"] = self._dist < self.opt["cmap_cutoff"]
     
       if crop_mode == "slide":
         i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
@@ -284,18 +284,18 @@ class _af_design:
 
       def callback(self):
         # function to apply after run
-        _cmap = np.array(self.aux["cmap"])
-        _pae = np.array(self.aux["pae"])
-        _mask = np.isnan(_pae)
-        b = 0.9
-        if not hasattr(self,"_pae"):
-          self._pae = np.full_like(_pae, 31.0)
-        self._pae = self.aux["pae"] = np.where(_mask, self._pae, (1-b)*_pae + b*self._pae)
+        cmap, pae = (np.array(self.aux[k]) for k in ["cmap","pae"])
+        mask = np.isnan(pae)
+
+        b = 0.9        
+        _pae = self._tmp.get("pae",np.full_like(pae, 31.0))
+        self._tmp["pae"] = np.where(mask, _pae, (1-b)*pae + b*_pae)
 
         if self.protocol == "hallucination":
-          if not hasattr(self,"_cmap"):
-            self._cmap = np.zeros_like(_cmap)
-          self._cmap = self.aux["cmap"] = np.where(_mask, self._cmap, (1-b)*_cmap + b*self._cmap)
+          _cmap = self._tmp.get("cmap",np.zeros_like(cmap))
+          self._tmp["cmap"] = np.where(mask, _cmap, (1-b)*cmap + b*_cmap)
+
+        self.aux.update(self._tmp)
     
     else:
       callback = None

@@ -326,12 +326,12 @@ class _af_design:
   # ---------------------------------------------------------------------------------
   # example design functions
   # ---------------------------------------------------------------------------------
-  def _design(self, iters=100,
-              soft=None, e_soft=None,
-              temp=None, e_temp=None,
-              hard=None, e_hard=None,
-              opt=None, weights=None, dropout=None, repredict=False,
-              backprop=True, callback=None, save_best=False, verbose=1):
+  def design(self, iters=100,
+             soft=None, e_soft=None,
+             temp=None, e_temp=None,
+             hard=None, e_hard=None,
+             opt=None, weights=None, dropout=None, repredict=False,
+             backprop=True, callback=None, save_best=False, verbose=1):
       
     # update options/settings (if defined)
     self.set_opt(opt, dropout=dropout)

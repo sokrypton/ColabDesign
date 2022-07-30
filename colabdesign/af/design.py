@@ -67,10 +67,6 @@ class _af_design:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best, self._tmp = {}, {}
-
-    # set crop length
-    if self._args["crop_len"] is None:
-      self._args["crop_len"] = sum(self._lengths)
       
   def run(self, models=None, backprop=True, crop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
@@ -242,16 +238,16 @@ class _af_design:
 
   def _crop(self, crop=True):
     ''' determine positions to crop '''
-
+    (L, max_L) = (sum(self._lengths), self._args["crop_len"])
+    crop_mode = self._args["crop_mode"]
+    
     if crop:
       if self._args["copies"] > 1 and not self._args["repeat"]: crop = False
       if self.protocol in ["partial","binder"]: crop = False
-      if self._args["crop_len"] is None or self._args["crop_len"] >= sum(self._lengths): crop = False
+      if max_L is None or max_L >= L: crop = False
+      if crop_mode == "dist" and not hasattr(self,"_dist"): crop = False
     
     if crop:
-      (L, max_L) = (sum(self._lengths), self._args["crop_len"])
-      crop_mode = self._args["crop_mode"]
-
       if self.protocol == "fixbb":
         self._tmp["cmap"] = self._dist < self.opt["cmap_cutoff"]
     
@@ -263,6 +259,10 @@ class _af_design:
         i = jax.random.randint(self.key(),[],0,L)
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
 
+      if crop_mode == "dist":
+        i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
+        p = np.sort(self._dist[i].argsort()[1:][:max_L])
+
       if crop_mode == "pair":
         # pick random pair of interactig crops
         max_L = max_L // 2
@@ -273,9 +273,9 @@ class _af_design:
         
         # pick second crop
         j_range = np.append(np.arange(0,(i-max_L)+1),np.arange(i+max_L,(L-max_L)+1))
-        if hasattr(self,"_cmap"):
+        if "cmap" in self._tmp:
           # if contact map defined, bias to interacting pairs
-          w = np.array([self._cmap[i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
+          w = np.array([self._tmp["cmap"][i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
           j = jax.random.choice(self.key(), j_range, [], p=w/w.sum())
         else:
           j = jax.random.choice(self.key(), j_range, [])
@@ -304,7 +304,7 @@ class _af_design:
     self.opt["crop_pos"] = p
     return callback
 
-  def predict(self, seq=None, models=0, save_best=False, verbose=True):
+  def predict(self, seq=None, models=0, verbose=True):
     if seq is not None:
       params = copy_dict(self.params)
       self.set_seq(seq)
@@ -314,7 +314,6 @@ class _af_design:
     self.run(models=models, backprop=False, crop=False)
     self.set_opt(opt)
     if seq is not None: self.params = params
-    if save_best: self._save_best()
     if verbose: self._print_log("predict")
 
   # ---------------------------------------------------------------------------------

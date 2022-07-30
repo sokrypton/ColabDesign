@@ -45,13 +45,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   'use_alphafold':use_alphafold, 'use_openfold':use_openfold,
                   "crop_len":crop_len,"crop_mode":crop_mode}
 
-    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False, "disulfide_pattern":None,
+    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                 "template": {"aatype":21, "dropout":0.0},
-                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01, "disulfide":0.0},
+                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0}
     
     self.params = {}

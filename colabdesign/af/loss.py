@@ -17,12 +17,6 @@ class _af_loss:
     aux["losses"]["plddt"] = plddt_loss.mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux)
     
-    # add disulfide loss here:
-    if opt['disulfide_pattern'] is not None:
-      dgram_logits = outputs['distogram']['logits']
-      dgram_bins = jnp.append(0, outputs["distogram"]["bin_edges"])
-      aux["losses"]["disulfide"] = get_disulfide_loss(dgram_logits, dgram_bins, opt['disulfide_pattern'])
-
   def _loss_fixbb(self, inputs, outputs, opt, aux, batch=None):
     '''get losses'''
     if batch is None: batch = self._batch
@@ -178,19 +172,6 @@ class _af_loss:
 
 #####################################################################################
 #####################################################################################
-def get_disulfide_loss(dgram, dgram_bins, disulfide_pattern):
-  '''
-  Func: simple disulfide loss, make the contacts < 7.0/7.5A.
-  # see: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7316719/
-  params: disulfide_pattern: List[(pos1, pos2), (pos3, pos4)...]
-  '''
-  from jax.lax import dynamic_slice
-  disulfide_loss = 0.0
-  for pair in disulfide_pattern: # 
-    i,j = pair
-    pair_dgram = dynamic_slice(dgram, (i,j,0), (1,1,len(dgram_bins))) + dynamic_slice(dgram, (j,i,0), (1,1,len(dgram_bins)))
-    disulfide_loss += get_con_loss(pair_dgram, dgram_bins, cutoff=7.0, binary=False, num=1)
-  return disulfide_loss.mean()
 
 def get_pw_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   '''dgram to contacts'''

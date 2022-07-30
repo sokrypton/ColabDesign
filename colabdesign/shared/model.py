@@ -62,7 +62,7 @@ class design_model:
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
-        b = b.at[...,aa_order[aa]].add(-1e7)
+        b = b.at[...,aa_order[aa]].add(-1e6)
       set_bias = True
 
     # use wildtype sequence
@@ -90,8 +90,6 @@ class design_model:
           seq = jnp.asarray(seq)
       
       if kwargs.pop("add_seq",False):
-        # print("WARNING: option 'add_seq' will soon be deprecated. To fix the sequence use:")
-        # print('         model.prep_model(pos="1-10,12,20", fix_seq=True)')
         b = b + seq * 1e7
         set_bias = True
       

@@ -35,10 +35,7 @@ class _af_utils:
     
     if not kwargs.pop("crop",True):
       self._args["crop_len"] = None
-    
-    if "seq" in kwargs:
-      self.set_seq(kwargs.pop("seq"))
-    
+        
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")

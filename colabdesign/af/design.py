@@ -49,10 +49,6 @@ class _af_design:
     self.set_opt(opt)
     self.set_weights(weights)
 
-    # initialize sequence
-    self.key = Key(seed=seed).get
-    self.set_seq(seq=seq, **kwargs)
-
     # setup optimizer
     if isinstance(optimizer, str):
       if optimizer == "adam": (optimizer,lr) = (adam,0.02)
@@ -60,7 +56,10 @@ class _af_design:
       self.opt["lr"] = lr
 
     self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
-    self._state = self._init_fun(self.params)
+
+    # initialize sequence
+    self.key = Key(seed=seed).get
+    self.set_seq(seq=seq, **kwargs)
     self._k = 0
 
     if not keep_history:
@@ -310,17 +309,21 @@ class _af_design:
 
   def predict(self, seq=None, models=0, verbose=True):
     # save settings
-    (opt, args, params) = (copy_dict(x) for x in [self.opt,self._args,self.params])    
+    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self.params])    
 
     # run
     num_models = len(models) if isinstance(models,list) else 1
     self.set_opt(hard=True, dropout=False, crop=False, sample_models=False,
-                 num_models=num_models, models=models, seq=seq)
+                 num_models=num_models, models=models)
+    
+    if seq is not None:
+      self.set_seq(seq=seq, set_state=False)
+    
     self.run(backprop=False)
     if verbose: self._print_log("predict")
 
     # reset settings
-    (self.opt, self._args, self.params) = (opt,args,params)
+    (self.opt, self._args, self.params) = (opt, args, params)
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -434,13 +437,15 @@ class _af_design:
       
       buff = []
       for _ in range(tries):
-        self.params["seq"] = mut(seq, plddt)
+        self.set_seq(seq=mut(seq, plddt), set_state=False)
         self.run(backprop=False)
         buff.append({"aux":self.aux, "seq":self.params["seq"]})
       
       # accept best      
       buff = buff[np.argmin([x["aux"]["loss"] for x in buff])]
-      self.params["seq"], self.aux = buff["seq"], buff["aux"]
+      
+      self.set_seq(seq=buff["seq"])
+      self.aux = buff["aux"]
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)
 

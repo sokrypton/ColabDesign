@@ -165,8 +165,6 @@ class mk_tr_model(design_model):
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
-    if "seq" in kwargs: self.set_seq(kwargs.pop("seq"))
-
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
 
@@ -179,15 +177,17 @@ class mk_tr_model(design_model):
     if reset_opt:
       self.opt = copy_dict(self._opt)
 
-    self.key = Key(seed=seed).get
     self.set_opt(opt)
     self.set_weights(weights)
-    self.set_seq(seq, **kwargs)
+    self.key = Key(seed=seed).get
 
     # setup optimizer
     self._init_fun, self._update_fun, self._get_params = sgd(1.0)
+    
+    # set sequence
+    self.set_seq(seq, **kwargs)
+    
     self._k = 0
-    self._state = self._init_fun(self.params)
 
     # clear previous best
     self._best = {}
@@ -262,7 +262,9 @@ class mk_tr_model(design_model):
       print(dict_to_str(x, print_str=f"{self._k}", keys=["models"]))
 
   def predict(self, seq=None, models=0):
-    self.set_opt(dropout=False, seq=seq)
+    self.set_opt(dropout=False)
+    if seq is not None:
+      self.set_seq(seq=seq, set_state=False)
     self.run(models=models, backprop=False)
 
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):

@@ -23,7 +23,7 @@ class design_model:
       update_dict(self._opt["weights"], *args, **kwargs)
     update_dict(self.opt["weights"], *args, **kwargs)
 
-  def set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, **kwargs):
+  def set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, set_state=True, **kwargs):
     '''
     set sequence params and bias
     -----------------------------------
@@ -73,7 +73,7 @@ class design_model:
       else:
         seq = wt_seq
     
-    # initlaize sequence
+    # initialize sequence
     if seq is None:
       if hasattr(self,"key"):
         x = 0.01 * jax.random.normal(self.key(),shape)
@@ -104,8 +104,14 @@ class design_model:
       else:
         x = x + x_gumbel
 
+    # set seq/bias/state
     self.params["seq"] = x
-    if set_bias: self.opt["bias"] = b 
+    
+    if set_bias:
+      self.opt["bias"] = b 
+    
+    if set_state and hasattr(self,"_init_fun"):
+      self._state = self._init_fun(self.params)
 
   def get_seq(self, get_best=True):
     '''

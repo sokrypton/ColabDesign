@@ -210,7 +210,7 @@ class _af_design:
     self._k += 1
 
     # save results
-    if repredict: self.predict(verbose=False)
+    if repredict: self.predict(models=None, verbose=False)
     self._save_results(save_best=save_best, verbose=verbose)
 
   def _update_traj(self):
@@ -307,15 +307,14 @@ class _af_design:
     self.opt["crop_pos"] = p
     return callback
 
-  def predict(self, seq=None, models=0, verbose=True):
+  def predict(self, seq=None, models=None, verbose=True):
     # save settings
     (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self.params])    
 
     # set settings
-    num_models = len(models) if isinstance(models,list) else 1
-    self.set_opt(hard=True, dropout=False, crop=False, sample_models=False,
-                 num_models=num_models, models=models)
     if seq is not None: self.set_seq(seq=seq, set_state=False)
+    if models is not None: self.set_opt(num_models=len(models) if isinstance(models,list) else 1)    
+    self.set_opt(hard=True, dropout=False, crop=False, sample_models=False, models=models)
     
     # run
     self.run(backprop=False)
@@ -327,12 +326,12 @@ class _af_design:
   # ---------------------------------------------------------------------------------
   # example design functions
   # ---------------------------------------------------------------------------------
-  def design(self, iters=100,
-             soft=None, e_soft=None,
-             temp=None, e_temp=None,
-             hard=None, e_hard=None,
-             opt=None, weights=None, dropout=None, repredict=False,
-             backprop=True, callback=None, save_best=False, verbose=1):
+  def _design(self, iters=100,
+              soft=None, e_soft=None,
+              temp=None, e_temp=None,
+              hard=None, e_hard=None,
+              opt=None, weights=None, dropout=None, repredict=False,
+              backprop=True, callback=None, save_best=False, verbose=1):
       
     # update options/settings (if defined)
     self.set_opt(opt, dropout=dropout)
@@ -357,16 +356,16 @@ class _af_design:
                 callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
-    '''optimize logits'''
+    ''' optimize logits '''
     self.design(iters, soft=0, hard=0, **kwargs)
 
-  def design_soft(self, iters=100, **kwargs):
+  def design_soft(self, iters=100, temp=1, **kwargs):
     ''' optimize softmax(logits/temp)'''
-    self.design(iters, soft=1, hard=0, **kwargs)
+    self.design(iters, soft=1, hard=0, temp=temp, **kwargs)
   
-  def design_hard(self, iters=100, **kwargs):
-    ''' optimize argmax(logits)'''
-    self.design(iters, soft=1, hard=1, **kwargs)
+  def design_hard(self, iters=100, temp=1, **kwargs):
+    ''' optimize argmax(logits) '''
+    self.design(iters, soft=1, hard=1, temp=temp, **kwargs)
 
   # ---------------------------------------------------------------------------------
   # experimental

@@ -43,7 +43,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
                   'use_alphafold':use_alphafold, 'use_openfold':use_openfold,
-                  "crop_len":crop_len,"crop_mode":crop_mode, "models":None}
+                  "crop":False, "crop_len":crop_len,"crop_mode":crop_mode,
+                  "models":None}
 
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,

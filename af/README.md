@@ -48,9 +48,9 @@ protein (high plddt, low pae, many contacts).
 ```python
 model = mk_afdesign_model(protocol="hallucination")
 model.prep_inputs(length=100)
-model.restart(seq_init="gumbel")
-model.design(50, soft=True)
-model.restart(seq_init=model.aux["seq"]["pseudo"], keep_history=True)
+model.set_seq(mode="gumbel")
+model.design_soft(50)
+model.set_seq(model.aux["seq"]["pseudo"])
 model.design_3stage(50,50,10)
 ```
 ### binder hallucination
@@ -213,42 +213,40 @@ We are actively trying to find the best weights `model.opt["weights"]`, settings
 Please send us a note if you find something better! To revert back to old settings do this after prepping the model:
 - fixbb:
 ```python
-model.restart()
-model.set_weights(dgram_cce=1,pae=0.1,plddt=0.1)
+model.set_weights(dgram_cce=1, pae=0.1, plddt=0.1)
 model.design_3stage()
 ```
 - hallucination:
 ```python
-model.restart(mode="gumbel")
-model.set_weights(pae=1,plddt=1,con=0.5)
-model.set_opt(con=dict(binary=True, cutoff=21.6875, num=model._len, seqsep=0))
-model.design_2stage(100,100,10)
+model.set_seq(mode="gumbel")
+model.set_weights(pae=1, plddt=1, con=0.5)
+model.set_opt("con", binary=True, cutoff=21.6875, num=model._len, seqsep=0)
+model.design_2stage(100, 100, 10)
 ```
 - binder hallucination:
 ```python
-model.restart()
 model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, i_con=0.5)
-model.set_opt(con=dict(binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0))
-model.set_opt(i_con=dict(binary=True, cutoff=21.6875, num=model._binder_len))
-model.design_3stage(100,100,10)
+model.set_opt("con", binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0)
+model.set_opt("i_con", binary=True, cutoff=21.6875, num=model._binder_len)
+model.design_3stage(100, 100, 10)
 ```
 #### I don't like your design_??? function, can I write my own with more detailed control?
 ```python
 def design_custom(self):
   # set options
-  self.set_opt(dropout=True, soft=0, hard=False)
+  self.set_opt(dropout=True, soft=False, hard=False)
   # set number of recycles
   self.set_opt(num_recycles=0)
   # take 100 steps
-  for _ in range(100): self._step()
+  for _ in range(100): self.step()
   # increase weight for plddt
   self.set_weights(plddt=2.0)
   # take another 100 steps
-  for _ in range(100): self._step()
+  for _ in range(100): self.step()
   # increase number of recycles
   self.set_opt(num_recycles=1)
   # take another 100 steps
-  for _ in range(100): self._step()
+  for _ in range(100): self.step()
   # etc...
   
 model = mk_afdesign_model()

@@ -27,7 +27,8 @@ class _af_utils:
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}}) or set_opt("con",num=1)
     model.set_opt(lr=1, set_defaults=True)
     '''
-    self.set_args(**{k:kwargs.pop(k) for k in kwargs.keys() if k in self._args})
+    ks = list(kwargs.keys())
+    self.set_args(**{k:kwargs.pop(k) for k in ks if k in self._args})
         
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
@@ -38,13 +39,13 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","crop_mode","crop_len",
+    for k in ["best_metric","crop","crop_mode","crop_len",
               "use_openfold","use_alphafold","models"]:
-      if k in kwargs: self._args[k] = kwargs.pop(k)
-    
-    if not kwargs.pop("crop",True):
-      self._args["crop_len"] = None
-        
+      if k in kwargs:
+        self._args[k] = kwargs.pop(k)
+        if k == "crop" and not self._args[k]:
+          self._args["crop_len"] = None
+            
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")

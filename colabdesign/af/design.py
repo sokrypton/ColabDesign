@@ -68,10 +68,10 @@ class _af_design:
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best, self._tmp = {}, {}
       
-  def run(self, models=None, backprop=True, crop=True, callback=None):
+  def run(self, backprop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
-    callbacks = [self._crop(crop), callback]
+    callbacks = [self._crop(), callback]
     
     # decide which model params to use
     ns,ns_name = [],[]
@@ -85,7 +85,8 @@ class _af_design:
       if self._args[f"use_{k}"] and count[k] == 0: print(f"ERROR: {k} params not found")
 
     # sub select number of model params
-    if models is not None:
+    if self._args["models"] is not None:
+      models = self._args["models"]
       models = [models] if isinstance(models,int) else list(models)
       ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
     
@@ -184,12 +185,12 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def step(self, lr_scale=1.0, models=None, backprop=True, crop=True, repredict=False,
+  def step(self, lr_scale=1.0, backprop=True, repredict=False,
            callback=None, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(models=models, backprop=backprop, crop=crop, callback=callback)
+    self.run(backprop=backprop, callback=callback)
 
     # normalize gradient
     g = self.aux["grad"]["seq"]
@@ -210,7 +211,7 @@ class _af_design:
     self._k += 1
 
     # save results
-    if repredict: self.predict(models=None, verbose=False)
+    if repredict: self.predict(verbose=False)
     self._save_results(save_best=save_best, verbose=verbose)
 
   def _update_traj(self):
@@ -240,34 +241,33 @@ class _af_design:
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}")
 
-  def _crop(self, crop=True):
+  def _crop(self):
     ''' determine positions to crop '''
-    (L, max_L) = (sum(self._lengths), self._args["crop_len"])
-    crop_mode = self._args["crop_mode"]
+    (L, max_L, mode) = (sum(self._lengths), self._args["crop_len"], self._args["crop_mode"])
     
-    if crop:
-      if self._args["copies"] > 1 and not self._args["repeat"]: crop = False
-      if self.protocol in ["partial","binder"]: crop = False
-      if max_L is None or max_L >= L: crop = False
-      if crop_mode == "dist" and not hasattr(self,"_dist"): crop = False
+    if max_L is None or max_L >= L: crop = False
+    elif self._args["copies"] > 1 and not self._args["repeat"]: crop = False
+    elif self.protocol in ["partial","binder"]: crop = False
+    elif mode == "dist" and not hasattr(self,"_dist"): crop = False
+    else: crop = True
     
     if crop:
       if self.protocol == "fixbb":
         self._tmp["cmap"] = self._dist < self.opt["cmap_cutoff"]
     
-      if crop_mode == "slide":
+      if mode == "slide":
         i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
         p = np.arange(i,i+max_L)      
 
-      if crop_mode == "roll":
+      if mode == "roll":
         i = jax.random.randint(self.key(),[],0,L)
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
 
-      if crop_mode == "dist":
+      if mode == "dist":
         i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
         p = np.sort(self._dist[i].argsort()[1:][:max_L])
 
-      if crop_mode == "pair":
+      if mode == "pair":
         # pick random pair of interactig crops
         max_L = max_L // 2
 
@@ -309,16 +309,18 @@ class _af_design:
     return callback
 
   def predict(self, seq=None, models=0, verbose=True):
-    if seq is not None:
-      params = copy_dict(self.params)
-      self.set_seq(seq)
-    opt = copy_dict(self.opt)
+    # save settings
+    (opt, args, params) = (copy_dict(x) for x in [self.opt,self._args,self.params])    
+
+    # run
     num_models = len(models) if isinstance(models,list) else 1
-    self.set_opt(hard=True, dropout=False, sample_models=False, num_models=num_models)
-    self.run(models=models, backprop=False, crop=False)
-    self.set_opt(opt)
-    if seq is not None: self.params = params
+    self.set_opt(hard=True, dropout=False, crop=False, sample_models=False,
+                 num_models=num_models, models=models, seq=seq)
+    self.run(backprop=False)
     if verbose: self._print_log("predict")
+
+    # reset settings
+    (self.opt, self._args, self.params) = (opt,args,params)
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -327,7 +329,7 @@ class _af_design:
              soft=None, e_soft=None,
              temp=None, e_temp=None,
              hard=None, e_hard=None,
-             opt=None, weights=None, dropout=None, crop=True, repredict=False,
+             opt=None, weights=None, dropout=None, repredict=False,
              backprop=True, callback=None, save_best=False, verbose=1):
       
     # update options/settings (if defined)
@@ -349,7 +351,7 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = (1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"])
       
-      self.step(lr_scale=lr_scale, backprop=backprop, crop=crop, repredict=repredict,
+      self.step(lr_scale=lr_scale, backprop=backprop, repredict=repredict,
                 callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
@@ -392,10 +394,13 @@ class _af_design:
   def design_semigreedy(self, iters=100, tries=20, num_models=1,
                         use_plddt=True, save_best=True,
                         verbose=1):
+    
     '''semigreedy search'''    
-    self.set_opt(hard=True, dropout=False, num_models=num_models, sample_models=False)
+    self.set_opt(hard=True, dropout=False, crop=False,
+                 num_models=num_models, sample_models=False)
+    
     if self._k == 0:
-      self.run(backprop=False, crop=False)
+      self.run(backprop=False)
 
     def mut(seq, plddt=None):
       '''mutate random position'''
@@ -430,7 +435,7 @@ class _af_design:
       buff = []
       for _ in range(tries):
         self.params["seq"] = mut(seq, plddt)
-        self.run(backprop=False, crop=False)
+        self.run(backprop=False)
         buff.append({"aux":self.aux, "seq":self.params["seq"]})
       
       # accept best      

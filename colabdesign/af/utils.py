@@ -27,21 +27,26 @@ class _af_utils:
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
-    for k in ["best_metric","crop_mode","crop_len","use_openfold","use_alphafold"]:
-      if k in kwargs: self._args[k] = kwargs.pop(k)
-
-    if "models" in kwargs: kwargs["num_models"] = kwargs.pop("models")
-    if "recycles" in kwargs: kwargs["num_recycles"] = kwargs.pop("recycles")
     
-    if "optimizer" in kwargs:
-      print("ERROR: use model.restart(optimizer=...) to set the optimizer")
-
+    # set args
+    for k in ["best_metric","crop_mode","crop_len",
+              "use_openfold","use_alphafold","models"]:
+      if k in kwargs: self._args[k] = kwargs.pop(k)
+    
+    if not kwargs.pop("crop",True):
+      self._args["crop_len"] = None
+    
+    if "seq" in kwargs:
+      self.set_seq(kwargs.pop("seq"))
+    
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")
       else:
         print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
 
+    if "optimizer" in kwargs: print("ERROR: use model.restart(optimizer=...) to set the optimizer")
+    
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
 

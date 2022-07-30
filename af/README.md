@@ -14,7 +14,8 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **28June2022** - v1.0.1 - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`).
 - **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
-- **23July2022** - v1.0.4 - Refactoring... Adding support for openfold weights. To enable set `mk_afdesign_model(...,use_openfold=True)`.
+- **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
+- **30July2022** - v1.0.5 - Adding experimental support for cropping.
 
 ### setup
 ```bash
@@ -68,10 +69,10 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
 
 ### partial hallucination
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
-you can use partial hallucination.
+you can use partial hallucination. Or you have a protein and you want to extend one of the loops.
 ```python
 af_model = mk_afdesign_model(protocol="partial")
-af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68"length=100)
+af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68", length=100)
 af_model.rewire(loops=[36])
 ```
 # FAQ
@@ -113,6 +114,7 @@ By default all five models are used during optimization. If `num_models` > 1, th
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
 ```python
 model = mk_afdesign_model(num_models=1, sample_models=True)
+model.set_opt(num_models=1)
 ```
 - `num_models` - number of model params to use at each iteration.
 - `sample_models`:

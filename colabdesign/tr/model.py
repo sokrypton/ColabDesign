@@ -165,6 +165,7 @@ class mk_tr_model(design_model):
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
+    if "seq" in kwargs: self.set_seq(kwargs.pop("seq"))
 
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
@@ -261,8 +262,7 @@ class mk_tr_model(design_model):
       print(dict_to_str(x, print_str=f"{self._k}", keys=["models"]))
 
   def predict(self, seq=None, models=0):
-    self.set_seq(seq)
-    self.set_opt(dropout=False)
+    self.set_opt(dropout=False, seq=seq)
     self.run(models=models, backprop=False)
 
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):

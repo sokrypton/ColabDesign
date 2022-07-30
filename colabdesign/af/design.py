@@ -311,14 +311,13 @@ class _af_design:
     # save settings
     (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self.params])    
 
-    # run
+    # set settings
     num_models = len(models) if isinstance(models,list) else 1
     self.set_opt(hard=True, dropout=False, crop=False, sample_models=False,
                  num_models=num_models, models=models)
+    if seq is not None: self.set_seq(seq=seq, set_state=False)
     
-    if seq is not None:
-      self.set_seq(seq=seq, set_state=False)
-    
+    # run
     self.run(backprop=False)
     if verbose: self._print_log("predict")
 

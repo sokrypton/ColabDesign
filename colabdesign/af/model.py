@@ -46,7 +46,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "crop_len":crop_len,"crop_mode":crop_mode}
     
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
-                "recycles":num_recycles, "models":num_models, "sample_models":sample_models,
+                "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
@@ -59,14 +59,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     # configure AlphaFold
     #############################
-    # decide which condig to use configs to use
-    if use_templates:
-      model_name = "model_1_ptm"
-      self.opt["models"] = min(num_models, 2)
-    else:
-      model_name = "model_3_ptm"
-    
-    cfg = config.model_config(model_name)
+    cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
     cfg.model.global_config.use_remat = True    
     # number of sequences
     if use_templates:
@@ -146,7 +139,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       
       # decide number of recycles to do
       if self._args["recycle_mode"] in ["last","sample"]:
-        inputs["num_iter_recycling"] = jnp.array([opt["recycles"]])
+        inputs["num_iter_recycling"] = jnp.array([opt["num_recycles"]])
 
       # batch
       batch = self._batch if hasattr(self,"_batch") else None

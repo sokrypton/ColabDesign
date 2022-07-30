@@ -23,13 +23,16 @@ class _af_utils:
     use model.set_opt(..., set_defaults=True) 
     or model.restart(..., reset_opt=False) to avoid this
     -------------------    
-    model.set_opt(models=1, recycles=0)
+    model.set_opt(num_models=1, num_recycles=0)
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
     for k in ["best_metric","crop_mode","crop_len","use_openfold","use_alphafold"]:
       if k in kwargs: self._args[k] = kwargs.pop(k)
 
+    if "models" in kwargs: kwargs["num_models"] = kwargs.pop("models")
+    if "recycles" in kwargs: kwargs["num_recycles"] = kwargs.pop("recycles")
+    
     if "optimizer" in kwargs:
       print("ERROR: use model.restart(optimizer=...) to set the optimizer")
 

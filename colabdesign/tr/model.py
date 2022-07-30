@@ -34,7 +34,7 @@ class mk_tr_model(design_model):
 
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
-                "models":num_models,"sample_models":sample_models,
+                "num_models":num_models,"sample_models":sample_models,
                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0, "use_pssm":False}
                 
     self.params = {}
@@ -161,7 +161,7 @@ class mk_tr_model(design_model):
     use model.set_opt(..., set_defaults=True) 
     or model.restart(..., reset_opt=False) to avoid this
     -------------------    
-    model.set_opt(models=1, recycles=0)
+    model.set_opt(num_models=1)
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
@@ -191,22 +191,22 @@ class mk_tr_model(design_model):
     # clear previous best
     self._best = {}
     
-  def run(self, model=None, backprop=True):
+  def run(self, models=None, backprop=True):
     '''run model to get outputs, losses and gradients'''
     
-    if model is None:
+    if models is None:
       # decide which model params to use
       ns = jnp.arange(5)
-      m = min(self.opt["models"],len(ns))
+      m = min(self.opt["num_models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):
         model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
       else:
         model_num = ns[:m]
       model_num = np.array(model_num).tolist()
-    elif isinstance(model,int):
-      model_num = [model]
+    elif isinstance(models,int):
+      model_num = [models]
     else:
-      model_num = list(model)
+      model_num = list(models)
 
     # run in serial
     aux_all = []
@@ -224,9 +224,9 @@ class mk_tr_model(design_model):
     self.aux = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *aux_all)
     self.aux["model_num"] = model_num
 
-  def step(self, model=None, backprop=True,
+  def step(self, models=None, backprop=True,
            callback=None, save_best=True, verbose=1):
-    self.run(model=model, backprop=backprop)
+    self.run(models=models, backprop=backprop)
     if callback is not None: callback(self)
 
     # normalize gradient
@@ -260,10 +260,10 @@ class mk_tr_model(design_model):
       x["models"] = self.aux["model_num"]
       print(dict_to_str(x, print_str=f"{self._k}", keys=["models"]))
 
-  def predict(self, seq=None, model=0):
+  def predict(self, seq=None, models=0):
     self.set_seq(seq)
     self.set_opt(dropout=False)
-    self.run(model=model, backprop=False)
+    self.run(models=models, backprop=False)
 
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):
     self.set_opt(opt)

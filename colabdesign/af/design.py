@@ -72,14 +72,181 @@ class _af_design:
     if self._args["crop_len"] is None:
       self._args["crop_len"] = sum(self._lengths)
       
-  def run(self, model=None, backprop=True, crop=True, callback=None):
+  def run(self, models=None, backprop=True, crop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
+    callbacks = [self._crop(crop), callback]
+    
+    # decide which model params to use
+    ns,ns_name = [],[]
+    for n,name in enumerate(self._model_names):
+      if "openfold" in name:
+        if self._args["use_openfold"]:  ns.append(n); ns_name.append(name)
+      elif self._args["use_alphafold"]: ns.append(n); ns_name.append(name)
 
-    # experimental: crop inputs
-    if self._args["copies"] > 1 and not self._args["repeat"]: crop = False
-    if self.protocol in ["partial","binder"]: crop = False
-    if sum(self._lengths) < self._args["crop_len"]: crop = False
+    # sub select number of model params
+    if models is not None:
+      models = [models] if isinstance(models,int) else list(models)
+      ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
+    
+    ns = jnp.array(ns)
+    m = min(self.opt["num_models"],len(ns))
+    if self.opt["sample_models"] and m != len(ns):
+      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+    else:
+      model_num = ns[:m]      
+    model_num = np.array(model_num).tolist()
+
+    # loop through model params
+    aux = []
+    for n in model_num:
+      p = self._model_params[n]
+      aux.append(self._recycle(p, backprop=backprop))
+    aux = jax.tree_map(lambda *x: jnp.stack(x), *aux)
+
+    # update aux
+    self.aux = jax.tree_map(lambda x:x[0], aux)
+    self.aux["all"] = aux
+
+    # average losses and gradients
+    self.aux["loss"] = aux["loss"].mean()
+    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), aux["losses"])
+    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), aux["grad"])
+
+    # callback
+    for callback in callbacks:
+      if callback is not None: callback(self)
+
+    # update log
+    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
+    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+
+    # compute sequence recovery
+    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+      if self.protocol == "partial" and "pos" in self.opt:
+        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+      else:
+        aatype = self.aux["seq"]["pseudo"].argmax(-1)
+      self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
+
+    self.aux["log"] = to_float(self.aux["log"])
+    self.aux["log"].update({"recycles":self.aux["num_recycles"], "models":model_num})
+
+  def _single(self, model_params, backprop=True):
+    '''single pass through the model'''
+    flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
+    if backprop:
+      (loss, aux), grad = self._model["grad_fn"](*flags)
+    else:
+      loss, aux = self._model["fn"](*flags)
+      grad = jax.tree_map(jnp.zeros_like, self.params)
+    aux.update({"loss":loss,"grad":grad})
+    return aux
+
+  def _recycle(self, model_params, backprop=True):   
+    '''multiple passes through the model (aka recycle)'''
+
+    mode = self._args["recycle_mode"]
+    if mode in ["backprop","add_prev"]:
+      
+      # recycles compiled into model, only need single-pass
+      num_recycles = self.opt["num_recycles"] = self._runner.config.model.num_recycle
+      aux = self._single(model_params, backprop)
+    
+    else:
+
+      # configure number of recycle to run
+      num_recycles = self.opt["num_recycles"]
+      if mode == "average":
+        # run recycles manually, average gradients
+        if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
+        else: L = self._inputs["residue_index"].shape[-1]
+        self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
+                                'prev_pair': np.zeros([L,L,128]),
+                                'prev_pos': np.zeros([L,37,3])}
+        grad = []
+        for _ in range(num_recycles+1):
+          aux = self._single(model_params, backprop)
+          grad.append(aux["grad"])
+          self._inputs["prev"] = aux["prev"]
+        # average gradients across
+        aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
+      
+      elif mode == "sample":
+        # randomly select number of recycles to run
+        self.set_opt(num_recycles=jax.random.randint(self.key(),[],0,num_recycles+1))
+        aux = self._single(model_params, backprop)
+        (self.opt["num_recycles"],num_recycles) = (num_recycles,self.opt["num_recycles"])
+      
+      else:
+        aux = self._single(model_params, backprop)
+    
+    aux["num_recycles"] = num_recycles
+    return aux
+
+  def step(self, lr_scale=1.0, models=None, backprop=True, crop=True, repredict=False,
+           callback=None, save_best=False, verbose=1):
+    '''do one step of gradient descent'''
+    
+    # run
+    self.run(models=models, backprop=backprop, crop=crop, callback=callback)
+
+    # normalize gradient
+    g = self.aux["grad"]["seq"]
+    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    
+    eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
+
+    # set learning rate
+    lr = self.opt["lr"] * lr_scale
+    self.aux["grad"] = jax.tree_map(lambda x:x*lr, self.aux["grad"])
+
+    # apply gradient
+    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
+    self.params = self._get_params(self._state)
+
+    # increment
+    self._k += 1
+
+    # save results
+    if repredict: self.predict(models=None, verbose=False)
+    self._save_results(save_best=save_best, verbose=verbose)
+
+  def _update_traj(self):
+    traj = {"seq":   self.aux["seq"]["pseudo"],
+            "xyz":   self.aux["atom_positions"][:,1,:],
+            "plddt": self.aux["plddt"],
+            "pae":   self.aux["pae"]}
+    traj = jax.tree_map(np.array, traj)
+    traj["log"] = self.aux["log"]
+    for k,v in traj.items(): self._traj[k].append(v)
+
+  def _print_log(self, print_str=None):
+    keys = ["models","recycles","hard","soft","temp","seqid","loss",
+            "msa_ent","plddt","pae","helix","con","i_pae","i_con",
+            "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
+    print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
+                      print_str=print_str, keys=keys, ok="rmsd"))
+
+  def _save_best(self):
+    metric = self.aux["log"][self._args["best_metric"]]
+    if "metric" not in self._best or metric < self._best["metric"]:
+      self._best.update({"metric":metric, "aux":self.aux})
+
+  def _save_results(self, save_best=False, verbose=True):    
+    self._update_traj()
+    if save_best: self._save_best()
+    if verbose and (self._k % verbose) == 0:
+      self._print_log(f"{self._k}")
+
+  def _crop(self, crop=True):
+    ''' determine positions to crop '''
+
+    if crop:
+      if self._args["copies"] > 1 and not self._args["repeat"]: crop = False
+      if self.protocol in ["partial","binder"]: crop = False
+      if self._args["crop_len"] is None or self._args["crop_len"] >= sum(self._lengths): crop = False
     
     if crop:
       (L, max_L) = (sum(self._lengths), self._args["crop_len"])
@@ -115,193 +282,36 @@ class _af_design:
              
         p = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))
 
+      def callback(self):
+        # function to apply after run
+        _cmap = np.array(self.aux["cmap"])
+        _pae = np.array(self.aux["pae"])
+        _mask = np.isnan(_pae)
+        b = 0.9
+        if not hasattr(self,"_pae"):
+          self._pae = np.full_like(_pae, 31.0)
+        self._pae = self.aux["pae"] = np.where(_mask, self._pae, (1-b)*_pae + b*self._pae)
+
+        if self.protocol == "hallucination":
+          if not hasattr(self,"_cmap"):
+            self._cmap = np.zeros_like(_cmap)
+          self._cmap = self.aux["cmap"] = np.where(_mask, self._cmap, (1-b)*_cmap + b*self._cmap)
+    
     else:
+      callback = None
       p = np.arange(sum(self._lengths))
-    
+
     self.opt["crop_pos"] = p
-    
-    # decide which model params to use
-    ns,ns_name = [],[]
-    for n,name in enumerate(self._model_names):
-      if "openfold" in name:
-        if self._args["use_openfold"]:  ns.append(n); ns_name.append(name)
-      elif self._args["use_alphafold"]: ns.append(n); ns_name.append(name)
+    return callback
 
-    # sub select number of model params
-    if model is not None:
-      model = [model] if isinstance(model,int) else list(model)
-      ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in model]
-    
-    ns = jnp.array(ns)
-    m = min(self.opt["models"],len(ns))
-    if self.opt["sample_models"] and m != len(ns):
-      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
-    else:
-      model_num = ns[:m]      
-    model_num = np.array(model_num).tolist()
-
-    # loop through model params
-    aux = []
-    for n in model_num:
-      p = self._model_params[n]
-      aux.append(self._recycle(p, backprop=backprop))
-    aux = jax.tree_map(lambda *x: jnp.stack(x), *aux)
-
-    # update aux
-    self.aux = jax.tree_map(lambda x:x[0], aux)
-    self.aux["all"] = aux
-
-    # average losses and gradients
-    self.aux["loss"] = aux["loss"].mean()
-    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), aux["losses"])
-    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), aux["grad"])
-
-    # callback
-    if callback is not None: callback(self)
-
-    # update log
-    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
-    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
-
-    # compute sequence recovery
-    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self.protocol == "partial" and "pos" in self.opt:
-        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
-      else:
-        aatype = self.aux["seq"]["pseudo"].argmax(-1)
-      self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
-
-    self.aux["log"] = to_float(self.aux["log"])
-    self.aux["log"].update({"recycles":self.aux["recycles"], "models":model_num})
-
-    # experimental: pae/cmap update for crop
-    if crop:
-      _cmap = np.array(self.aux["cmap"])
-      _pae = np.array(self.aux["pae"])
-      _mask = np.isnan(_pae)
-      b = 0.9
-      if not hasattr(self,"_pae"):
-        self._pae = np.full_like(_pae, 31.0)
-      self._pae = self.aux["pae"] = np.where(_mask, self._pae, (1-b)*_pae + b*self._pae)
-
-      if self.protocol == "hallucination":
-        if not hasattr(self,"_cmap"):
-          self._cmap = np.zeros_like(_cmap)
-        self._cmap = self.aux["cmap"] = np.where(_mask, self._cmap, (1-b)*_cmap + b*self._cmap)
-
-  def _single(self, model_params, backprop=True):
-    '''single pass through the model'''
-    flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
-    if backprop:
-      (loss, aux), grad = self._model["grad_fn"](*flags)
-    else:
-      loss, aux = self._model["fn"](*flags)
-      grad = jax.tree_map(jnp.zeros_like, self.params)
-    aux.update({"loss":loss,"grad":grad})
-    return aux
-
-  def _recycle(self, model_params, backprop=True):   
-    '''multiple passes through the model (aka recycle)'''
-
-    mode = self._args["recycle_mode"]
-    if mode in ["backprop","add_prev"]:
-      # recycles compiled into model, only need single-pass
-      recycles = self.opt["recycles"] = self._runner.config.model.num_recycle
-      aux = self._single(model_params, backprop)
-    
-    else:
-      # configure number of recycle to run
-      recycles = self.opt["recycles"]
-      if mode == "average":
-        # run recycles manually, average gradients
-        if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
-        else: L = self._inputs["residue_index"].shape[-1]
-        self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                                'prev_pair': np.zeros([L,L,128]),
-                                'prev_pos': np.zeros([L,37,3])}
-        grad = []
-        for _ in range(recycles+1):
-          aux = self._single(model_params, backprop)
-          grad.append(aux["grad"])
-          self._inputs["prev"] = aux["prev"]
-        # average gradients across
-        aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
-      
-      elif mode == "sample":
-        # randomly select number of recycles to run
-        self.set_opt(recycles=jax.random.randint(self.key(),[],0,recycles+1))
-        aux = self._single(model_params, backprop)
-        (self.opt["recycles"],recycles) = (recycles,self.opt["recycles"])
-      
-      else:
-        aux = self._single(model_params, backprop)
-    
-    aux["recycles"] = recycles
-    return aux
-
-  def step(self, lr_scale=1.0, model=None, backprop=True, crop=True, repredict=False,
-           callback=None, save_best=False, verbose=1):
-    '''do one step of gradient descent'''
-    
-    # run
-    self.run(model=model, backprop=backprop, crop=crop, callback=callback)
-
-    # normalize gradient
-    g = self.aux["grad"]["seq"]
-    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    
-    eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
-    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
-
-    # set learning rate
-    lr = self.opt["lr"] * lr_scale
-    self.aux["grad"] = jax.tree_map(lambda x:x*lr, self.aux["grad"])
-
-    # apply gradient
-    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
-    self.params = self._get_params(self._state)
-
-    # increment
-    self._k += 1
-
-    # save results
-    if repredict: self.predict(model=None, verbose=False)
-    self._save_results(save_best=save_best, verbose=verbose)
-
-  def _update_traj(self):
-    traj = {"seq":   self.aux["seq"]["pseudo"],
-            "xyz":   self.aux["atom_positions"][:,1,:],
-            "plddt": self.aux["plddt"],
-            "pae":   self.aux["pae"]}
-    traj = jax.tree_map(np.array, traj)
-    traj["log"] = self.aux["log"]
-    for k,v in traj.items(): self._traj[k].append(v)
-
-  def _print_log(self, print_str=None):
-    keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-            "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
-    print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
-                      print_str=print_str, keys=keys, ok="rmsd"))
-
-  def _save_best(self):
-    metric = self.aux["log"][self._args["best_metric"]]
-    if "metric" not in self._best or metric < self._best["metric"]:
-      self._best.update({"metric":metric, "aux":self.aux})
-
-  def _save_results(self, save_best=False, verbose=True):    
-    self._update_traj()
-    if save_best: self._save_best()
-    if verbose and (self._k % verbose) == 0:
-      self._print_log(f"{self._k}")
-
-  def predict(self, seq=None, model=0, save_best=False, verbose=True):
+  def predict(self, seq=None, models=0, save_best=False, verbose=True):
     if seq is not None:
       params = copy_dict(self.params)
       self.set_seq(seq)
     opt = copy_dict(self.opt)
-    self.set_opt(hard=True, dropout=False, sample_models=False)
-    self.run(model=model, backprop=False, crop=False)
+    num_models = len(models) if isinstance(models,list) else 1
+    self.set_opt(hard=True, dropout=False, sample_models=False, num_models=num_models)
+    self.run(models=models, backprop=False, crop=False)
     self.set_opt(opt)
     if seq is not None: self.params = params
     if save_best: self._save_best()
@@ -356,32 +366,31 @@ class _af_design:
   # ---------------------------------------------------------------------------------
 
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10,
-                    models=1, dropout=True, **kwargs):
+                    num_models=1, dropout=True, **kwargs):
     '''two stage design (soft→hard)'''
-    self.set_opt(models=models, sample_models=True) # sample models
+    self.set_opt(num_models=models, sample_models=True) # sample models
     self.design(soft_iters, soft=1, temp=1, dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1, dropout=dropout,  e_temp=1e-2, **kwargs)
-    self.set_opt(models=len(self._model_params)) # use all models
+    self.set_opt(num_models=len(self._model_params)) # use all models
     self.design(hard_iters, soft=1, temp=1e-2, dropout=False, hard=1, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
-                    models=1, dropout=True, pseudo_hard=False, **kwargs):
+                    num_models=1, dropout=True, pseudo_hard=False, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.set_opt(models=models, sample_models=True) # sample models
+    self.set_opt(num_models=num_models, sample_models=True) # sample models
     self.design(soft_iters, soft=0, temp=1,    hard=0, e_soft=1,    dropout=dropout, **kwargs)
     self.design(temp_iters, soft=1, temp=1,    hard=0, e_temp=1e-2, dropout=dropout, **kwargs)
-    self.set_opt(models=len(self._model_params)) # use all models
+    self.set_opt(num_models=len(self._model_params)) # use all models
     if pseudo_hard:
       self.design(hard_iters, soft=1, temp=1e-2, hard=0, repredict=True, dropout=False, save_best=True, **kwargs)
     else:
       self.design(hard_iters, soft=1, temp=1e-2, hard=1, dropout=False, save_best=True, **kwargs)
 
-  def design_semigreedy(self, iters=100, tries=20, models=1,
+  def design_semigreedy(self, iters=100, tries=20, num_models=1,
                         use_plddt=True, save_best=True,
                         verbose=1):
     '''semigreedy search'''    
-    self.set_opt(hard=True, dropout=False,
-                 models=models, sample_models=False)
+    self.set_opt(hard=True, dropout=False, num_models=num_models, sample_models=False)
     if self._k == 0:
       self.run(backprop=False, crop=False)
 

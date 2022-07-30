@@ -5,6 +5,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import re
+import random
 
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
@@ -448,3 +449,26 @@ def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
                    'template_pseudo_beta_mask': np.zeros((T,L))})
 
   return jax.tree_map(lambda x:x[None], inputs)
+
+
+def generate_disulfide_pattern(L, disulfide_num, min_sep=5):
+    disulfide_pattern = []
+    positions = list(range(L))
+    for n in range(disulfide_num):
+        for _ in range(100): # try 100 time per postion.
+            i,j = random.sample(positions, k=2)
+            if abs(i-j)<=min_sep: continue # set min loop len.
+            positions.remove(i)
+            positions.remove(j)
+            disulfide_pattern.append((i,j))
+            # check
+            if _ > 99:
+                print('Not find good disulfide_pos! exit....')
+                return 0  # not good pose!
+            else:
+                break
+    sequence_pattern = list('X'*L)
+    for pair in disulfide_pattern:
+        for i in pair: sequence_pattern[i] = 'C'
+
+    return disulfide_pattern, ''.join(sequence_pattern), L

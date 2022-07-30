@@ -30,7 +30,7 @@ class _af_loss:
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     self._get_pairwise_loss(inputs, outputs, opt, aux)
 
-    copies = self._copies
+    copies = self._args["copies"]
     if self._args["repeat"] or not self._args["homooligomer"]: copies = 1      
     
     # rmsd loss
@@ -41,7 +41,7 @@ class _af_loss:
     aatype = inputs["aatype"][0]
     dgram_cce = get_dgram_loss(batch, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._runner.config),
+    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._cfg),
                           "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux, batch=None):
@@ -56,13 +56,13 @@ class _af_loss:
       aln = get_rmsd_loss(batch, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
 
-      fape = get_fape_loss(batch, outputs, model_config=self._runner.config)
+      fape = get_fape_loss(batch, outputs, model_config=self._cfg)
       
       # compute cce of binder + interface
       aatype = inputs["aatype"][0]
       cce = get_dgram_loss(batch, outputs, aatype=aatype, return_cce=True)
 
-      aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[L:,:].mean()})
+      aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[self._target_len:,:].mean()})
     
     else:
       align_fn = get_rmsd_loss(batch, outputs, L=self._target_len)["align"]
@@ -84,7 +84,7 @@ class _af_loss:
 
     pos = opt["pos"]
     aatype = inputs["aatype"][0]
-    _config = self._runner.config.model.heads.structure_module
+    _config = self._cfg.model.heads.structure_module
 
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
@@ -408,7 +408,8 @@ def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
   sub_batch = jax.tree_map(lambda x: x, batch)
   sub_batch["use_clamped_fape"] = use_clamped_fape
   loss = {"loss":0.0}    
-  folding.backbone_loss(loss, sub_batch, outputs["structure_module"], model_config.model.heads.structure_module)
+  _config = model_config.model.heads.structure_module
+  folding.backbone_loss(loss, sub_batch, outputs["structure_module"], _config)
   return loss["loss"]
 
 def get_6D_loss(batch, outputs, **kwargs):

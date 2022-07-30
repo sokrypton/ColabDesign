@@ -70,11 +70,10 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
 you can use partial hallucination.
 ```python
-model = mk_afdesign_model(protocol="partial")
-model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
-# TODO
+af_model = mk_afdesign_model(protocol="partial")
+af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68"length=100)
+af_model.rewire(loops=[36])
 ```
-
 # FAQ
 #### How do I fixed the FileNotFoundError error?
 By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
@@ -99,7 +98,7 @@ model.opt["weights"]["pae"] = 0.0
 ```python 
 model = mk_afdesign_model(num_recycles=1, recycle_mode="average")
 # if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
-model.set_opt(recycles=1)
+model.set_opt(num_recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
@@ -204,7 +203,7 @@ Instead, one can try (`tries`) a few random mutations and accept one with lowest
 model.design_3stage(hard_iters=0)
 # set number of model params to evaluate at each iteration
 num_models = 2 if model.args["use_templates"] else 5
-model.set_opt(models=num_models)
+model.set_opt(num_models=num_models)
 model.design_semigreedy(iters=10, tries=20, use_plddt=True)
 ```
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
@@ -237,7 +236,7 @@ def design_custom(self):
   # set options
   self.set_opt(dropout=True, soft=0, hard=False)
   # set number of recycles
-  self.set_opt(recycles=0)
+  self.set_opt(num_recycles=0)
   # take 100 steps
   for _ in range(100): self._step()
   # increase weight for plddt
@@ -245,7 +244,7 @@ def design_custom(self):
   # take another 100 steps
   for _ in range(100): self._step()
   # increase number of recycles
-  self.set_opt(recycles=1)
+  self.set_opt(num_recycles=1)
   # take another 100 steps
   for _ in range(100): self._step()
   # etc...

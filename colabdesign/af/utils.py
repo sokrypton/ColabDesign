@@ -23,13 +23,16 @@ class _af_utils:
     use model.set_opt(..., set_defaults=True) 
     or model.restart(..., reset_opt=False) to avoid this
     -------------------    
-    model.set_opt(models=1, recycles=0)
+    model.set_opt(num_models=1, num_recycles=0)
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
     for k in ["best_metric","crop_mode","crop_len","use_openfold","use_alphafold"]:
       if k in kwargs: self._args[k] = kwargs.pop(k)
 
+    if "models" in kwargs: kwargs["num_models"] = kwargs.pop("models")
+    if "recycles" in kwargs: kwargs["num_recycles"] = kwargs.pop("recycles")
+    
     if "optimizer" in kwargs:
       print("ERROR: use model.restart(optimizer=...) to set the optimizer")
 
@@ -53,39 +56,27 @@ class _af_utils:
     save pdb coordinates (if filename provided, otherwise return as string)
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    aux = jax.tree_map(np.asarray, aux)
-
-    Ls = None    
-    if self.protocol == "binder":
-      Ls = [self._target_len, self._binder_len]      
-    if self.protocol == "partial":
-      Ls = [self._len]
-    if self.protocol in ["hallucination","fixbb"]:
-      Ls = [self._len] * self._copies
+    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = jax.tree_map(np.asarray, aux["all"])
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
+    if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
     p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
 
     def to_pdb_str(x, n=None):
       p_str = protein.to_pdb(protein.Protein(**x))
       p_str = "\n".join(p_str.splitlines()[1:-2])
-      if renum_pdb: p_str = renum_pdb_str(p_str, Ls)
+      if renum_pdb: p_str = renum_pdb_str(p_str, self._lengths)
       if n is not None:
         p_str = f"MODEL{n:8}\n{p_str}\nENDMDL\n"
       return p_str
 
-    if p["atom_positions"].ndim == 4:
-      if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
-      p_str = ""
-      for n in range(p["atom_positions"].shape[0]):
-        p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
-      p_str += "END\n"
-    else:
-      if p["aatype"].ndim == 2: p["aatype"] = p["aatype"].argmax(-1)
-      p_str = to_pdb_str(p)
-    if filename is None: 
-      return p_str, Ls
+    p_str = ""
+    for n in range(p["atom_positions"].shape[0]):
+      p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
+    p_str += "END\n"
+    
+    if filename is None: return p_str
     else: 
       with open(filename, 'w') as f:
         f.write(p_str)
@@ -99,29 +90,33 @@ class _af_utils:
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
     '''
-    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
-    pos_ref = aux["atom_positions"][:,1,:]
+    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = jax.tree_map(np.asarray, aux["all"])
+    
+    pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
+        
     if self.protocol == "hallucination":
-      length = [self._len] * self._copies
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=length, dpi=dpi)
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, dpi=dpi)
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, align_xyz=False, dpi=dpi)  
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi)  
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
-               color="pLDDT", color_HP=False, size=(800,480), get_best=True):
+               color="pLDDT", color_HP=False, size=(800,480),
+               animate=False, get_best=True):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    pdb_str, Ls = self.save_pdb(get_best=get_best)
+    pdb_str = self.save_pdb(get_best=get_best)
     view = show_pdb(pdb_str,
                     show_sidechains=show_sidechains,
                     show_mainchains=show_mainchains,
                     color=color,
-                    Ls=Ls,
+                    Ls=self._lengths,
                     color_HP=color_HP,
-                    size=size)
+                    size=size,
+                    animate=animate)
     view.show()
   
   def plot_traj(self, dpi=100):

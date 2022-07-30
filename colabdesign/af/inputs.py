@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.alphafold.model import model
@@ -30,8 +31,8 @@ class _af_inputs:
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
-    if self.protocol in ["fixbb","hallucination"] and self._copies > 1:
-      seq = jax.tree_map(lambda x:expand_copies(x, self._copies, self._args["block_diag"]), seq)
+    if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
+      seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
 
     return seq
 
@@ -134,7 +135,7 @@ def update_aatype(aatype, inputs):
 
 def expand_copies(x, copies, block_diag=True):
   '''
-  given msa (N,L,20) expand to (N*(1+copies),L*copies,22) if block_diag else (N,L*copies,22)
+  given msa (N,L,20) expand to (1+N*copies,L*copies,22) if block_diag else (N,L*copies,22)
   '''
   if x.shape[-1] < 22:
     x = jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
@@ -147,31 +148,28 @@ def expand_copies(x, copies, block_diag=True):
     seq = block_diag_mask * y
     gap_seq = (1-block_diag_mask) * jax.nn.one_hot(jnp.repeat(21,sub_L),22)  
     y = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
-    return jnp.concatenate([x,y],0)
+    return jnp.concatenate([x[:1],y],0)
   else:
     return x
 
-def crop_feat(feat, pos, model_runner, add_batch=True):  
+def crop_feat(feat, pos, cfg, add_batch=True):  
+  '''
+  crop features to specified [pos]itions
+  '''
+  if feat is None: return None
+
   def find(x,k):
     i = []
     for j,y in enumerate(x):
       if y == k: i.append(j)
     return i
+
+  shapes = cfg.data.eval.feat
+  NUM_RES = "num residues placeholder"
+  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
+  new_feat = copy_dict(feat)
+  for k in new_feat.keys():
+    if k in idx:
+      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
   
-  if feat is None:
-    return None
-
-  else:
-    cfg = model_runner.config
-    shapes = cfg.data.eval.feat
-    NUM_RES = "num residues placeholder"
-    idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
-
-    new_feat = {}
-    for k,v in feat.items():
-      v_ = v.copy()
-      if k in idx:
-        for i in idx[k]:
-          v_ = jnp.take(v_, pos, i + add_batch)
-      new_feat[k] = v_
-    return new_feat
+  return new_feat

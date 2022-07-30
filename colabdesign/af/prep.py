@@ -25,16 +25,27 @@ idx_to_resname = dict((v,k) for k,v in resname_to_idx.items())
 #################################################
 class _af_prep:
 
-  def _prep_features(self, length, num_templates=1, template_features=None):
+  def _prep_model(self, **kwargs):
+    '''prep model'''
+    self._model = self._get_model(self._cfg)
+    if sum(self._lengths) > 384:
+      self._cfg.model.global_config.subbatch_size = 4
+      self._model["fn"] = self._get_model(self._cfg)["fn"]
+
+    self._opt = copy_dict(self.opt)  
+    self.restart(**kwargs)
+
+  def _prep_features(self, length, num_seq=None, num_templates=1, template_features=None):
     '''process features'''
-    return prep_input_features(L=length, N=self._num, T=num_templates,
+    if num_seq is None: num_seq = self._num
+    return prep_input_features(L=length, N=num_seq, T=num_templates,
                                use_templates=self._args["use_templates"])
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, split_templates=False,
-                   pos=None, rm_template_seq=True, **kwargs):
+                   hotspot=None, rm_template_seq=True, **kwargs):
     '''
     prep inputs for binder design
     ---------------------------------------------------
@@ -42,8 +53,9 @@ class _af_prep:
     -binder_chain = chain of binder to redesign
     -use_binder_template = use binder coordinates as template input
     -split_templates = use target and binder coordinates as seperate template inputs
-    -pos = define position/hotspots on target
+    -hotspot = define position/hotspots on target
     -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
+    ---------------------------------------------------
     '''
     
     redesign = binder_chain is not None
@@ -57,6 +69,7 @@ class _af_prep:
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
     pdb = prep_pdb(pdb_filename, chain=chains)
+
     if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
@@ -71,7 +84,7 @@ class _af_prep:
     self._inputs["residue_index"][...,:] = pdb["residue_index"]
 
     # gather hotspot info
-    hotspot = kwargs.pop("hotspot", pos)
+    hotspot = kwargs.pop("pos", hotspot)
     if hotspot is not None:
       self.opt["pos"] = prep_pos(hotspot, **pdb["idx"])["pos"]
 
@@ -83,8 +96,8 @@ class _af_prep:
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
-      self._inputs = make_fixed_size(self._inputs, self._runner, total_len)
-      self._batch = make_fixed_size(pdb["batch"], self._runner, total_len, batch_axis=False)
+      self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
+      self._batch = make_fixed_size(pdb["batch"], self._cfg, total_len, batch_axis=False)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
@@ -94,29 +107,49 @@ class _af_prep:
 
     self._target_len = target_len
     self._binder_len = self._len = binder_len
+    self._lengths = [self._target_len, self._binder_len]
 
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=False, rm_template_seq=True,
-                  pos=None, fix_seq=False, **kwargs):
-    '''prep inputs for fixed backbone design'''
-
+                  repeat=False, block_diag=True, rm_template_seq=True,
+                  pos=None, fix_seq=True, **kwargs):
+    '''
+    prep inputs for fixed backbone design
+    ---------------------------------------------------
+    if copies > 1:
+      -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
+        -block_diag=True - each copy is it's own sequence in the MSA
+      -repeat=True - tie the repeating sequence within single chain
+    -rm_template_seq - if template is defined, remove information about template sequence
+    if fix_seq:
+      -pos="1,2-10" - specify which positions to keep fixed in the sequence
+                      note: supervised loss is applied to all positions, use "partial" 
+                      protocol to apply supervised loss to only subset of positions
+    ---------------------------------------------------
+    '''
     self._args["rm_template_seq"] = rm_template_seq
 
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
+      max_msa_clusters = 1 + self._num * copies
+      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
     else:
+      max_msa_clusters = self._num
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
+
+    if chain is not None and homooligomer and copies == 1:
+      copies = len(chain.split(","))
+
     self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len)
-    self._copies = copies
-    self._args.update({"repeat":repeat, "block_diag":block_diag, "homooligomer":homooligomer})
+    self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)
+    self._args.update({"repeat":repeat,
+                       "block_diag":block_diag,
+                       "homooligomer":homooligomer,
+                       "copies":copies})
 
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "con":0.0, "fape":0.0})
@@ -126,17 +159,20 @@ class _af_prep:
       if repeat:
         self._len = self._len // copies
         block_diag = False
+        self._lengths = [self._len * copies]
       else:
         if homooligomer:
           self._len = self._len // copies
-          self._inputs["residue_index"] = pdb["residue_index"][None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)[None]
         else:
-          self._inputs = make_fixed_size(self._inputs, self._runner, self._len * copies)
-          self._batch = make_fixed_size(self._batch, self._runner, self._len * copies, batch_axis=False)
+          self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
+          self._batch = make_fixed_size(self._batch, self._cfg, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+        self._lengths = [self._len] * copies
     else:
       self._inputs["residue_index"] = pdb["residue_index"][None]
+      self._lengths = [self._len]
 
     # fix certain positions
     self.opt["fix_seq"] = fix_seq
@@ -145,60 +181,97 @@ class _af_prep:
       self.opt["pos"] = self._pos_info["pos"]
 
     self._wt_aatype = self._batch["aatype"][:self._len]
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
+
+    # undocumented: for dist cropping (for Shihao)
+    cb_atoms = pdb["cb_feat"]["atoms"]
+    cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
+    self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
+
     
   def _prep_hallucination(self, length=100, copies=1,
-                          repeat=False, block_diag=False, **kwargs):
-    '''prep inputs for hallucination'''
+                          repeat=False, block_diag=True, **kwargs):
+    '''
+    prep inputs for hallucination
+    ---------------------------------------------------
+    if copies > 1:
+      -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
+        -block_diag=True - each copy is it's own sequence in the MSA
+      -repeat=True - tie the repeating sequence within single chain
+    ---------------------------------------------------
+    '''
     
-    # block_diag the msa features
+    # set [arg]uments
     if block_diag and not repeat and copies > 1:
-      self._runner.config.data.eval.max_msa_clusters = self._num * (1 + copies)
+      max_msa_clusters = 1 + self._num * copies
+      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
     else:
+      max_msa_clusters = self._num
       block_diag = False
+    self._args.update({"block_diag":block_diag, "repeat":repeat, "copies":copies})
       
+    # prep features
     self._len = length
-    self._copies = copies
-    self._inputs = self._prep_features(length * copies)
-    self._args.update({"block_diag":block_diag, "repeat":repeat})
+    self._inputs = self._prep_features(length * copies, num_seq=max_msa_clusters)
     
     # set weights
     self.opt["weights"].update({"con":1.0})
     if copies > 1:
       if repeat:
         offset = 1
+        self._lengths = [self._len * copies]
       else:
         offset = 50
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
+        self._lengths = [self._len] * copies
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
-
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    else:
+      self._lengths = [self._len]
+    
+    self._prep_model(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     pos=None, fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
                     rm_template_seq=False, **kwargs):
-    '''prep input for partial hallucination'''    
-
+    '''
+    prep input for partial hallucination
+    ---------------------------------------------------
+    -length=100 - total length of protein (if different from input PDB)
+    -pos="1,2-10" - specify which positions to apply supervised loss to
+    -fix_seq=True - keep sequence fixed in the specified positions
+    -use_sidechains=True - add a sidechain supervised loss to the specified positions
+      -atoms_to_exclude=["N","C","O"] (for sc_rmsd loss, specify which atoms to exclude)
+    -rm_template_seq - if template is defined, remove information about template sequence
+    ---------------------------------------------------    
+    '''    
     self._args["rm_template_seq"] = rm_template_seq
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
+    
+    self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0] if length is None else length
-    self._inputs = self._prep_features(self._len)    
+    self._lengths = [self._len]
+    self._inputs = self._prep_features(self._len)
+
+    # undocumented: experimental repeat support
+    if kwargs.pop("repeat",False):
+      copies = kwargs.pop("copies",1)
+      if copies > 1:
+        self._len = self._len // copies
+        self._lengths = [self._len * copies]
+        self._args.update({"copies":copies, "repeat":True, "block_diag":False})
 
     # configure options/weights
+    self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
     self.opt["weights"].update({"dgram_cce":1.0,"con":1.0, "fape":0.0, "rmsd":0.0})
     self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests
-    if pos is None:
-      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
-    else:
+    if pos is not None:
       self._pos_info = prep_pos(pos, **pdb["idx"])
-      self.opt["pos"] = p = self._pos_info["pos"]
-      self._batch = jax.tree_map(lambda x:x[p], pdb["batch"])     
+      self.opt["pos"] = self._pos_info["pos"]
+      self._batch = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
     self._wt_aatype = self._batch["aatype"]
 
     # configure sidechains
@@ -209,8 +282,7 @@ class _af_prep:
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_seq"] = True
   
-    self._opt = copy_dict(self.opt)
-    self.restart(**kwargs)
+    self._prep_model(**kwargs)
 
 #######################
 # utils
@@ -232,6 +304,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
     cb_mask = np.prod([m[...,atom_idx[k]] for k in ["N","CA","C"]],0)
     batch["all_atom_positions"][...,cb,:] = np.where(m[:,cb,None], p[:,cb,:], cb_atoms)
     batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
+    return {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
 
   # go through each defined chain
   chains = [None] if chain is None else chain.split(",")
@@ -243,7 +316,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
              'all_atom_positions': protein_obj.atom_positions,
              'all_atom_mask': protein_obj.atom_mask}
 
-    add_cb(batch) # add in missing cb (in the case of glycine)
+    cb_feat = add_cb(batch) # add in missing cb (in the case of glycine)
 
     has_ca = batch["all_atom_mask"][:,0] == 1
     batch = jax.tree_map(lambda x:x[has_ca], batch)
@@ -259,10 +332,12 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
                            "template_all_atom_positions":batch["all_atom_positions"]}
       o.append({"batch":batch,
                 "template_features":template_features,
-                "residue_index": residue_index})
+                "residue_index": residue_index,
+                "cb_feat":cb_feat})
     else:        
       o.append({"batch":batch,
-                "residue_index": residue_index})
+                "residue_index": residue_index,
+                "cb_feat":cb_feat})
     
     residue_idx.append(protein_obj.residue_index[has_ca])
     chain_idx.append([chain] * len(residue_idx[-1]))
@@ -278,9 +353,8 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
 
-def make_fixed_size(feat, model_runner, length, batch_axis=True):
+def make_fixed_size(feat, cfg, length, batch_axis=True):
   '''pad input features'''
-  cfg = model_runner.config
   if batch_axis:
     shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
   else:

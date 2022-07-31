@@ -163,7 +163,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
                   "residue_index":inputs["residue_index"][0], "aatype":inputs["aatype"][0],
-                  "plddt":get_plddt(outputs),"pae":get_pae(outputs),
+                  "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(outputs),
                   "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
 
       # experimental

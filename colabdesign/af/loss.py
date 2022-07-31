@@ -5,6 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import Key
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.common import confidence_jax
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -229,6 +230,10 @@ def get_pae(outputs):
   bin_centers = breaks + step/2
   bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
   return (prob*bin_centers).sum(-1)
+
+def get_ptm(outputs):
+  pae = outputs["predicted_aligned_error"]
+  return confidence_jax.predicted_tm_score_jax(**pae)
 
 ####################
 # loss functions

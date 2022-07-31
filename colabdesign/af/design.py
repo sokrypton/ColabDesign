@@ -118,7 +118,7 @@ class _af_design:
       if callback is not None: callback(self)
 
     # update log
-    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
+    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"], "ptm":self.aux["ptm"]}
     self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
 
     # compute sequence recovery
@@ -225,7 +225,7 @@ class _af_design:
   def _print_log(self, print_str=None):
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-            "sc_fape","sc_rmsd","dgram_cce","fape","rmsd"]
+            "sc_fape","sc_rmsd","dgram_cce","fape","ptm","rmsd"]
     print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
                       print_str=print_str, keys=keys, ok="rmsd"))
 

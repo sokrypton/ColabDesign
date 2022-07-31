@@ -16,6 +16,8 @@ pip install git+https://github.com/sokrypton/ColabDesign.git
 [Slides](https://docs.google.com/presentation/d/1Zy7lf_LBK0_G3e7YQLSPP5aj_-AR5I131fTsxJrLdg4/)
 [Talk](https://www.youtube.com/watch?v=2HmXwlKWMVs)
 
-### Contributors and Sponsors:
-- @guyujun [Levinthal.bio](http://levinthal.bio/en/)
-- @dauparas
+### Contributors:
+- Sergey Ovchinnikov [@sokrypton](https://github.com/sokrypton)
+- Justas Dauparas [@dauparas](https://github.com/dauparas)
+- Weikun.Wu [@guyujun](https://github.com/guyujun) [Levinthal.bio](http://levinthal.bio/en/)
+- Shihao Feng

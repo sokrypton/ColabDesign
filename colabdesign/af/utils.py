@@ -24,28 +24,38 @@ class _af_utils:
     or model.restart(..., reset_opt=False) to avoid this
     -------------------    
     model.set_opt(num_models=1, num_recycles=0)
-    model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
+    model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}}) or set_opt("con",num=1)
     model.set_opt(lr=1, set_defaults=True)
     '''
-    for k in ["best_metric","crop_mode","crop_len","use_openfold","use_alphafold"]:
-      if k in kwargs: self._args[k] = kwargs.pop(k)
+    ks = list(kwargs.keys())
+    self.set_args(**{k:kwargs.pop(k) for k in ks if k in self._args})
+        
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt, *args, **kwargs)
 
-    if "models" in kwargs: kwargs["num_models"] = kwargs.pop("models")
-    if "recycles" in kwargs: kwargs["num_recycles"] = kwargs.pop("recycles")
-    
-    if "optimizer" in kwargs:
-      print("ERROR: use model.restart(optimizer=...) to set the optimizer")
+    update_dict(self.opt, *args, **kwargs)
 
+  def set_args(self, **kwargs):
+    '''
+    set [arg]uments
+    '''
+    for k in ["best_metric","crop","crop_mode","crop_len",
+              "use_openfold","use_alphafold","models"]:
+      if k in kwargs:
+        self._args[k] = kwargs.pop(k)
+        if k == "crop" and not self._args[k]:
+          self._args["crop_len"] = None
+            
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")
       else:
         print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
 
-    if kwargs.pop("set_defaults", False):
-      update_dict(self._opt, *args, **kwargs)
+    ks = list(kwargs.keys())
+    if len(ks) > 0:
+      print(f"ERROR: the following args were not set: {ks}")
 
-    update_dict(self.opt, *args, **kwargs)
   
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''

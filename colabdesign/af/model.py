@@ -3,13 +3,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.af.alphafold.model import data, config, model
+from colabdesign.af.alphafold.model import data, config, model, all_atom
 
 from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_feat
@@ -23,7 +23,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
-               crop_len=None, crop_mode="pair",
+               crop_len=None, crop_mode="slide",
                debug=False, use_alphafold=True, use_openfold=False,
                loss_callback=None, data_dir="."):
     
@@ -43,7 +43,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
                   'use_alphafold':use_alphafold, 'use_openfold':use_openfold,
-                  "crop_len":crop_len,"crop_mode":crop_mode}
+                  "crop":False, "crop_len":crop_len,"crop_mode":crop_mode,
+                  "models":None}
 
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
@@ -54,7 +55,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0}
     
-    self.params = {}
+    self._params = {}
+    self._inputs = {}
 
     #############################
     # configure AlphaFold
@@ -119,7 +121,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
 
       # get sequence
-      seq = self._get_seq(params, opt, aux, key())
+      seq = self._get_seq(inputs, params, opt, aux, key())
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
@@ -141,24 +143,27 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if self._args["recycle_mode"] in ["last","sample"]:
         inputs["num_iter_recycling"] = jnp.array([opt["num_recycles"]])
 
-      # batch
-      batch = self._batch if hasattr(self,"_batch") else None
-
       # crop inputs
       if opt["crop_pos"].shape[0] < L:
-        inputs = crop_feat(inputs, opt["crop_pos"], self._cfg, add_batch=True)    
-        batch = crop_feat(batch, opt["crop_pos"], self._cfg, add_batch=False)
+        inputs = crop_feat(inputs, opt["crop_pos"], self._cfg)    
 
+      if "batch" in inputs:
+        # need frames for fape
+        batch = inputs.pop("batch")
+        batch.update(all_atom.atom37_to_frames(**batch))
+      else:
+        batch = None
       #######################################################################
       # OUTPUTS
       #######################################################################
+
       outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs
       aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
                   "residue_index":inputs["residue_index"][0], "aatype":inputs["aatype"][0],
-                  "plddt":get_plddt(outputs),"pae":get_pae(outputs),
+                  "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(outputs),
                   "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
 
       # experimental
@@ -169,13 +174,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
 
       if self._args["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
-      if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       #######################################################################
       # LOSS
       #######################################################################
+      inputs["batch"] = batch
+      if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
+
       aux["losses"] = {}
-      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux, batch=batch)
+      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 
       if self._loss_callback is not None:
         aux["losses"].update(self._loss_callback(inputs, outputs, opt))
@@ -187,4 +194,4 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       return loss, aux
     
     return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),
-            "fn":jax.jit(_model)}
+            "fn":jax.jit(_model), "runner":runner}

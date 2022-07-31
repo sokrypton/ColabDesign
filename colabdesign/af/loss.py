@@ -5,21 +5,21 @@ import numpy as np
 from colabdesign.shared.utils import Key
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.common import confidence_jax
 
 ####################################################
 # AF_LOSS - setup loss function
 ####################################################
 class _af_loss:
   # protocol specific loss functions
-  def _loss_hallucination(self, inputs, outputs, opt, aux, batch=None):
+  def _loss_hallucination(self, inputs, outputs, opt, aux):
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss.mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux)
     
-  def _loss_fixbb(self, inputs, outputs, opt, aux, batch=None):
+  def _loss_fixbb(self, inputs, outputs, opt, aux):
     '''get losses'''
-    if batch is None: batch = self._batch
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     self._get_pairwise_loss(inputs, outputs, opt, aux)
@@ -28,44 +28,43 @@ class _af_loss:
     if self._args["repeat"] or not self._args["homooligomer"]: copies = 1      
     
     # rmsd loss
-    aln = get_rmsd_loss(batch, outputs, copies=copies)
+    aln = get_rmsd_loss(inputs, outputs, copies=copies)
     rmsd, aux["atom_positions"] = aln["rmsd"], aln["align"](aux["atom_positions"])
 
     # dgram loss
     aatype = inputs["aatype"][0]
-    dgram_cce = get_dgram_loss(batch, outputs, copies=copies, aatype=aatype)
+    dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"fape": get_fape_loss(batch, outputs, model_config=self._cfg),
+    aux["losses"].update({"fape": get_fape_loss(inputs, outputs, model_config=self._cfg),
                           "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
 
-  def _loss_binder(self, inputs, outputs, opt, aux, batch=None):
+  def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
-    if batch is None: batch = self._batch
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss[...,self._target_len:].mean()
     self._get_pairwise_loss(inputs, outputs, opt, aux, interface=True)
 
     if self._args["redesign"]:      
-      aln = get_rmsd_loss(batch, outputs, L=self._target_len, include_L=False)
+      aln = get_rmsd_loss(inputs, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
 
-      fape = get_fape_loss(batch, outputs, model_config=self._cfg)
+      fape = get_fape_loss(inputs, outputs, model_config=self._cfg)
       
       # compute cce of binder + interface
       aatype = inputs["aatype"][0]
-      cce = get_dgram_loss(batch, outputs, aatype=aatype, return_cce=True)
+      cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_cce=True)
 
       aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[self._target_len:,:].mean()})
     
     else:
-      align_fn = get_rmsd_loss(batch, outputs, L=self._target_len)["align"]
+      align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
 
     aux["atom_positions"] = align_fn(aux["atom_positions"])
 
-  def _loss_partial(self, inputs, outputs, opt, aux, batch=None):
+  def _loss_partial(self, inputs, outputs, opt, aux):
     '''get losses'''    
-    if batch is None: batch = self._batch
+    batch = inputs["batch"]
     plddt_prob = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
     plddt_loss = (plddt_prob * jnp.arange(plddt_prob.shape[-1])[::-1]).mean(-1)
     aux["losses"]["plddt"] = plddt_loss.mean()
@@ -83,7 +82,7 @@ class _af_loss:
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
     if aatype is not None: aatype = sub(aatype,pos,0)
-    aux["losses"]["dgram_cce"] = get_dgram_loss(batch, pred=dgram, copies=1, aatype=aatype)
+    aux["losses"]["dgram_cce"] = get_dgram_loss(inputs, pred=dgram, copies=1, aatype=aatype)
 
     # rmsd
     true = batch["all_atom_positions"]
@@ -232,11 +231,16 @@ def get_pae(outputs):
   bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
   return (prob*bin_centers).sum(-1)
 
+def get_ptm(outputs):
+  pae = outputs["predicted_aligned_error"]
+  return confidence_jax.predicted_tm_score_jax(**pae)
+
 ####################
 # loss functions
 ####################
-def get_dgram_loss(batch, outputs=None, copies=1, aatype=None, pred=None, return_cce=False):
+def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, return_cce=False):
 
+  batch = inputs["batch"]
   # gather features
   if aatype is None: aatype = batch["aatype"]
   if pred is None: pred = outputs["distogram"]["logits"]
@@ -292,7 +296,8 @@ def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
     cce, cce_loss = cce_fn(**F)
     return cce if return_cce else cce_loss
 
-def get_rmsd_loss(batch, outputs, L=None, include_L=True, copies=1):
+def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
+  batch = inputs["batch"]
   true = batch["all_atom_positions"][:,1,:]
   pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
   weights = batch["all_atom_mask"][:,1]
@@ -385,7 +390,8 @@ def get_sc_rmsd(true, pred, sc):
 #--------------------------------------
 # TODO (make copies friendly)
 #--------------------------------------
-def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
+def get_fape_loss(inputs, outputs, model_config, use_clamped_fape=False):
+  batch = inputs["batch"]
   sub_batch = jax.tree_map(lambda x: x, batch)
   sub_batch["use_clamped_fape"] = use_clamped_fape
   loss = {"loss":0.0}    
@@ -393,7 +399,8 @@ def get_fape_loss(batch, outputs, model_config, use_clamped_fape=False):
   folding.backbone_loss(loss, sub_batch, outputs["structure_module"], _config)
   return loss["loss"]
 
-def get_6D_loss(batch, outputs, **kwargs):
+def get_6D_loss(inputs, outputs, **kwargs):
+  batch = inputs["batch"]
   true = batch["all_atom_positions"]
   pred = outputs["structure_module"]["final_atom_positions"]
   mask = batch["all_atom_mask"]

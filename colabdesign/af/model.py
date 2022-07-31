@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.af.alphafold.model import data, config, model
+from colabdesign.af.alphafold.model import data, config, model, all_atom
 
 from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
@@ -147,10 +147,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if opt["crop_pos"].shape[0] < L:
         inputs = crop_feat(inputs, opt["crop_pos"], self._cfg)    
 
+      if "batch" in inputs:
+        # need frames for fape
+        batch = inputs.pop("batch")
+        batch.update(all_atom.atom37_to_frames(**batch))
+
       #######################################################################
       # OUTPUTS
       #######################################################################
-      batch = inputs.pop("batch", None)
+
       outputs, inputs["batch"] = runner.apply(model_params, key(), inputs), batch
 
       # add aux outputs
@@ -186,4 +191,4 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       return loss, aux
     
     return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),
-            "fn":jax.jit(_model)}
+            "fn":jax.jit(_model), "runner":runner}

@@ -8,7 +8,6 @@ import re
 
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
-from colabdesign.af.alphafold.model import all_atom
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
@@ -26,10 +25,12 @@ class _af_prep:
 
   def _prep_model(self, **kwargs):
     '''prep model'''
-    self._model = self._get_model(self._cfg)
-    if sum(self._lengths) > 384:
-      self._cfg.model.global_config.subbatch_size = 4
-      self._model["fn"] = self._get_model(self._cfg)["fn"]
+    if not hasattr(self,"_model") or self._cfg != self._model["runner"].config:
+      self._cfg.model.global_config.subbatch_size = None
+      self._model = self._get_model(self._cfg)
+      if sum(self._lengths) > 384:
+        self._cfg.model.global_config.subbatch_size = 4
+        self._model["fn"] = self._get_model(self._cfg)["fn"]
 
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
@@ -137,7 +138,6 @@ class _af_prep:
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
-
     if chain is not None and homooligomer and copies == 1:
       copies = len(chain.split(","))
 
@@ -185,7 +185,6 @@ class _af_prep:
     cb_atoms = pdb["cb_feat"]["atoms"]
     cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
     self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
-
     
   def _prep_hallucination(self, length=100, copies=1,
                           repeat=False, block_diag=True, **kwargs):
@@ -323,7 +322,6 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
     last = residue_index[-1] + 50
     
     if for_alphafold:
-      batch.update(all_atom.atom37_to_frames(**batch))
       template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
       template_features = {"template_aatype":template_aatype,
                            "template_all_atom_masks":batch["all_atom_mask"],

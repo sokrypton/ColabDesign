@@ -105,13 +105,13 @@ class design_model:
         x = x + x_gumbel
 
     # set seq/bias/state
-    self.params["seq"] = x
+    self._params["seq"] = x
     
     if set_bias:
       self.opt["bias"] = b 
     
     if set_state and hasattr(self,"_init_fun"):
-      self._state = self._init_fun(self.params)
+      self._state = self._init_fun(self._params)
 
   def get_seq(self, get_best=True):
     '''

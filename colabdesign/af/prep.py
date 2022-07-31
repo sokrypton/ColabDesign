@@ -45,7 +45,7 @@ class _af_prep:
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, split_templates=False,
-                   hotspot=None, rm_template_seq=True, **kwargs):
+                   hotspot=None, rm_template_seq=True, rm_template_sc=True, **kwargs):
     '''
     prep inputs for binder design
     ---------------------------------------------------
@@ -60,8 +60,8 @@ class _af_prep:
     
     redesign = binder_chain is not None
 
-    self._args.update({"rm_template_seq":rm_template_seq,
-                       "redesign":redesign})
+    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
+    self._args.update({"redesign":redesign})
 
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
     num_templates = 1
@@ -111,7 +111,7 @@ class _af_prep:
     self._prep_model(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=True, rm_template_seq=True,
+                  repeat=False, block_diag=True, rm_template_seq=True, rm_template_sc=True,
                   pos=None, fix_seq=True, **kwargs):
     '''
     prep inputs for fixed backbone design
@@ -127,8 +127,7 @@ class _af_prep:
                       protocol to apply supervised loss to only subset of positions
     ---------------------------------------------------
     '''
-    self._args["rm_template_seq"] = rm_template_seq
-
+    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
       max_msa_clusters = 1 + self._num * copies
@@ -229,7 +228,7 @@ class _af_prep:
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     pos=None, fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
-                    rm_template_seq=False, **kwargs):
+                    rm_template_seq=False, rm_template_sc=False, **kwargs):
     '''
     prep input for partial hallucination
     ---------------------------------------------------
@@ -241,7 +240,7 @@ class _af_prep:
     -rm_template_seq - if template is defined, remove information about template sequence
     ---------------------------------------------------    
     '''    
-    self._args["rm_template_seq"] = rm_template_seq
+    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)

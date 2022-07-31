@@ -44,25 +44,20 @@ class _af_inputs:
 
     batch = inputs["batch"]
     if self.protocol in ["partial","fixbb","binder"]:      
-      L = batch["aatype"].shape[0]
-      
+      L = batch["aatype"].shape[0]      
       if self.protocol in ["partial","fixbb"]:
-        if self._args["rm_template_seq"]:
-          aatype = jnp.zeros(L) 
-          template_aatype = jnp.broadcast_to(opt["template"]["aatype"],(L,))
-        else:
-          template_aatype = aatype = batch["aatype"]
+        rt = opt["rm_template_seq"]
+        aatype          = jnp.where(rt,jnp.zeros(L),batch["aatype"])
+        template_aatype = jnp.where(rt,opt["template"]["aatype"],batch["aatype"])
       
       if self.protocol == "binder":
-        if self._args["redesign"] and self._args["rm_template_seq"]:
-          aatype          = jnp.asarray(batch["aatype"])
-          aatype          = aatype.at[self._target_len:].set(0)
-          template_aatype = aatype.at[self._target_len:].set(opt["template"]["aatype"])
-        
+        if self._args["redesign"]:
+          rt = opt["rm_template_seq"]
+          aatype          = jnp.where(rt,batch["aatype"].at[self._target_len:].set(0),batch["aatype"])
+          template_aatype = jnp.where(rt,batch["aatype"].at[self._target_len:].set(opt["template"]["aatype"]),batch["aatype"])
         else:
-          # target=(template_seq=True)        
-          template_aatype = aatype = batch["aatype"]
-      
+          aatype = template_aatype = batch["aatype"]
+              
       # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
       pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
                                                  batch["all_atom_positions"],
@@ -88,11 +83,12 @@ class _af_inputs:
         if self.protocol == "partial":
           inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
         
-        if k == "template_all_atom_masks" and self._args["rm_template_seq"]:
+        if k == "template_all_atom_masks":
+          rt = opt["rm_template_sc"]
           if self.protocol == "binder":
-            inputs[k] = inputs[k].at[:,-1,n:,5:].set(0)
+            inputs[k] = jnp.where(rt,inputs[k].at[:,-1,n:,5:].set(0),inputs)
           else:
-            inputs[k] = inputs[k].at[:,0,:,5:].set(0)
+            inputs[k] = jnp.where(rt,inputs[k].at[:,0,:,5:].set(0),inputs)
 
     # dropout template input features
     L = inputs["template_aatype"].shape[2]

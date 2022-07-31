@@ -86,7 +86,7 @@ class _af_design:
     # sub select number of model params
     if self._args["models"] is not None:
       models = self._args["models"]
-      models = [models] if isinstance(models,int) else list(models)
+      models = [models] if isinstance(models,(int,str)) else models
       ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
     
     ns = jnp.array(ns)

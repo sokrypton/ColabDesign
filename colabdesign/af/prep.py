@@ -88,15 +88,14 @@ class _af_prep:
       self.opt["pos"] = prep_pos(hotspot, **pdb["idx"])["pos"]
 
     if redesign:      
-      self._batch = pdb["batch"]
-      self._wt_aatype = self._batch["aatype"][target_len:]
+      self._inputs["batch"] = pdb["batch"]
+      self._wt_aatype = self._inputs["batch"]["aatype"][target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
                                   "con":0.0, "i_pae":0.01, "i_con":0.0})      
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
       self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
-      self._batch = make_fixed_size(pdb["batch"], self._cfg, total_len, batch_axis=False)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
@@ -142,9 +141,10 @@ class _af_prep:
     if chain is not None and homooligomer and copies == 1:
       copies = len(chain.split(","))
 
-    self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0]
     self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)
+    self._inputs["batch"] = pdb["batch"]
+
     self._args.update({"repeat":repeat,
                        "block_diag":block_diag,
                        "homooligomer":homooligomer,
@@ -165,7 +165,6 @@ class _af_prep:
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)[None]
         else:
           self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
-          self._batch = make_fixed_size(self._batch, self._cfg, self._len * copies, batch_axis=False)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
@@ -179,7 +178,7 @@ class _af_prep:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = self._pos_info["pos"]
 
-    self._wt_aatype = self._batch["aatype"][:self._len]
+    self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
     self._prep_model(**kwargs)
 
     # undocumented: for dist cropping (for Shihao)
@@ -248,10 +247,10 @@ class _af_prep:
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
     
-    self._batch = pdb["batch"]
     self._len = pdb["residue_index"].shape[0] if length is None else length
     self._lengths = [self._len]
     self._inputs = self._prep_features(self._len)
+    self._inputs["batch"] = pdb["batch"]
 
     # undocumented: experimental repeat support
     if kwargs.pop("repeat",False):
@@ -270,14 +269,14 @@ class _af_prep:
     if pos is not None:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = self._pos_info["pos"]
-      self._batch = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
-    self._wt_aatype = self._batch["aatype"]
+      self._inputs["batch"] = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
+    self._wt_aatype = self._inputs["batch"]["aatype"]
 
     # configure sidechains
     self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
     if self._args["use_sidechains"]:
-      self._batch.update(prep_inputs.make_atom14_positions(self._batch))
-      self._batch["sc_pos"] = get_sc_pos(self._wt_aatype, atoms_to_exclude)
+      self._inputs["batch"].update(prep_inputs.make_atom14_positions(self._inputs["batch"]))
+      self._inputs["batch"]["sc_pos"] = get_sc_pos(self._wt_aatype, atoms_to_exclude)
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_seq"] = True
   
@@ -365,18 +364,18 @@ def make_fixed_size(feat, cfg, length, batch_axis=True):
       shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
       shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
   }
-  for k, v in feat.items():
-    # Don't transfer this to the accelerator.
-    if k == 'extra_cluster_assignment':
-      continue
-    shape = list(v.shape)
-    schema = shape_schema[k]
-    assert len(shape) == len(schema), (
-        f'Rank mismatch between shape and shape schema for {k}: '
-        f'{shape} vs {schema}')
-    pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
-    padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-    feat[k] = np.pad(v, padding)
+  for k,v in feat.items():
+    if k == "batch":
+      feat[k] = make_fixed_size(v, cfg, length, batch_axis=False)
+    else:
+      shape = list(v.shape)
+      schema = shape_schema[k]
+      assert len(shape) == len(schema), (
+          f'Rank mismatch between shape and shape schema for {k}: '
+          f'{shape} vs {schema}')
+      pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
+      padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
+      feat[k] = np.pad(v, padding)
   return feat
 
 def get_sc_pos(aa_ident, atoms_to_exclude=None):

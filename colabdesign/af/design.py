@@ -134,12 +134,12 @@ class _af_design:
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
-    flags  = [self.params, model_params, self._inputs, self.key(), self.opt]
+    flags  = [self._params, model_params, self._inputs, self.key(), self.opt]
     if backprop:
       (loss, aux), grad = self._model["grad_fn"](*flags)
     else:
       loss, aux = self._model["fn"](*flags)
-      grad = jax.tree_map(jnp.zeros_like, self.params)
+      grad = jax.tree_map(jnp.zeros_like, self._params)
     aux.update({"loss":loss,"grad":grad})
     return aux
 
@@ -204,7 +204,7 @@ class _af_design:
 
     # apply gradient
     self._state = self._update_fun(self._k, self.aux["grad"], self._state)
-    self.params = self._get_params(self._state)
+    self._params = self._get_params(self._state)
 
     # increment
     self._k += 1
@@ -309,7 +309,7 @@ class _af_design:
 
   def predict(self, seq=None, models=None, verbose=True):
     # save settings
-    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self.params])    
+    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])    
 
     # set settings
     if seq is not None: self.set_seq(seq=seq, set_state=False)
@@ -321,7 +321,7 @@ class _af_design:
     if verbose: self._print_log("predict")
 
     # reset settings
-    (self.opt, self._args, self.params) = (opt, args, params)
+    (self.opt, self._args, self._params) = (opt, args, params)
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -420,7 +420,7 @@ class _af_design:
       return seq.at[:,i,:].set(jnp.eye(A)[a])
 
     def get_seq():
-      return jax.nn.one_hot(self.params["seq"].argmax(-1),20)
+      return jax.nn.one_hot(self._params["seq"].argmax(-1),20)
 
     # optimize!
     for i in range(iters):
@@ -437,7 +437,7 @@ class _af_design:
       for _ in range(tries):
         self.set_seq(seq=mut(seq, plddt), set_state=False)
         self.run(backprop=False)
-        buff.append({"aux":self.aux, "seq":self.params["seq"]})
+        buff.append({"aux":self.aux, "seq":self._params["seq"]})
       
       # accept best      
       buff = buff[np.argmin([x["aux"]["loss"] for x in buff])]

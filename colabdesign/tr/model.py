@@ -37,7 +37,8 @@ class mk_tr_model(design_model):
                 "num_models":num_models,"sample_models":sample_models,
                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0, "use_pssm":False}
                 
-    self.params = {}
+    self._params = {}
+    self._inputs = {}
 
     # setup model
     self._model = self._get_model()
@@ -48,14 +49,14 @@ class mk_tr_model(design_model):
   
   def _get_model(self):
     runner = TrRosetta()    
-    def _get_loss(outputs, opt):
+    def _get_loss(inputs, outputs, opt):
       aux = {"outputs":outputs, "losses":{}}
       log_p = jax.tree_map(jax.nn.log_softmax, outputs)
 
       # bkg loss
       if self.protocol in ["hallucination","partial"]:
         p = jax.tree_map(jax.nn.softmax, outputs)
-        log_q = jax.tree_map(jax.nn.log_softmax, self._bkg_feats)
+        log_q = jax.tree_map(jax.nn.log_softmax, inputs["6D_bkg"])
         aux["losses"]["bkg"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["bkg"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
@@ -66,7 +67,7 @@ class mk_tr_model(design_model):
           pos = opt["pos"]
           log_p = jax.tree_map(lambda x:x[:,pos][pos,:], log_p)
 
-        q = self._feats
+        q = inputs["6D"]
         aux["losses"]["cce"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["cce"][k] = -(q[k]*log_p[k]).sum(-1).mean()
@@ -81,21 +82,21 @@ class mk_tr_model(design_model):
       loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
-    def _model(params, model_params, opt, key):
+    def _model(params, model_params, opt, inputs, key):
       seq = soft_seq(params["seq"], opt)
       if "pos" in opt:
-        seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
+        seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
         p = opt["pos"]
         if self.protocol == "partial":
           fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
         else:
           fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
         seq = jax.tree_map(fix_seq,seq)
-      inputs = {"seq":seq["pseudo"][0],
-                "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]}
+      inputs.update({"seq":seq["pseudo"][0],
+                     "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]})
       rate = jnp.where(opt["dropout"],0.15,0.0)
       outputs = runner(inputs, model_params, key, rate)
-      loss, aux = _get_loss(outputs, opt)
+      loss, aux = _get_loss(inputs, outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
 
@@ -110,21 +111,21 @@ class mk_tr_model(design_model):
     if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
-      self._batch = pdb["batch"]
+      self._inputs["batch"] = pdb["batch"]
 
       if pos is not None:
         self._pos_info = prep_pos(pos, **pdb["idx"])
         p = self._pos_info["pos"]
         if self.protocol == "partial":
-          self._batch = jax.tree_map(lambda x:x[p], self._batch)
+          self._inputs["batch"] = jax.tree_map(lambda x:x[p], self._inputs["batch"])
 
         self.opt["pos"] = p
         self.opt["fix_seq"] = fix_seq
 
-      self._feats = _np_get_6D_binned(self._batch["all_atom_positions"],
-                                      self._batch["all_atom_mask"])
+      self._inputs["6D"] = _np_get_6D_binned(self._inputs["batch"]["all_atom_positions"],
+                                             self._inputs["batch"]["all_atom_mask"])
 
-      self._len = len(self._batch["aatype"])
+      self._len = len(self._inputs["batch"]["aatype"])
       self.opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
       if atoms_to_exclude is not None:
         if "N" in atoms_to_exclude:
@@ -139,12 +140,12 @@ class mk_tr_model(design_model):
     if self.protocol in ["hallucination", "partial"]:
       # compute background distribution
       if length is not None: self._len = length
-      self._bkg_feats = []
+      self._inputs["6D_bkg"] = []
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
-        self._bkg_feats.append(self._bkg_model(model_params, key, self._len))
-      self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
+        self._inputs["6D_bkg"].append(self._bkg_model(model_params, key, self._len))
+      self._inputs["6D_bkg"] = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._inputs["6D_bkg"])
 
       # reweight the background
       self.opt["weights"]["bkg"] = dict(dist=1/6,omega=1/6,phi=2/6,theta=2/6)
@@ -213,11 +214,12 @@ class mk_tr_model(design_model):
     aux_all = []
     for n in model_num:
       model_params = self._model_params[n]
+      flags = [self._params, model_params, self.opt, self._inputs, self.key()]
       if backprop:
-        (loss,aux),grad = self._model["grad_fn"](self.params, model_params, self.opt, self.key())
+        (loss,aux),grad = self._model["grad_fn"](*flags)
       else:
-        loss,aux = self._model["fn"](self.params, model_params, self.opt, self.key())
-        grad = jax.tree_map(jnp.zeros_like, self.params)
+        loss,aux = self._model["fn"](*flags)
+        grad = jax.tree_map(jnp.zeros_like, self._params)
       aux.update({"loss":loss, "grad":grad})
       aux_all.append(aux)
     
@@ -246,7 +248,7 @@ class mk_tr_model(design_model):
 
     # apply gradient
     self._state = self._update_fun(self._k, self.aux["grad"], self._state)
-    self.params = self._get_params(self._state)    
+    self._params = self._get_params(self._state)    
 
     # increment
     self._k += 1
@@ -281,9 +283,9 @@ class mk_tr_model(design_model):
       aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
       x = aux["outputs"]
     elif mode == "feats":
-      x = self._feats
+      x = self._inputs["6D"]
     elif mode == "bkg_feats":
-      x = self._bkg_feats
+      x = self._inputs["6D_bkg"]
 
     x = jax.tree_map(np.asarray, x)
 
@@ -313,7 +315,7 @@ class mk_tr_model(design_model):
           self.opt[k] = af_model.opt[k]
 
       # update sequence input
-      self.params["seq"] = af_model.params["seq"]
+      self._params["seq"] = af_model.params["seq"]
       
       # run trdesign
       self.run(backprop = weight > 0)

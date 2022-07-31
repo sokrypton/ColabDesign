@@ -11,8 +11,9 @@ from colabdesign.af.alphafold.model import model
 # AF_INPUTS - functions for modifying inputs before passing to alphafold
 ############################################################################
 class _af_inputs:
-  def _get_seq(self, params, opt, aux, key):
+  def _get_seq(self, inputs, params, opt, aux, key):
     '''get sequence features'''
+    batch = inputs["batch"]
     seq = soft_seq(params["seq"], opt, key)
     if "pos" in opt and "fix_seq" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
@@ -27,7 +28,7 @@ class _af_inputs:
     # protocol specific modifications to seq features
     if self.protocol == "binder":
       # concatenate target and binder sequence
-      seq_target = jax.nn.one_hot(self._batch["aatype"][:self._target_len],20)
+      seq_target = jax.nn.one_hot(batch["aatype"][:self._target_len],20)
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
@@ -42,35 +43,36 @@ class _af_inputs:
     # aatype = is used to define template's CB coordinates (CA in case of glycine)
     # template_aatype = is used as template's sequence
 
+    batch = inputs["batch"]
     if self.protocol in ["partial","fixbb","binder"]:      
-      L = self._batch["aatype"].shape[0]
+      L = batch["aatype"].shape[0]
       
       if self.protocol in ["partial","fixbb"]:
         if self._args["rm_template_seq"]:
           aatype = jnp.zeros(L) 
           template_aatype = jnp.broadcast_to(opt["template"]["aatype"],(L,))
         else:
-          template_aatype = aatype = self._batch["aatype"]
+          template_aatype = aatype = batch["aatype"]
       
       if self.protocol == "binder":
         if self._args["redesign"] and self._args["rm_template_seq"]:
-          aatype          = jnp.asarray(self._batch["aatype"])
+          aatype          = jnp.asarray(batch["aatype"])
           aatype          = aatype.at[self._target_len:].set(0)
           template_aatype = aatype.at[self._target_len:].set(opt["template"]["aatype"])
         
         else:
           # target=(template_seq=True)        
-          template_aatype = aatype = self._batch["aatype"]
+          template_aatype = aatype = batch["aatype"]
       
       # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
       pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
-                                                 self._batch["all_atom_positions"],
-                                                 self._batch["all_atom_mask"])
+                                                 batch["all_atom_positions"],
+                                                 batch["all_atom_mask"])
       
       # define template features
       template_feats = {"template_aatype": template_aatype,
-                        "template_all_atom_positions": self._batch["all_atom_positions"],
-                        "template_all_atom_masks": self._batch["all_atom_mask"],
+                        "template_all_atom_positions": batch["all_atom_positions"],
+                        "template_all_atom_masks": batch["all_atom_mask"],
                         "template_pseudo_beta": pb,
                         "template_pseudo_beta_mask": pb_mask}
 
@@ -169,6 +171,8 @@ def crop_feat(feat, pos, cfg, add_batch=True):
   idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
   new_feat = copy_dict(feat)
   for k in new_feat.keys():
+    if k == "batch":
+      new_feats[k] = crop_feats(feats[k], pos, cfg, add_batch=False)
     if k in idx:
       for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
   

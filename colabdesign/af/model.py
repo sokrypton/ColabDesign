@@ -151,12 +151,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         # need frames for fape
         batch = inputs.pop("batch")
         batch.update(all_atom.atom37_to_frames(**batch))
-
+      else:
+        batch = None
       #######################################################################
       # OUTPUTS
       #######################################################################
 
-      outputs, inputs["batch"] = runner.apply(model_params, key(), inputs), batch
+      outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs
       aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
@@ -173,11 +174,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
 
       if self._args["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
-      if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       #######################################################################
       # LOSS
       #######################################################################
+      inputs["batch"] = batch
+      if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
+
       aux["losses"] = {}
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 

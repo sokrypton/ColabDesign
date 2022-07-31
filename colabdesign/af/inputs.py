@@ -13,7 +13,6 @@ from colabdesign.af.alphafold.model import model
 class _af_inputs:
   def _get_seq(self, inputs, params, opt, aux, key):
     '''get sequence features'''
-    batch = inputs["batch"]
     seq = soft_seq(params["seq"], opt, key)
     if "pos" in opt and "fix_seq" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
@@ -28,7 +27,7 @@ class _af_inputs:
     # protocol specific modifications to seq features
     if self.protocol == "binder":
       # concatenate target and binder sequence
-      seq_target = jax.nn.one_hot(batch["aatype"][:self._target_len],20)
+      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],20)
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       

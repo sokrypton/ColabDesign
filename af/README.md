@@ -15,7 +15,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
 - **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
-- **30July2022** - v1.0.5 - Adding experimental support for cropping.
+- **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
 
 ### setup
 ```bash

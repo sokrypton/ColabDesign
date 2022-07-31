@@ -130,7 +130,8 @@ class _af_design:
       self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
-    self.aux["log"].update({"recycles":self.aux["num_recycles"], "models":model_num})
+    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
+                            "models":model_num})
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''

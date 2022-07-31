@@ -47,7 +47,7 @@ class _af_inputs:
       L = batch["aatype"].shape[0]      
       if self.protocol in ["partial","fixbb"]:
         rt = opt["rm_template_seq"]
-        aatype          = jnp.where(rt,jnp.zeros(L),batch["aatype"])
+        aatype          = jnp.where(rt,0,batch["aatype"])
         template_aatype = jnp.where(rt,opt["template"]["aatype"],batch["aatype"])
       
       if self.protocol == "binder":
@@ -84,11 +84,11 @@ class _af_inputs:
           inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
         
         if k == "template_all_atom_masks":
-          rt = opt["rm_template_sc"]
+          rt = jnp.logical_or(opt["rm_template_seq"],opt["rm_template_sc"])
           if self.protocol == "binder":
-            inputs[k] = jnp.where(rt,inputs[k].at[:,-1,n:,5:].set(0),inputs)
+            inputs[k] = jnp.where(rt,inputs[k].at[:,-1,n:,5:].set(0),inputs[k])
           else:
-            inputs[k] = jnp.where(rt,inputs[k].at[:,0,:,5:].set(0),inputs)
+            inputs[k] = jnp.where(rt,inputs[k].at[:,0,:,5:].set(0),inputs[k])
 
     # dropout template input features
     L = inputs["template_aatype"].shape[2]

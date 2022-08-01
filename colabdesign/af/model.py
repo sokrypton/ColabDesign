@@ -185,8 +185,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 
       if self._loss_callback is not None:
-        aux["losses"].update(self._loss_callback(inputs, outputs, opt))
-
+        loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
+        for loss_fn in loss_fns:
+          aux["losses"].update(loss_fn(inputs, outputs, opt))
+  
       # weighted loss
       w = opt["weights"]
       loss = sum([v * w[k] if k in w else v for k,v in aux["losses"].items()])

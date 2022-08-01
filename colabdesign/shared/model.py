@@ -96,13 +96,15 @@ class design_model:
       x = jnp.broadcast_to(jnp.asarray(seq),shape)
 
     if "gumbel" in mode:
-      x_gumbel = jax.random.gumbel(self.key(),shape)
+      y_gumbel = jax.random.gumbel(self.key(),shape)
       if "soft" in mode:
-        x = jax.nn.softmax(x + b + x_gumbel)
+        y = jax.nn.softmax(x + b + y_gumbel)
       elif "alpha" in self.opt:
-        x = x + x_gumbel / self.opt["alpha"]
+        y = x + y_gumbel / self.opt["alpha"]
       else:
-        x = x + x_gumbel
+        y = x + y_gumbel
+      
+      x = jnp.where(x.sum(-1,keepdims=True) == 1, x, y)      
 
     # set seq/bias/state
     self._params["seq"] = x

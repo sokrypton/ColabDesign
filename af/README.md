@@ -1,4 +1,4 @@
-# AfDesign (v1.0.4)
+# AfDesign (v1.0.5)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -14,7 +14,8 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **28June2022** - v1.0.1 - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`).
 - **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
-- **23July2022** - v1.0.4 - Refactoring... Adding support for openfold weights. To enable set `mk_afdesign_model(...,use_openfold=True)`.
+- **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
+- **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
 
 ### setup
 ```bash
@@ -47,9 +48,9 @@ protein (high plddt, low pae, many contacts).
 ```python
 model = mk_afdesign_model(protocol="hallucination")
 model.prep_inputs(length=100)
-model.restart(seq_init="gumbel")
-model.design(50, soft=True)
-model.restart(seq_init=model.aux["seq"]["pseudo"], keep_history=True)
+model.set_seq(mode="gumbel")
+model.design_soft(50)
+model.set_seq(model.aux["seq"]["pseudo"])
 model.design_3stage(50,50,10)
 ```
 ### binder hallucination
@@ -68,13 +69,12 @@ model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
 
 ### partial hallucination
 If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
-you can use partial hallucination.
+you can use partial hallucination. Or you have a protein and you want to extend one of the loops.
 ```python
-model = mk_afdesign_model(protocol="partial")
-model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", pos="1-10,11,20-25")
-# TODO
+af_model = mk_afdesign_model(protocol="partial")
+af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68", length=100)
+af_model.rewire(loops=[36])
 ```
-
 # FAQ
 #### How do I fixed the FileNotFoundError error?
 By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
@@ -99,7 +99,7 @@ model.opt["weights"]["pae"] = 0.0
 ```python 
 model = mk_afdesign_model(num_recycles=1, recycle_mode="average")
 # if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
-model.set_opt(recycles=1)
+model.set_opt(num_recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
@@ -114,6 +114,7 @@ By default all five models are used during optimization. If `num_models` > 1, th
 and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
 ```python
 model = mk_afdesign_model(num_models=1, sample_models=True)
+model.set_opt(num_models=1)
 ```
 - `num_models` - number of model params to use at each iteration.
 - `sample_models`:
@@ -204,7 +205,7 @@ Instead, one can try (`tries`) a few random mutations and accept one with lowest
 model.design_3stage(hard_iters=0)
 # set number of model params to evaluate at each iteration
 num_models = 2 if model.args["use_templates"] else 5
-model.set_opt(models=num_models)
+model.set_opt(num_models=num_models)
 model.design_semigreedy(iters=10, tries=20, use_plddt=True)
 ```
 #### I was getting better results before the major update (19June2022), how do I revert back to the old settings?
@@ -212,42 +213,40 @@ We are actively trying to find the best weights `model.opt["weights"]`, settings
 Please send us a note if you find something better! To revert back to old settings do this after prepping the model:
 - fixbb:
 ```python
-model.restart()
-model.set_weights(dgram_cce=1,pae=0.1,plddt=0.1)
+model.set_weights(dgram_cce=1, pae=0.1, plddt=0.1)
 model.design_3stage()
 ```
 - hallucination:
 ```python
-model.restart(mode="gumbel")
-model.set_weights(pae=1,plddt=1,con=0.5)
-model.set_opt(con=dict(binary=True, cutoff=21.6875, num=model._len, seqsep=0))
-model.design_2stage(100,100,10)
+model.set_seq(mode="gumbel")
+model.set_weights(pae=1, plddt=1, con=0.5)
+model.set_opt("con", binary=True, cutoff=21.6875, num=model._len, seqsep=0)
+model.design_2stage(100, 100, 10)
 ```
 - binder hallucination:
 ```python
-model.restart()
 model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, i_con=0.5)
-model.set_opt(con=dict(binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0))
-model.set_opt(i_con=dict(binary=True, cutoff=21.6875, num=model._binder_len))
-model.design_3stage(100,100,10)
+model.set_opt("con", binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0)
+model.set_opt("i_con", binary=True, cutoff=21.6875, num=model._binder_len)
+model.design_3stage(100, 100, 10)
 ```
 #### I don't like your design_??? function, can I write my own with more detailed control?
 ```python
 def design_custom(self):
   # set options
-  self.set_opt(dropout=True, soft=0, hard=False)
+  self.set_opt(dropout=True, soft=False, hard=False)
   # set number of recycles
-  self.set_opt(recycles=0)
+  self.set_opt(num_recycles=0)
   # take 100 steps
-  for _ in range(100): self._step()
+  for _ in range(100): self.step()
   # increase weight for plddt
   self.set_weights(plddt=2.0)
   # take another 100 steps
-  for _ in range(100): self._step()
+  for _ in range(100): self.step()
   # increase number of recycles
-  self.set_opt(recycles=1)
+  self.set_opt(num_recycles=1)
   # take another 100 steps
-  for _ in range(100): self._step()
+  for _ in range(100): self.step()
   # etc...
   
 model = mk_afdesign_model()

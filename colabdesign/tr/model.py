@@ -34,29 +34,29 @@ class mk_tr_model(design_model):
 
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
-                "num_models":num_models,"sample_models":sample_models,
+                "models":num_models,"sample_models":sample_models,
                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0, "use_pssm":False}
                 
-    self._params = {}
-    self._inputs = {}
+    self.params = {}
 
     # setup model
-    self._model = self._get_model()
+    self._runner = TrRosetta()
     self._model_params = [get_model_params(f"{self._data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
+    self._grad_fn, self._fn = [jax.jit(x) for x in self._get_model()]
 
     if protocol in ["hallucination","partial"]:
       self._bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
-    runner = TrRosetta()    
-    def _get_loss(inputs, outputs, opt):
+    
+    def _get_loss(outputs, opt):
       aux = {"outputs":outputs, "losses":{}}
       log_p = jax.tree_map(jax.nn.log_softmax, outputs)
 
       # bkg loss
       if self.protocol in ["hallucination","partial"]:
         p = jax.tree_map(jax.nn.softmax, outputs)
-        log_q = jax.tree_map(jax.nn.log_softmax, inputs["6D_bkg"])
+        log_q = jax.tree_map(jax.nn.log_softmax, self._bkg_feats)
         aux["losses"]["bkg"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["bkg"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
@@ -67,7 +67,7 @@ class mk_tr_model(design_model):
           pos = opt["pos"]
           log_p = jax.tree_map(lambda x:x[:,pos][pos,:], log_p)
 
-        q = inputs["6D"]
+        q = self._feats
         aux["losses"]["cce"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["cce"][k] = -(q[k]*log_p[k]).sum(-1).mean()
@@ -82,26 +82,25 @@ class mk_tr_model(design_model):
       loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
-    def _model(params, model_params, opt, inputs, key):
+    def _model(params, model_params, opt, key):
       seq = soft_seq(params["seq"], opt)
       if "pos" in opt:
-        seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
+        seq_ref = jax.nn.one_hot(self._batch["aatype"],20)
         p = opt["pos"]
         if self.protocol == "partial":
           fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
         else:
           fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
         seq = jax.tree_map(fix_seq,seq)
-      inputs.update({"seq":seq["pseudo"][0],
-                     "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]})
+      inputs = {"seq":seq["pseudo"][0],
+                "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]}
       rate = jnp.where(opt["dropout"],0.15,0.0)
-      outputs = runner(inputs, model_params, key, rate)
-      loss, aux = _get_loss(inputs, outputs, opt)
+      outputs = self._runner(inputs, model_params, key, rate)
+      loss, aux = _get_loss(outputs, opt)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
 
-    return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),
-            "fn":jax.jit(_model)}
+    return jax.value_and_grad(_model, has_aux=True, argnums=0), _model
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None,
                   pos=None, fix_seq=True, atoms_to_exclude=None, **kwargs):
@@ -111,21 +110,21 @@ class mk_tr_model(design_model):
     if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
-      self._inputs["batch"] = pdb["batch"]
+      self._batch = pdb["batch"]
 
       if pos is not None:
         self._pos_info = prep_pos(pos, **pdb["idx"])
         p = self._pos_info["pos"]
         if self.protocol == "partial":
-          self._inputs["batch"] = jax.tree_map(lambda x:x[p], self._inputs["batch"])
+          self._batch = jax.tree_map(lambda x:x[p], self._batch)
 
         self.opt["pos"] = p
         self.opt["fix_seq"] = fix_seq
 
-      self._inputs["6D"] = _np_get_6D_binned(self._inputs["batch"]["all_atom_positions"],
-                                             self._inputs["batch"]["all_atom_mask"])
+      self._feats = _np_get_6D_binned(self._batch["all_atom_positions"],
+                                      self._batch["all_atom_mask"])
 
-      self._len = len(self._inputs["batch"]["aatype"])
+      self._len = len(self._batch["aatype"])
       self.opt["weights"]["cce"] = {"dist":1/6,"omega":1/6,"theta":2/6,"phi":2/6}
       if atoms_to_exclude is not None:
         if "N" in atoms_to_exclude:
@@ -140,12 +139,12 @@ class mk_tr_model(design_model):
     if self.protocol in ["hallucination", "partial"]:
       # compute background distribution
       if length is not None: self._len = length
-      self._inputs["6D_bkg"] = []
+      self._bkg_feats = []
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
-        self._inputs["6D_bkg"].append(self._bkg_model(model_params, key, self._len))
-      self._inputs["6D_bkg"] = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._inputs["6D_bkg"])
+        self._bkg_feats.append(self._bkg_model(model_params, key, self._len))
+      self._bkg_feats = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._bkg_feats)
 
       # reweight the background
       self.opt["weights"]["bkg"] = dict(dist=1/6,omega=1/6,phi=2/6,theta=2/6)
@@ -162,10 +161,11 @@ class mk_tr_model(design_model):
     use model.set_opt(..., set_defaults=True) 
     or model.restart(..., reset_opt=False) to avoid this
     -------------------    
-    model.set_opt(num_models=1)
+    model.set_opt(models=1, recycles=0)
     model.set_opt(con=dict(num=1)) or set_opt({"con":{"num":1}})
     model.set_opt(lr=1, set_defaults=True)
     '''
+
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
 
@@ -178,62 +178,62 @@ class mk_tr_model(design_model):
     if reset_opt:
       self.opt = copy_dict(self._opt)
 
+    self.key = Key(seed=seed).get
     self.set_opt(opt)
     self.set_weights(weights)
-    self.key = Key(seed=seed).get
+    self.set_seq(seq, **kwargs)
 
     # setup optimizer
     self._init_fun, self._update_fun, self._get_params = sgd(1.0)
-    
-    # set sequence
-    self.set_seq(seq, **kwargs)
-    
     self._k = 0
+    self._state = self._init_fun(self.params)
 
     # clear previous best
-    self._best = {}
+    self._best_loss, self._best_aux = np.inf, None
     
-  def run(self, models=None, backprop=True):
+  def run(self, model=None, backprop=True, average=True):
     '''run model to get outputs, losses and gradients'''
     
-    if models is None:
+    if model is None:
       # decide which model params to use
       ns = jnp.arange(5)
-      m = min(self.opt["num_models"],len(ns))
+      m = min(self.opt["models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):
         model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
       else:
         model_num = ns[:m]
       model_num = np.array(model_num).tolist()
-    elif isinstance(models,int):
-      model_num = [models]
+    elif isinstance(model,int):
+      model_num = [model]
     else:
-      model_num = list(models)
+      model_num = list(model)
 
     # run in serial
-    aux_all = []
+    outs = []
     for n in model_num:
       model_params = self._model_params[n]
-      flags = [self._params, model_params, self.opt, self._inputs, self.key()]
       if backprop:
-        (loss,aux),grad = self._model["grad_fn"](*flags)
+        (loss,aux),grad = self._grad_fn(self.params, model_params, self.opt, self.key())
       else:
-        loss,aux = self._model["fn"](*flags)
-        grad = jax.tree_map(jnp.zeros_like, self._params)
-      aux.update({"loss":loss, "grad":grad})
-      aux_all.append(aux)
+        loss,aux = self._fn(self.params, model_params, self.opt, self.key())
+        grad = jax.tree_map(jnp.zeros_like, self.params)
+      outs.append({"loss":loss,"aux":aux,"grad":grad})
+    outs = jax.tree_map(lambda *x:jnp.stack(x), *outs)
     
     # average results
-    self.aux = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *aux_all)
+    if average: outs = jax.tree_map(lambda x:x.mean(0), outs)
+
+    # update
+    self.loss, self.aux, self.grad = outs["loss"], outs["aux"], outs["grad"]
     self.aux["model_num"] = model_num
 
-  def step(self, models=None, backprop=True,
+  def step(self, model=None, backprop=True,
            callback=None, save_best=True, verbose=1):
-    self.run(models=models, backprop=backprop)
+    self.run(model=model, backprop=backprop)
     if callback is not None: callback(self)
 
     # normalize gradient
-    g = self.aux["grad"]["seq"]
+    g = self.grad["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
 
     if "pos" in self.opt and self.opt.get("fix_seq",False):
@@ -241,21 +241,22 @@ class mk_tr_model(design_model):
       eff_len = self._len - self.opt["pos"].shape[0]
     else:
       eff_len = self._len
-    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
+    self.grad["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
-    self.aux["grad"] = jax.tree_map(lambda x:x*self.opt["lr"], self.aux["grad"])
+    self.grad = jax.tree_map(lambda x:x*self.opt["lr"], self.grad)
 
     # apply gradient
-    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
-    self._params = self._get_params(self._state)    
+    self._state = self._update_fun(self._k, self.grad, self._state)
+    self.params = self._get_params(self._state)    
 
     # increment
     self._k += 1
 
     # save results
-    if save_best and "aux" in self._best and self.aux["loss"] < self._best["aux"]["loss"]:
-      self._best["aux"] = self.aux
+    if save_best and self.loss < self._best_loss:
+      self._best_loss = self.loss
+      self._best_aux = self.aux
 
     # print
     if verbose and (self._k % verbose) == 0:
@@ -263,29 +264,23 @@ class mk_tr_model(design_model):
       x["models"] = self.aux["model_num"]
       print(dict_to_str(x, print_str=f"{self._k}", keys=["models"]))
 
-  def predict(self, seq=None, models=0):
-    self.set_opt(dropout=False)
-    if seq is not None:
-      self.set_seq(seq=seq, set_state=False)
-    self.run(models=models, backprop=False)
-
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):
     self.set_opt(opt)
     self.set_weights(weights)
     for _ in range(iters):
       self.step(save_best=save_best, verbose=verbose)
   
-  def plot(self, mode="preds", dpi=100, get_best=True):
+  def plot(self, mode="preds", get_best=True, dpi=100):
     '''plot predictions'''
 
     assert mode in ["preds","feats","bkg_feats"]
     if mode == "preds":
-      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+      aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
       x = aux["outputs"]
     elif mode == "feats":
-      x = self._inputs["6D"]
+      x = self._feats
     elif mode == "bkg_feats":
-      x = self._inputs["6D_bkg"]
+      x = self._bkg_feats
 
     x = jax.tree_map(np.asarray, x)
 
@@ -298,9 +293,9 @@ class mk_tr_model(design_model):
     plt.show()
     
   def get_loss(self, k=None, get_best=True):
-    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     if k is None:
-      return {k:self.get_loss(k, get_best=get_best) for k in aux["losses"].keys()}
+      return {k:self.get_loss(k,get_best=get_best) for k in aux["losses"].keys()}
     losses = aux["losses"][k]
     weights = aux["opt"]["weights"][k]
     weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
@@ -315,22 +310,22 @@ class mk_tr_model(design_model):
           self.opt[k] = af_model.opt[k]
 
       # update sequence input
-      self._params["seq"] = af_model.params["seq"]
+      self.params["seq"] = af_model.params["seq"]
       
       # run trdesign
       self.run(backprop = weight > 0)
       
       # add gradients
-      af_model.aux["grad"]["seq"] += weight * self.aux["grad"]["seq"]
+      af_model.grad["seq"] += weight * self.grad["seq"]
       
       # add loss
-      af_model.aux["loss"] += weight * self.aux["loss"]
+      af_model.loss += weight * self.loss
         
       # for verbose printout
       if self.protocol in ["hallucination","partial"]:
-        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg", get_best=False)
+        af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg")
       if self.protocol in ["fixbb","partial"]:
-        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce", get_best=False)
+        af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce")
       
     self.restart(seed=seed)
     return callback

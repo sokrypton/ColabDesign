@@ -88,8 +88,10 @@ class _af_prep:
     if hotspot is not None:
       self.opt["pos"] = prep_pos(hotspot, **pdb["idx"])["pos"]
 
+    # add batch
+    self._inputs["batch"] = pdb["batch"]
+    
     if redesign:      
-      self._inputs["batch"] = pdb["batch"]
       self._wt_aatype = self._inputs["batch"]["aatype"][target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "fape":0.0, "rmsd":0.0,
                                   "con":0.0, "i_pae":0.01, "i_con":0.0})      

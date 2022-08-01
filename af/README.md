@@ -1,4 +1,4 @@
-# AfDesign (v1.0.4)
+# AfDesign (v1.0.5)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>

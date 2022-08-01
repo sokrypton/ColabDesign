@@ -32,17 +32,13 @@ pymol_cmap = matplotlib.colors.ListedColormap(pymol_color_list)
     
 def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
              color="pLDDT", chains=None, Ls=None, vmin=50, vmax=90,
-             color_HP=False, size=(800,480), hbondCutoff=4.0,
-             animate=False):
+             color_HP=False, size=(800,480), hbondCutoff=4.0):
   
   if chains is None:
     chains = 1 if Ls is None else len(Ls)
 
-  view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js', width=size[0], height=size[1])
-  if animate:
-    view.addModelsAsFrames(pdb_str,'pdb',{'hbondCutoff':hbondCutoff})
-  else:
-    view.addModel(pdb_str,'pdb',{'hbondCutoff':hbondCutoff})
+  view = py3Dmol.view(js='https://3dmol.org/build/3Dmol.js', width=size[0], height=size[1])  
+  view.addModel(pdb_str,'pdb',{'hbondCutoff':hbondCutoff})
   if color == "pLDDT":
     view.setStyle({'cartoon': {'colorscheme': {'prop':'b','gradient': 'roygb','min':vmin,'max':vmax}}})
   elif color == "rainbow":
@@ -73,7 +69,6 @@ def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
     BB = ['C','O','N','CA']
     view.addStyle({'atom':BB},{'stick':{'colorscheme':f"WhiteCarbon",'radius':0.3}})
   view.zoomTo()
-  if animate: view.animate()
   return view
 
 def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,

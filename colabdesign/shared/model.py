@@ -23,19 +23,8 @@ class design_model:
       update_dict(self._opt["weights"], *args, **kwargs)
     update_dict(self.opt["weights"], *args, **kwargs)
 
-  def set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, set_state=True, **kwargs):
-    '''
-    set sequence params and bias
-    -----------------------------------
-    -seq=str or seq=[str,str] or seq=array(shape=(L,20) or shape=(?,L,20))
-    -mode=
-      -"wildtype"/"wt" = initialize sequence with sequence saved from input PDB
-      -"gumbel" = initial sequence with gumbel distribution
-      -"soft_???" = apply softmax-activation to initailized sequence (eg. "soft_gumbel")
-    -bias=array(shape=(20,) or shape=(L,20)) - bias the sequence
-    -rm_aa="C,W" = specify which amino acids to remove (aka. add a negative-infinity bias to these aa)
-    -----------------------------------
-    '''
+  def set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, **kwargs):
+    '''set sequence params and bias'''
 
     # backward compatibility
     seq_init = kwargs.pop("seq_init",None)
@@ -62,18 +51,18 @@ class design_model:
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
-        b = b.at[...,aa_order[aa]].add(-1e6)
+        b = b.at[...,aa_order[aa]].add(-1e7)
       set_bias = True
 
     # use wildtype sequence
-    if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
+    if "wildtype" in mode or "wt" in mode:
       wt_seq = jax.nn.one_hot(self._wt_aatype,20)
-      if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
+      if "pos" in self.opt:
         seq = jnp.zeros(shape).at[...,self.opt["pos"],:].set(wt_seq)
       else:
         seq = wt_seq
     
-    # initialize sequence
+    # initlaize sequence
     if seq is None:
       if hasattr(self,"key"):
         x = 0.01 * jax.random.normal(self.key(),shape)
@@ -90,6 +79,8 @@ class design_model:
           seq = jnp.asarray(seq)
       
       if kwargs.pop("add_seq",False):
+        print("WARNING: option 'add_seq' will soon be deprecated. To fix the sequence use:")
+        print('         model.prep_model(pos="1-10,12,20", fix_seq=True)')
         b = b + seq * 1e7
         set_bias = True
       
@@ -104,21 +95,15 @@ class design_model:
       else:
         x = x + x_gumbel
 
-    # set seq/bias/state
-    self._params["seq"] = x
-    
-    if set_bias:
-      self.opt["bias"] = b 
-    
-    if set_state and hasattr(self,"_init_fun"):
-      self._state = self._init_fun(self._params)
+    self.params["seq"] = x
+    if set_bias: self.opt["bias"] = b 
 
   def get_seq(self, get_best=True):
     '''
     get sequences as strings
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = self.aux if (self._best_aux is None or not get_best) else self._best_aux
     aux = jax.tree_map(lambda x:np.asarray(x), aux)
     x = aux["seq"]["hard"].argmax(-1)
     return ["".join([order_aa[a] for a in s]) for s in x]
@@ -127,18 +112,16 @@ class design_model:
     return self.get_seq(get_best)
 
   def rewire(self, order=None, offset=0, loops=0):
-    '''
-    helper function for "partial" protocol
-    -----------------------------------------
-    -order=[0,1,2] - change order of specified segments
-    -offset=0 - specify start position of the first segment
-    -loops=[3,2] - specified loop lengths between segments
-    -----------------------------------------
-    '''
     self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
                              offset=offset, loops=loops)
     if hasattr(self,"_opt"):
       self._opt["pos"] = self.opt["pos"]
+
+  def predict(self, seq=None, model=0):
+    self.set_seq(seq)
+    self.set_opt(dropout=False)
+    self.run(model=model, backprop=False, average=False)
+    return self.aux
 
 def soft_seq(x, opt, key=None):
   seq = {"input":x}

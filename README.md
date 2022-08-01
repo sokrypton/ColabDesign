@@ -6,18 +6,10 @@ pip install git+https://github.com/sokrypton/ColabDesign.git
 - [TrDesign](/tr) - using TrRosetta for design (support for TrMRF coming soon)
 - [AfDesign](/af) - using AlphaFold for design
 
-(WIP) Not yet fully integrated into ColabDesign 
-- MSA_transformer
-- Potts models (GREMLIN, mfDCA, arDCA, plmDCA, bmDCA, etc)
-- [ProteinMPNN](https://github.com/dauparas/ProteinMPNN)
+(WIP) Not yet integrated into ColabDesign 
 - [RfDesign](https://github.com/RosettaCommons/RFDesign) - using RoseTTAFold for design
+- [ProteinMPNN](https://github.com/dauparas/ProteinMPNN)
 
 ### Presentations
 [Slides](https://docs.google.com/presentation/d/1Zy7lf_LBK0_G3e7YQLSPP5aj_-AR5I131fTsxJrLdg4/)
 [Talk](https://www.youtube.com/watch?v=2HmXwlKWMVs)
-
-### Contributors:
-- Sergey Ovchinnikov [@sokrypton](https://github.com/sokrypton)
-- Justas Dauparas [@dauparas](https://github.com/dauparas)
-- Weikun.Wu [@guyujun](https://github.com/guyujun) [Levinthal.bio](http://levinthal.bio/en/)
-- Shihao Feng

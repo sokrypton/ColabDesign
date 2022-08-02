@@ -315,7 +315,7 @@ class mk_tr_model(design_model):
           self.opt[k] = af_model.opt[k]
 
       # update sequence input
-      self._params["seq"] = af_model.params["seq"]
+      self._params["seq"] = af_model._params["seq"]
       
       # run trdesign
       self.run(backprop = weight > 0)

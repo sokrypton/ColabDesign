@@ -275,8 +275,8 @@ class _af_prep:
     # configure sidechains
     self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
     if self._args["use_sidechains"]:
-      self._inputs["batch"].update(prep_inputs.make_atom14_positions(self._inputs["batch"]))
-      self._inputs["batch"]["sc_pos"] = get_sc_pos(self._wt_aatype, atoms_to_exclude)
+      self._sc = {"batch":prep_inputs.make_atom14_positions(self._inputs["batch"]),
+                  "pos":get_sc_pos(self._wt_aatype, atoms_to_exclude)}
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_seq"] = True
   

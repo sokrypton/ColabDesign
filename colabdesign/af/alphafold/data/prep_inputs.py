@@ -1,7 +1,7 @@
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
 
-def make_atom14_positions(prot):
+def make_atom14_positions(batch):
   """Constructs denser atom positions (14 dimensions instead of 37)."""
   restype_atom14_to_atom37 = []  # mapping (restype, atom14) --> atom37
   restype_atom37_to_atom14 = []  # mapping (restype, atom37) --> atom14
@@ -35,19 +35,20 @@ def make_atom14_positions(prot):
 
   # Create the mapping for (residx, atom14) --> atom37, i.e. an array
   # with shape (num_res, 14) containing the atom37 indices for this protein.
-  residx_atom14_to_atom37 = restype_atom14_to_atom37[prot["aatype"]]
-  residx_atom14_mask = restype_atom14_mask[prot["aatype"]]
+  residx_atom14_to_atom37 = restype_atom14_to_atom37[batch["aatype"]]
+  residx_atom14_mask = restype_atom14_mask[batch["aatype"]]
 
   # Create a mask for known ground truth positions.
   residx_atom14_gt_mask = residx_atom14_mask * np.take_along_axis(
-      prot["all_atom_mask"], residx_atom14_to_atom37, axis=1).astype(np.float32)
+      batch["all_atom_mask"], residx_atom14_to_atom37, axis=1).astype(np.float32)
 
   # Gather the ground truth positions.
   residx_atom14_gt_positions = residx_atom14_gt_mask[:, :, None] * (
-      np.take_along_axis(prot["all_atom_positions"],
+      np.take_along_axis(batch["all_atom_positions"],
                          residx_atom14_to_atom37[..., None],
                          axis=1))
 
+  prot = {}
   prot["atom14_atom_exists"] = residx_atom14_mask
   prot["atom14_gt_exists"] = residx_atom14_gt_mask
   prot["atom14_gt_positions"] = residx_atom14_gt_positions
@@ -55,7 +56,7 @@ def make_atom14_positions(prot):
   prot["residx_atom14_to_atom37"] = residx_atom14_to_atom37
 
   # Create the gather indices for mapping back.
-  residx_atom37_to_atom14 = restype_atom37_to_atom14[prot["aatype"]]
+  residx_atom37_to_atom14 = restype_atom37_to_atom14[batch["aatype"]]
   prot["residx_atom37_to_atom14"] = residx_atom37_to_atom14
 
   # Create the corresponding mask.
@@ -67,7 +68,7 @@ def make_atom14_positions(prot):
       atom_type = residue_constants.atom_order[atom_name]
       restype_atom37_mask[restype, atom_type] = 1
 
-  residx_atom37_mask = restype_atom37_mask[prot["aatype"]]
+  residx_atom37_mask = restype_atom37_mask[batch["aatype"]]
   prot["atom37_atom_exists"] = residx_atom37_mask
 
   # As the atom naming is ambiguous for 7 of the 20 amino acids, provide
@@ -96,7 +97,7 @@ def make_atom14_positions(prot):
 
   # Pick the transformation matrices for the given residue sequence
   # shape (num_res, 14, 14).
-  renaming_transform = renaming_matrices[prot["aatype"]]
+  renaming_transform = renaming_matrices[batch["aatype"]]
 
   # Apply it to the ground truth positions. shape (num_res, 14, 3).
   alternative_gt_positions = np.einsum("rac,rab->rbc",
@@ -127,7 +128,5 @@ def make_atom14_positions(prot):
       restype_atom14_is_ambiguous[restype, atom_idx2] = 1
 
   # From this create an ambiguous_mask for the given sequence.
-  prot["atom14_atom_is_ambiguous"] = (
-      restype_atom14_is_ambiguous[prot["aatype"]])
-
+  prot["atom14_atom_is_ambiguous"] = (restype_atom14_is_ambiguous[batch["aatype"]])
   return prot

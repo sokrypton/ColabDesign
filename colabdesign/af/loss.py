@@ -101,14 +101,14 @@ class _af_loss:
     if self._args["use_sidechains"]:
       # sc_fape
       pred_pos = sub(struct["final_atom14_positions"],pos)
-      sc_struct = {**folding.compute_renamed_ground_truth(batch, pred_pos),
+      sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                    "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
 
       aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct, _config)["loss"]
 
       # sc_rmsd
-      true_pos = all_atom.atom37_to_atom14(batch["all_atom_positions"], batch)
-      aln = get_sc_rmsd(true_pos, pred_pos, batch["sc_pos"])
+      true_pos = all_atom.atom37_to_atom14(batch["all_atom_positions"], self._sc["batch"])
+      aln = get_sc_rmsd(true_pos, pred_pos, self._sc["pos"])
       aux["losses"]["sc_rmsd"] = aln["rmsd"]
 
     # align final atoms

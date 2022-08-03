@@ -29,6 +29,10 @@ curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.
 for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
 do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -P params; done
 ```
+By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
+```python
+model = mk_afdesign_model(..., data_dir="/location/of")
+```
 ### import
 ```python
 import numpy as np
@@ -76,11 +80,6 @@ af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68", lengt
 af_model.rewire(loops=[36])
 ```
 # FAQ
-#### How do I fixed the FileNotFoundError error?
-By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
-```python
-model = mk_afdesign_model(..., data_dir="/location/of")
-```
 
 #### Can I reuse the same model without needing to recompile?
 ```python

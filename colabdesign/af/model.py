@@ -23,9 +23,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
-               crop_len=None, crop_mode="slide",
-               debug=False, use_alphafold=True, use_openfold=False,
-               loss_callback=None, data_dir="."):
+               model_names=None, use_openfold=False, use_alphafold=True,
+               crop_len=None, crop_mode="slide",               
+               debug=False, loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","add_prev","backprop","last","sample"]
@@ -42,7 +42,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "debug":debug,
                   "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
-                  'use_alphafold':use_alphafold, 'use_openfold':use_openfold,
                   "crop":False, "crop_len":crop_len,"crop_mode":crop_mode,
                   "models":None}
 
@@ -82,13 +81,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._cfg = cfg 
 
     # load model_params
-    model_names = []
-    if use_templates:
-      model_names += [f"model_{k}_ptm" for k in [1,2]]
-      model_names += [f"openfold_model_ptm_{k}" for k in [1,2]]    
-    else:
-      model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
-      model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
+    if model_names is None:
+      model_names = []
+      if use_templates:
+        if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2]]
+        if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]]    
+      else:
+        if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
+        if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
 
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
@@ -98,6 +98,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
           params = {k:v for k,v in params.items() if "template" not in k}
         self._model_params.append(params)
         self._model_names.append(model_name)
+      else:
+        print(f"WARNING: '{model_name}' not found")
 
     #####################################
     # set protocol specific functions

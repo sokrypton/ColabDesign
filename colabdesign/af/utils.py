@@ -39,8 +39,7 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","crop","crop_mode","crop_len",
-              "use_openfold","use_alphafold","models"]:
+    for k in ["best_metric","crop","crop_mode","crop_len","models"]:
       if k in kwargs:
         self._args[k] = kwargs.pop(k)
         if k == "crop" and not self._args[k]:

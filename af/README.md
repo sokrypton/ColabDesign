@@ -122,8 +122,6 @@ model.set_opt(num_models=1)
 #### Can I use OpenFold model params for design instead of AlphaFold?
 ```python
 model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
-# OR
-model.set_opt(use_openfold=True, use_alphafold=False)
 ```
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:

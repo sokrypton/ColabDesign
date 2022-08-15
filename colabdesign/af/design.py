@@ -73,15 +73,8 @@ class _af_design:
     callbacks = [self._crop(), callback]
     
     # decide which model params to use
-    ns,ns_name = [],[]
-    count = {"openfold":0,"alphafold":0}
-    for n,name in enumerate(self._model_names):
-      if "openfold" in name:
-        if self._args["use_openfold"]:  ns.append(n); ns_name.append(name); count["openfold"] += 1
-      else:
-        if self._args["use_alphafold"]: ns.append(n); ns_name.append(name); count["alphafold"] += 1
-    for k in count:
-      if self._args[f"use_{k}"] and count[k] == 0: print(f"ERROR: {k} params not found")
+    ns_name = copy(self._model_names)
+    ns = list(range(len(ns_name)))
 
     # sub select number of model params
     if self._args["models"] is not None:

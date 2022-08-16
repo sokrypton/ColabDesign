@@ -73,7 +73,7 @@ class _af_design:
     callbacks = [self._crop(), callback]
     
     # decide which model params to use
-    ns_name = copy(self._model_names)
+    ns_name = self._model_names.copy()
     ns = list(range(len(ns_name)))
 
     # sub select number of model params

@@ -39,258 +39,6 @@ import jax.numpy as jnp
 import numpy as np
 
 
-def reduce_fn(x, mode):
-  if mode == 'none' or mode is None:
-    return jnp.asarray(x)
-  elif mode == 'sum':
-    return jnp.asarray(x).sum()
-  elif mode == 'mean':
-    return jnp.mean(jnp.asarray(x))
-  else:
-    raise ValueError('Unsupported reduction option.')
-
-
-def gumbel_noise(key: jnp.ndarray, shape: Sequence[int]) -> jnp.ndarray:
-  """Generate Gumbel Noise of given Shape.
-
-  This generates samples from Gumbel(0, 1).
-
-  Args:
-    key: Jax random number key.
-    shape: Shape of noise to return.
-
-  Returns:
-    Gumbel noise of given shape.
-  """
-  epsilon = 1e-6
-  uniform = utils.padding_consistent_rng(jax.random.uniform)
-  uniform_noise = uniform(
-      key, shape=shape, dtype=jnp.float32, minval=0., maxval=1.)
-  gumbel = -jnp.log(-jnp.log(uniform_noise + epsilon) + epsilon)
-  return gumbel
-
-
-def gumbel_max_sample(key: jnp.ndarray, logits: jnp.ndarray) -> jnp.ndarray:
-  """Samples from a probability distribution given by 'logits'.
-
-  This uses Gumbel-max trick to implement the sampling in an efficient manner.
-
-  Args:
-    key: prng key.
-    logits: Logarithm of probabilities to sample from, probabilities can be
-      unnormalized.
-
-  Returns:
-    Sample from logprobs in one-hot form.
-  """
-  z = gumbel_noise(key, logits.shape)
-  return jax.nn.one_hot(
-      jnp.argmax(logits + z, axis=-1),
-      logits.shape[-1],
-      dtype=logits.dtype)
-
-
-def gumbel_argsort_sample_idx(key: jnp.ndarray,
-                              logits: jnp.ndarray) -> jnp.ndarray:
-  """Samples with replacement from a distribution given by 'logits'.
-
-  This uses Gumbel trick to implement the sampling an efficient manner. For a
-  distribution over k items this samples k times without replacement, so this
-  is effectively sampling a random permutation with probabilities over the
-  permutations derived from the logprobs.
-
-  Args:
-    key: prng key.
-    logits: Logarithm of probabilities to sample from, probabilities can be
-      unnormalized.
-
-  Returns:
-    Sample from logprobs in one-hot form.
-  """
-  z = gumbel_noise(key, logits.shape)
-  # This construction is equivalent to jnp.argsort, but using a non stable sort,
-  # since stable sort's aren't supported by jax2tf.
-  axis = len(logits.shape) - 1
-  iota = jax.lax.broadcasted_iota(jnp.int64, logits.shape, axis)
-  _, perm = jax.lax.sort_key_val(
-      logits + z, iota, dimension=-1, is_stable=False)
-  return perm[::-1]
-
-
-def make_masked_msa(batch, key, config, epsilon=1e-6):
-  """Create data for BERT on raw MSA."""
-  # Add a random amino acid uniformly.
-  random_aa = jnp.array([0.05] * 20 + [0., 0.], dtype=jnp.float32)
-
-  categorical_probs = (
-      config.uniform_prob * random_aa +
-      config.profile_prob * batch['msa_profile'] +
-      config.same_prob * jax.nn.one_hot(batch['msa'], 22))
-
-  # Put all remaining probability on [MASK] which is a new column.
-  pad_shapes = [[0, 0] for _ in range(len(categorical_probs.shape))]
-  pad_shapes[-1][1] = 1
-  mask_prob = 1. - config.profile_prob - config.same_prob - config.uniform_prob
-  assert mask_prob >= 0.
-  categorical_probs = jnp.pad(
-      categorical_probs, pad_shapes, constant_values=mask_prob)
-  sh = batch['msa'].shape
-  key, mask_subkey, gumbel_subkey = key.split(3)
-  uniform = utils.padding_consistent_rng(jax.random.uniform)
-  mask_position = uniform(mask_subkey.get(), sh) < config.replace_fraction
-  mask_position *= batch['msa_mask']
-
-  logits = jnp.log(categorical_probs + epsilon)
-  bert_msa = gumbel_max_sample(gumbel_subkey.get(), logits)
-  bert_msa = jnp.where(mask_position,
-                       jnp.argmax(bert_msa, axis=-1), batch['msa'])
-  bert_msa *= batch['msa_mask']
-
-  # Mix real and masked MSA.
-  if 'bert_mask' in batch:
-    batch['bert_mask'] *= mask_position.astype(jnp.float32)
-  else:
-    batch['bert_mask'] = mask_position.astype(jnp.float32)
-  batch['true_msa'] = batch['msa']
-  batch['msa'] = bert_msa
-
-  return batch
-
-
-def nearest_neighbor_clusters(batch, gap_agreement_weight=0.):
-  """Assign each extra MSA sequence to its nearest neighbor in sampled MSA."""
-
-  # Determine how much weight we assign to each agreement.  In theory, we could
-  # use a full blosum matrix here, but right now let's just down-weight gap
-  # agreement because it could be spurious.
-  # Never put weight on agreeing on BERT mask.
-
-  weights = jnp.array(
-      [1.] * 21 + [gap_agreement_weight] + [0.], dtype=jnp.float32)
-
-  msa_mask = batch['msa_mask']
-  msa_one_hot = jax.nn.one_hot(batch['msa'], 23)
-
-  extra_mask = batch['extra_msa_mask']
-  extra_one_hot = jax.nn.one_hot(batch['extra_msa'], 23)
-
-  msa_one_hot_masked = msa_mask[:, :, None] * msa_one_hot
-  extra_one_hot_masked = extra_mask[:, :, None] * extra_one_hot
-
-  agreement = jnp.einsum('mrc, nrc->nm', extra_one_hot_masked,
-                         weights * msa_one_hot_masked)
-
-  cluster_assignment = jax.nn.softmax(1e3 * agreement, axis=0)
-  cluster_assignment *= jnp.einsum('mr, nr->mn', msa_mask, extra_mask)
-
-  cluster_count = jnp.sum(cluster_assignment, axis=-1)
-  cluster_count += 1.  # We always include the sequence itself.
-
-  msa_sum = jnp.einsum('nm, mrc->nrc', cluster_assignment, extra_one_hot_masked)
-  msa_sum += msa_one_hot_masked
-
-  cluster_profile = msa_sum / cluster_count[:, None, None]
-
-  extra_deletion_matrix = batch['extra_deletion_matrix']
-  deletion_matrix = batch['deletion_matrix']
-
-  del_sum = jnp.einsum('nm, mc->nc', cluster_assignment,
-                       extra_mask * extra_deletion_matrix)
-  del_sum += deletion_matrix  # Original sequence.
-  cluster_deletion_mean = del_sum / cluster_count[:, None]
-
-  return cluster_profile, cluster_deletion_mean
-
-
-def create_msa_feat(batch):
-  """Create and concatenate MSA features."""
-  msa_1hot = jax.nn.one_hot(batch['msa'], 23)
-  deletion_matrix = batch['deletion_matrix']
-  has_deletion = jnp.clip(deletion_matrix, 0., 1.)[..., None]
-  deletion_value = (jnp.arctan(deletion_matrix / 3.) * (2. / jnp.pi))[..., None]
-
-  deletion_mean_value = (jnp.arctan(batch['cluster_deletion_mean'] / 3.) *
-                         (2. / jnp.pi))[..., None]
-
-  msa_feat = [
-      msa_1hot,
-      has_deletion,
-      deletion_value,
-      batch['cluster_profile'],
-      deletion_mean_value
-  ]
-
-  return jnp.concatenate(msa_feat, axis=-1)
-
-
-def create_extra_msa_feature(batch, num_extra_msa):
-  """Expand extra_msa into 1hot and concat with other extra msa features.
-
-  We do this as late as possible as the one_hot extra msa can be very large.
-
-  Args:
-    batch: a dictionary with the following keys:
-     * 'extra_msa': [num_seq, num_res] MSA that wasn't selected as a cluster
-       centre. Note - This isn't one-hotted.
-     * 'extra_deletion_matrix': [num_seq, num_res] Number of deletions at given
-        position.
-    num_extra_msa: Number of extra msa to use.
-
-  Returns:
-    Concatenated tensor of extra MSA features.
-  """
-  # 23 = 20 amino acids + 'X' for unknown + gap + bert mask
-  extra_msa = batch['extra_msa'][:num_extra_msa]
-  deletion_matrix = batch['extra_deletion_matrix'][:num_extra_msa]
-  msa_1hot = jax.nn.one_hot(extra_msa, 23)
-  has_deletion = jnp.clip(deletion_matrix, 0., 1.)[..., None]
-  deletion_value = (jnp.arctan(deletion_matrix / 3.) * (2. / jnp.pi))[..., None]
-  extra_msa_mask = batch['extra_msa_mask'][:num_extra_msa]
-  return jnp.concatenate([msa_1hot, has_deletion, deletion_value],
-                         axis=-1), extra_msa_mask
-
-
-def sample_msa(key, batch, max_seq):
-  """Sample MSA randomly, remaining sequences are stored as `extra_*`.
-
-  Args:
-    key: safe key for random number generation.
-    batch: batch to sample msa from.
-    max_seq: number of sequences to sample.
-  Returns:
-    Protein with sampled msa.
-  """
-  # Sample uniformly among sequences with at least one non-masked position.
-  logits = (jnp.clip(jnp.sum(batch['msa_mask'], axis=-1), 0., 1.) - 1.) * 1e6
-  # The cluster_bias_mask can be used to preserve the first row (target
-  # sequence) for each chain, for example.
-  if 'cluster_bias_mask' not in batch:
-    cluster_bias_mask = jnp.pad(
-        jnp.zeros(batch['msa'].shape[0] - 1), (1, 0), constant_values=1.)
-  else:
-    cluster_bias_mask = batch['cluster_bias_mask']
-
-  logits += cluster_bias_mask * 1e6
-  index_order = gumbel_argsort_sample_idx(key.get(), logits)
-  sel_idx = index_order[:max_seq]
-  extra_idx = index_order[max_seq:]
-
-  for k in ['msa', 'deletion_matrix', 'msa_mask', 'bert_mask']:
-    if k in batch:
-      batch['extra_' + k] = batch[k][extra_idx]
-      batch[k] = batch[k][sel_idx]
-
-  return batch
-
-
-def make_msa_profile(batch):
-  """Compute the MSA profile."""
-
-  # Compute the profile for every residue (over all MSA sequences).
-  return utils.mask_mean(
-      batch['msa_mask'][:, :, None], jax.nn.one_hot(batch['msa'], 22), axis=0)
-
-
 class AlphaFoldIteration(hk.Module):
   """A single recycling iteration of AlphaFold architecture.
 
@@ -310,39 +58,13 @@ class AlphaFoldIteration(hk.Module):
                return_representations=False,
                safe_key=None):
 
-    if is_training:
-      num_ensemble = np.asarray(self.config.num_ensemble_train)
-    else:
-      num_ensemble = np.asarray(self.config.num_ensemble_eval)
 
     # Compute representations for each MSA sample and average.
     embedding_module = EmbeddingsAndEvoformer(
         self.config.embeddings_and_evoformer, self.global_config)
-    repr_shape = hk.eval_shape(
-        lambda: embedding_module(batch, is_training))
-    representations = {
-        k: jnp.zeros(v.shape, v.dtype) for (k, v) in repr_shape.items()
-    }
 
-    def ensemble_body(x, unused_y):
-      """Add into representations ensemble."""
-      del unused_y
-      representations, safe_key = x
-      safe_key, safe_subkey = safe_key.split()
-      representations_update = embedding_module(
-          batch, is_training, safe_key=safe_subkey)
-
-      for k in representations:
-        if k not in {'msa', 'true_msa', 'bert_mask'}:
-          representations[k] += representations_update[k] * (
-              1. / num_ensemble).astype(representations[k].dtype)
-        else:
-          representations[k] = representations_update[k]
-
-      return (representations, safe_key), None
-
-    (representations, _), _ = hk.scan(
-        ensemble_body, (representations, safe_key), None, length=num_ensemble)
+    safe_key, safe_subkey = safe_key.split()
+    representations = embedding_module(batch, is_training, safe_key=safe_subkey)
 
     self.representations = representations
     self.batch = batch
@@ -407,7 +129,6 @@ class AlphaFoldIteration(hk.Module):
 
     return ret
 
-
 class AlphaFold(hk.Module):
   """AlphaFold-Multimer model with recycling.
   """
@@ -449,17 +170,7 @@ class AlphaFold(hk.Module):
           batch=recycled_batch,
           is_training=is_training,
           safe_key=safe_key)
-    
-    #########################################
-    num_iter = c.num_recycle
-    def key_body(i, k):
-      k_ = jax.random.split(k[0])
-      o = jax.lax.cond(i==num_iter, lambda _:k[0], lambda _:k_[1], None)
-      return [k_[0],o]
-    k = safe_key.get()
-    safe_key = prng.SafeKey(jax.lax.fori_loop(0,batch.pop("iter")+1, key_body, [k,k])[1])
-    ##########################################
-    
+        
     ret = apply_network(prev=batch.pop("prev"), safe_key=safe_key)
     ret["prev"] = get_prev(ret)
     
@@ -560,26 +271,16 @@ class EmbeddingsAndEvoformer(hk.Module):
 
     output = {}
 
-    batch['msa_profile'] = make_msa_profile(batch)
-
-    target_feat = jax.nn.one_hot(batch['aatype'], 21)
+    #safe_key, sample_key, mask_key = safe_key.split(3)
+    
+    target_feat = batch['target_feat'][1:] # reusing from monomer
+    msa_feat = batch['msa_feat']
 
     preprocess_1d = common_modules.Linear(
-        c.msa_channel, name='preprocess_1d')(
-            target_feat)
-
-    safe_key, sample_key, mask_key = safe_key.split(3)
-    batch = sample_msa(sample_key, batch, c.num_msa)
-    batch = make_masked_msa(batch, mask_key, c.masked_msa)
-
-    (batch['cluster_profile'],
-     batch['cluster_deletion_mean']) = nearest_neighbor_clusters(batch)
-
-    msa_feat = create_msa_feat(batch)
+        c.msa_channel, name='preprocess_1d')(target_feat)
 
     preprocess_msa = common_modules.Linear(
-        c.msa_channel, name='preprocess_msa')(
-            msa_feat)
+        c.msa_channel, name='preprocess_msa')(msa_feat)
 
     msa_activations = jnp.expand_dims(preprocess_1d, axis=0) + preprocess_msa
 

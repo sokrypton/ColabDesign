@@ -941,7 +941,6 @@ def compute_chi_angles(positions: geometry.Vec3Array,
 
   return chi_angles, chi_mask
 
-
 def make_transform_from_reference(
     a_xyz: geometry.Vec3Array,
     b_xyz: geometry.Vec3Array,

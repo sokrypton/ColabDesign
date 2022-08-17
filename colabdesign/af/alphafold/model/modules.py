@@ -124,16 +124,13 @@ class AlphaFoldIteration(hk.Module):
     self.global_config = global_config
 
   def __call__(self,
-               ensembled_batch,
-               non_ensembled_batch,
+               batch,
                is_training,
-               ensemble_representations=False,
                return_representations=False):
 
     # Compute representations for each batch element and average.
     evoformer_module = EmbeddingsAndEvoformer(self.config.embeddings_and_evoformer, self.global_config)
-    batch0 = {**ensembled_batch, **non_ensembled_batch}
-    representations = evoformer_module(batch0, is_training)
+    representations = evoformer_module(batch, is_training)
 
     # MSA representations are not ensembled so
     # we don't pass tensor into the loop.
@@ -141,12 +138,11 @@ class AlphaFoldIteration(hk.Module):
     del representations['msa']
 
     representations['msa'] = msa_representation
-    batch = batch0  # We are not ensembled from here on.
     
-    if jnp.issubdtype(ensembled_batch['aatype'].dtype, jnp.integer):
-      num_residues = ensembled_batch['aatype'].shape
+    if jnp.issubdtype(batch['aatype'].dtype, jnp.integer):
+      num_residues = batch['aatype'].shape
     else:
-      num_residues, _ = ensembled_batch['aatype'].shape
+      num_residues, _ = batch['aatype'].shape
 
     if self.config.use_struct:
       struct_module = folding.StructureModule
@@ -216,14 +212,12 @@ class AlphaFold(hk.Module):
       self,
       batch,
       is_training,
-      ensemble_representations=False,
       return_representations=False):
     """Run the AlphaFold model.
 
     Arguments:
       batch: Dictionary with inputs to the AlphaFold model.
       is_training: Whether the system is in training or inference mode.
-      ensemble_representations: Whether to use ensembling of representations.
       return_representations: Whether to also return the intermediate
         representations.
 
@@ -272,10 +266,8 @@ class AlphaFold(hk.Module):
       if f"init_{k}" in batch:
         prev[f"prev_{k}"] = batch.pop(f"init_{k}")
                   
-    ret = impl(ensembled_batch=batch,
-               non_ensembled_batch=prev,
-               is_training=is_training,
-               ensemble_representations=ensemble_representations)
+    ret = impl(batch={**batch, **prev},
+               is_training=is_training)
 
     ret["prev"] = get_prev(ret)        
     return ret

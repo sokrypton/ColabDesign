@@ -110,7 +110,7 @@ class mk_tr_model(design_model):
     '''    
     if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
-      pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
+      pdb = prep_pdb(pdb_filename, chain)
       self._inputs["batch"] = pdb["batch"]
 
       if pos is not None:

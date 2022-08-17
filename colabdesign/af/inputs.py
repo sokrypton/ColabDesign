@@ -44,7 +44,7 @@ class _af_inputs:
 
     batch = inputs["batch"]
     if self.protocol in ["partial","fixbb","binder"]:      
-      L = batch["aatype"].shape[0]      
+      L = batch["aatype"].shape[0]
       if self.protocol in ["partial","fixbb"]:
         rt = opt["rm_template_seq"]
         aatype          = jnp.where(rt,0,batch["aatype"])
@@ -74,28 +74,28 @@ class _af_inputs:
       for k,v in template_feats.items():
         if self.protocol == "binder":
           n = self._target_len
-          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
+          inputs[k] = inputs[k].at[0,:n].set(v[:n])
+          inputs[k] = inputs[k].at[-1,n:].set(v[n:])
         
         if self.protocol == "fixbb":
-          inputs[k] = inputs[k].at[:,0].set(v)
+          inputs[k] = inputs[k].at[0].set(v)
 
         if self.protocol == "partial":
-          inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
+          inputs[k] = inputs[k].at[0,opt["pos"]].set(v)
         
         if k == "template_all_atom_masks":
           rt = jnp.logical_or(opt["rm_template_seq"],opt["rm_template_sc"])
           if self.protocol == "binder":
-            inputs[k] = jnp.where(rt,inputs[k].at[:,-1,n:,5:].set(0),inputs[k])
+            inputs[k] = jnp.where(rt,inputs[k].at[-1,n:,5:].set(0),inputs[k])
           else:
-            inputs[k] = jnp.where(rt,inputs[k].at[:,0,:,5:].set(0),inputs[k])
+            inputs[k] = jnp.where(rt,inputs[k].at[0,:,5:].set(0),inputs[k])
 
     # dropout template input features
     L = inputs["template_aatype"].shape[2]
     n = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
+    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,n:].multiply(pos_mask[n:,None])
+    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   '''update the sequence features'''
@@ -107,10 +107,7 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   seq_pssm = jnp.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
   
   msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
-  if seq.ndim == 3:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
-  else:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[...,:20])
+  target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
     
   inputs.update({"target_feat":target_feat,"msa_feat":msa_feat})
 

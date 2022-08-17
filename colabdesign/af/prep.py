@@ -35,7 +35,7 @@ class _af_prep:
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
-  def _prep_features(self, length, num_seq=None, num_templates=1, template_features=None):
+  def _prep_features(self, length, num_seq=None, num_templates=1):
     '''process features'''
     if num_seq is None: num_seq = self._num
     return prep_input_features(L=length, N=num_seq, T=num_templates,
@@ -81,7 +81,7 @@ class _af_prep:
       target_len = pdb["residue_index"].shape[0]
       self._inputs = self._prep_features(target_len)
       
-    self._inputs["residue_index"][...,:] = pdb["residue_index"]
+    self._inputs["residue_index"] = pdb["residue_index"]
 
     # gather hotspot info
     hotspot = kwargs.pop("pos", hotspot)
@@ -102,7 +102,7 @@ class _af_prep:
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
-      self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
+      self._inputs["residue_index"][target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
       self.opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
@@ -163,14 +163,14 @@ class _af_prep:
       else:
         if homooligomer:
           self._len = self._len // copies
-          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)[None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
         else:
           self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
-          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
     else:
-      self._inputs["residue_index"] = pdb["residue_index"][None]
+      self._inputs["residue_index"] = pdb["residue_index"]
       self._lengths = [self._len]
 
     # fix certain positions
@@ -222,7 +222,7 @@ class _af_prep:
         offset = 50
         self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
         self._lengths = [self._len] * copies
-      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]
     
@@ -289,12 +289,12 @@ def repeat_idx(idx, copies=1, offset=50):
   idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
   return np.tile(idx,copies) + idx_offset
 
-def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
+def prep_pdb(pdb_filename, chain=None):
   '''extract features from pdb'''
 
   def add_cb(batch):
     '''add missing CB atoms based on N,CA,C'''
-    p,m = batch["all_atom_positions"],batch["all_atom_mask"]
+    p,m = batch["all_atom_positions"], batch["all_atom_mask"]
     atom_idx = residue_constants.atom_order
     atoms = {k:p[...,atom_idx[k],:] for k in ["N","CA","C"]}
     cb = atom_idx["CB"]
@@ -322,19 +322,9 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
     residue_index = protein_obj.residue_index[has_ca] + last      
     last = residue_index[-1] + 50
     
-    if for_alphafold:
-      template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
-      template_features = {"template_aatype":template_aatype,
-                           "template_all_atom_masks":batch["all_atom_mask"],
-                           "template_all_atom_positions":batch["all_atom_positions"]}
-      o.append({"batch":batch,
-                "template_features":template_features,
-                "residue_index": residue_index,
-                "cb_feat":cb_feat})
-    else:        
-      o.append({"batch":batch,
-                "residue_index": residue_index,
-                "cb_feat":cb_feat})
+    o.append({"batch":batch,
+              "residue_index": residue_index,
+              "cb_feat":cb_feat})
     
     residue_idx.append(protein_obj.residue_index[has_ca])
     chain_idx.append([chain] * len(residue_idx[-1]))
@@ -342,20 +332,13 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   # concatenate chains
   o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
   
-  if for_alphafold:
-    o["template_features"] = jax.tree_map(lambda x:x[None],o["template_features"])
-    o["template_features"]["template_domain_names"] = np.asarray(["None"])
-
   # save original residue and chain index
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
 
-def make_fixed_size(feat, cfg, length, batch_axis=True):
+def make_fixed_size(feat, cfg, length):
   '''pad input features'''
-  if batch_axis:
-    shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
-  else:
-    shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
+  shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
   num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
       shape_placeholders.NUM_RES: length,
@@ -365,7 +348,7 @@ def make_fixed_size(feat, cfg, length, batch_axis=True):
   }
   for k,v in feat.items():
     if k == "batch":
-      feat[k] = make_fixed_size(v, cfg, length, batch_axis=False)
+      feat[k] = make_fixed_size(v, cfg, length)
     else:
       shape = list(v.shape)
       schema = shape_schema[k]
@@ -444,5 +427,4 @@ def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
                    'template_mask': np.ones(T),
                    'template_pseudo_beta': np.zeros((T,L,3)),
                    'template_pseudo_beta_mask': np.zeros((T,L))})
-
-  return jax.tree_map(lambda x:x[None], inputs)
+  return inputs

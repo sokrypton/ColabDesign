@@ -32,7 +32,7 @@ class _af_loss:
     rmsd, aux["atom_positions"] = aln["rmsd"], aln["align"](aux["atom_positions"])
 
     # dgram loss
-    aatype = inputs["aatype"][0]
+    aatype = inputs["aatype"]
     dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
     
     aux["losses"].update({"fape": get_fape_loss(inputs, outputs, model_config=self._cfg),
@@ -52,7 +52,7 @@ class _af_loss:
       fape = get_fape_loss(inputs, outputs, model_config=self._cfg)
       
       # compute cce of binder + interface
-      aatype = inputs["aatype"][0]
+      aatype = inputs["aatype"]
       cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_cce=True)
 
       aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[self._target_len:,:].mean()})
@@ -76,7 +76,7 @@ class _af_loss:
       return jax.tree_map(fn, x)
 
     pos = opt["pos"]
-    aatype = inputs["aatype"][0]
+    aatype = inputs["aatype"]
     _config = self._cfg.model.heads.structure_module
 
     # dgram
@@ -119,9 +119,9 @@ class _af_loss:
 
     # decide on what offset to use
     if "offset" in inputs:
-      offset = inputs["offset"][0]
+      offset = inputs["offset"]
     else:
-      idx = inputs["residue_index"][0]
+      idx = inputs["residue_index"]
       offset = idx[:,None] - idx[None,:]
 
     # pae loss

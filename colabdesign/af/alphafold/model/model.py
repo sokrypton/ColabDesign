@@ -72,7 +72,6 @@ class RunModel:
       return model(
           batch,
           is_training=is_training,
-          compute_loss=False,
           ensemble_representations=False,
           return_representations=return_representations)
     
@@ -84,7 +83,7 @@ class RunModel:
       if "prev" in feat:
         prev = feat["prev"]      
       else:
-        L = feat['aatype'].shape[1]
+        L = feat['aatype'].shape[0]
         prev = {'prev_msa_first_row': np.zeros([L,256]),
                 'prev_pair': np.zeros([L,L,128])}
         if self.config.model.use_struct:
@@ -97,7 +96,7 @@ class RunModel:
       ################################
       if "num_iter_recycling" in feat:
         # use while_loop()
-        num_recycles = feat.pop("num_iter_recycling")[0]
+        num_recycles = feat.pop("num_iter_recycling")
         def body(x):
           i,prev,key = x
           key, sub_key = jax.random.split(key)

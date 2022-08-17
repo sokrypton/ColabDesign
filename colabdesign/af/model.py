@@ -130,9 +130,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      B,L = inputs["aatype"].shape[:2]
+      L = inputs["aatype"].shape[0]
       aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
-      update_aatype(jnp.broadcast_to(aatype,(B,L,21)), inputs)
+      update_aatype(jnp.broadcast_to(aatype,(L,21)), inputs)
       
       # update template features
       if self._args["use_templates"]:
@@ -143,7 +143,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       
       # decide number of recycles to do
       if self._args["recycle_mode"] in ["last","sample"]:
-        inputs["num_iter_recycling"] = jnp.array([opt["num_recycles"]])
+        inputs["num_iter_recycling"] = opt["num_recycles"]
 
       # crop inputs
       if opt["crop_pos"].shape[0] < L:
@@ -164,7 +164,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # add aux outputs
       aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
-                  "residue_index":inputs["residue_index"][0], "aatype":inputs["aatype"][0],
+                  "residue_index":inputs["residue_index"], "aatype":inputs["aatype"],
                   "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(outputs),
                   "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
 

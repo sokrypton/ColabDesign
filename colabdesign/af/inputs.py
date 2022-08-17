@@ -167,7 +167,7 @@ def crop_feat(feat, pos, cfg, add_batch=True):
   new_feat = copy_dict(feat)
   for k in new_feat.keys():
     if k == "batch":
-      new_feats[k] = crop_feats(feats[k], pos, cfg, add_batch=False)
+      new_feat[k] = crop_feat(feat[k], pos, cfg, add_batch=False)
     if k in idx:
       for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
   

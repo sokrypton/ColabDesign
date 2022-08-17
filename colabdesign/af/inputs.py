@@ -91,7 +91,7 @@ class _af_inputs:
             inputs[k] = jnp.where(rt,inputs[k].at[0,:,5:].set(0),inputs[k])
 
     # dropout template input features
-    L = inputs["template_aatype"].shape[2]
+    L = inputs["template_aatype"].shape[1]
     n = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
     inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,n:].multiply(pos_mask[n:,None])

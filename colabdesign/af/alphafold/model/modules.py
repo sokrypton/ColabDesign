@@ -237,9 +237,9 @@ class AlphaFold(hk.Module):
     impl = AlphaFoldIteration(self.config, self.global_config)
 
     if jnp.issubdtype(batch['aatype'].dtype, jnp.integer):
-      batch_size, num_residues = batch['aatype'].shape
+      num_residues = batch['aatype'].shape
     else:
-      batch_size, num_residues, _ = batch['aatype'].shape
+      num_residues, _ = batch['aatype'].shape
 
     def get_prev(ret):
       new_prev = {

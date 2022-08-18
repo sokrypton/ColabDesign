@@ -149,11 +149,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       update_aatype(jnp.broadcast_to(aatype,(L,21)), inputs)
       
       # update template features
-      ###################
-      # TODO FIX THIS!!
-      ###################
-      # if self._args["use_templates"]:
-      #  self._update_template(inputs, opt, key())
+      if self._args["use_templates"]:
+        self._update_template(inputs, opt, key())
       
       # set dropout
       inputs["dropout_scale"] = jnp.array([opt["dropout"]]).astype(float)

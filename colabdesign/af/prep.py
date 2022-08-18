@@ -418,10 +418,11 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'extra_msa': np.zeros((eN,L),int),
             'extra_msa_mask': np.zeros((eN,L)),
             'extra_msa_row_mask': np.zeros(eN),
+
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
             'template_all_atom_positions': np.zeros((T,L,37,3)),
-            'template_mask': np.ones(T),
+            'template_mask': np.zeros(T),
             'template_pseudo_beta': np.zeros((T,L,3)),
             'template_pseudo_beta_mask': np.zeros((T,L))}
   return inputs

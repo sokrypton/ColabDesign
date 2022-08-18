@@ -39,9 +39,11 @@ class _af_inputs:
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
 
+    # enable templates
+    inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
+
     # aatype = is used to define template's CB coordinates (CA in case of glycine)
     # template_aatype = is used as template's sequence
-
     batch = inputs["batch"]
     if self.protocol in ["partial","fixbb","binder"]:      
       L = batch["aatype"].shape[0]
@@ -78,6 +80,7 @@ class _af_inputs:
           inputs[k] = inputs[k].at[-1,n:].set(v[n:])
         
         if self.protocol == "fixbb":
+          print(k, inputs[k].shape, v.shape)
           inputs[k] = inputs[k].at[0].set(v)
 
         if self.protocol == "partial":

@@ -66,6 +66,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if use_multimer:
       cfg = config.model_config("model_1_multimer")
       cfg.model.embeddings_and_evoformer.template.max_templates = 1
+      cfg.model.embeddings_and_evoformer.num_msa = 1
+      cfg.model.embeddings_and_evoformer.num_extra_msa = 1
     
     else:
       cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
@@ -147,8 +149,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       update_aatype(jnp.broadcast_to(aatype,(L,21)), inputs)
       
       # update template features
-      if self._args["use_templates"]:
-        self._update_template(inputs, opt, key())
+      ###################
+      # TODO FIX THIS!!
+      ###################
+      # if self._args["use_templates"]:
+      #  self._update_template(inputs, opt, key())
       
       # set dropout
       inputs["dropout_scale"] = jnp.array([opt["dropout"]]).astype(float)

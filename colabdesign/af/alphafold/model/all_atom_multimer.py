@@ -202,29 +202,32 @@ RESTYPE_RIGIDGROUP_MASK[:20, 4:] = residue_constants.chi_angles_mask
 
 
 def get_atom37_mask(aatype):
+  if not jnp.issubdtype(aatype.dtype, jnp.integer): aatype = aatype.argmax(-1)
   return utils.batched_gather(jnp.asarray(RESTYPE_ATOM37_MASK), aatype)
 
-
 def get_atom14_mask(aatype):
+  if not jnp.issubdtype(aatype.dtype, jnp.integer): aatype = aatype.argmax(-1)
   return utils.batched_gather(jnp.asarray(RESTYPE_ATOM14_MASK), aatype)
 
-
 def get_atom14_is_ambiguous(aatype):
+  if not jnp.issubdtype(aatype.dtype, jnp.integer): aatype = aatype.argmax(-1)
   return utils.batched_gather(jnp.asarray(RESTYPE_ATOM14_IS_AMBIGUOUS), aatype)
 
-
 def get_atom14_to_atom37_map(aatype):
+  if not jnp.issubdtype(aatype.dtype, jnp.integer): aatype = aatype.argmax(-1)
   return utils.batched_gather(jnp.asarray(RESTYPE_ATOM14_TO_ATOM37), aatype)
 
-
 def get_atom37_to_atom14_map(aatype):
+  if not jnp.issubdtype(aatype.dtype, jnp.integer): aatype = aatype.argmax(-1)
   return utils.batched_gather(jnp.asarray(RESTYPE_ATOM37_TO_ATOM14), aatype)
-
 
 def atom14_to_atom37(atom14_data: jnp.ndarray,  # (N, 14, ...)
                      aatype: jnp.ndarray
                     ) -> jnp.ndarray:  # (N, 37, ...)
   """Convert atom14 to atom37 representation."""
+  if not jnp.issubdtype(aatype.dtype, jnp.integer):
+    aatype = aatype.argmax(-1)
+
   assert len(atom14_data.shape) in [2, 3]
   idx_atom37_to_atom14 = get_atom37_to_atom14_map(aatype)
   atom37_data = utils.batched_gather(
@@ -276,6 +279,8 @@ def atom37_to_frames(
     all_atom_positions: geometry.Vec3Array,  # (..., 37)
     all_atom_mask: jnp.ndarray,  # (..., 37)
 ) -> Dict[Text, jnp.ndarray]:
+  if not jnp.issubdtype(aatype.dtype, jnp.integer): aatype = aatype.argmax(-1)
+
   """Computes the frames for the up to 8 rigid groups for each residue."""
   # 0: 'backbone group',
   # 1: 'pre-omega-group', (empty)
@@ -376,6 +381,9 @@ def torsion_angles_to_frames(
     torsion_angles_sin_cos: jnp.ndarray  # (N, 7, 2)
 ) -> geometry.Rigid3Array:  # (N, 8)
   """Compute rigid group frames from torsion angles."""
+  if not jnp.issubdtype(aatype.dtype, jnp.integer):
+    aatype = aatype.argmax(-1)
+  
   assert len(aatype.shape) == 1, (
       f'Expected array of rank 1, got array with shape: {aatype.shape}.')
   assert len(backb_to_global.rotation.shape) == 1, (
@@ -443,6 +451,9 @@ def frames_and_literature_positions_to_atom14_pos(
 ) -> geometry.Vec3Array:  # (N, 14)
   """Put atom literature positions (atom14 encoding) in each rigid group."""
 
+  if not jnp.issubdtype(aatype.dtype, jnp.integer):
+    aatype = aatype.argmax(-1)
+
   # Pick the appropriate transform for every atom.
   residx_to_group_idx = utils.batched_gather(
       residue_constants.restype_atom14_to_rigid_group, aatype)
@@ -499,6 +510,9 @@ def between_residue_bond_loss(
     tolerance_factor_soft=12.0,
     tolerance_factor_hard=12.0) -> Dict[Text, jnp.ndarray]:
   """Flat-bottom loss to penalize structural violations between residues."""
+  if not jnp.issubdtype(aatype.dtype, jnp.integer):
+    aatype = aatype.argmax(-1)
+
   assert len(pred_atom_positions.shape) == 2
   assert len(pred_atom_mask.shape) == 2
   assert len(residue_index.shape) == 1
@@ -905,7 +919,10 @@ def compute_chi_angles(positions: geometry.Vec3Array,
     chi mask will also mask out uncomputable chi angles.
   """
 
+  if not jnp.issubdtype(aatype.dtype, jnp.integer):
+    aatype = aatype.argmax(-1)
   # Don't assert on the num_res and batch dimensions as they might be unknown.
+
   assert positions.shape[-1] == residue_constants.atom_type_num
   assert mask.shape[-1] == residue_constants.atom_type_num
 

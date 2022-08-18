@@ -847,6 +847,11 @@ class MaskedMsaHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
+    if global_config.multimer_mode:
+      self.num_output = len(residue_constants.restypes_with_x_and_gap)
+    else:
+      self.num_output = config.num_output
+
   def __call__(self, representations, batch, is_training):
     """Builds MaskedMsaHead module.
 
@@ -863,7 +868,7 @@ class MaskedMsaHead(hk.Module):
     """
     del batch
     logits = common_modules.Linear(
-        self.config.num_output,
+        self.num_output,
         initializer=utils.final_init(self.global_config),
         name='logits')(
             representations['msa'])

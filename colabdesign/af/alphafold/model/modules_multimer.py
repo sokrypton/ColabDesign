@@ -38,6 +38,28 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+def create_extra_msa_feature(batch, num_extra_msa):
+  """Expand extra_msa into 1hot and concat with other extra msa features.
+  We do this as late as possible as the one_hot extra msa can be very large.
+  Args:
+    batch: a dictionary with the following keys:
+     * 'extra_msa': [num_seq, num_res] MSA that wasn't selected as a cluster
+       centre. Note - This isn't one-hotted.
+     * 'extra_deletion_matrix': [num_seq, num_res] Number of deletions at given
+        position.
+    num_extra_msa: Number of extra msa to use.
+  Returns:
+    Concatenated tensor of extra MSA features.
+  """
+  # 23 = 20 amino acids + 'X' for unknown + gap + bert mask
+  extra_msa = batch['extra_msa'][:num_extra_msa]
+  deletion_matrix = batch['extra_deletion_value'][:num_extra_msa]
+  msa_1hot = jax.nn.one_hot(extra_msa, 23)
+  has_deletion = jnp.clip(deletion_matrix, 0., 1.)[..., None]
+  deletion_value = (jnp.arctan(deletion_matrix / 3.) * (2. / jnp.pi))[..., None]
+  extra_msa_mask = batch['extra_msa_mask'][:num_extra_msa]
+  return jnp.concatenate([msa_1hot, has_deletion, deletion_value],
+                         axis=-1), extra_msa_mask
 
 class AlphaFoldIteration(hk.Module):
   """A single recycling iteration of AlphaFold architecture.
@@ -95,6 +117,7 @@ class AlphaFoldIteration(hk.Module):
       _, fold_module = self.heads['structure_module']
       structure_module_output = fold_module(representations, batch, is_training)
 
+
     ret = {}
     ret['representations'] = representations
 
@@ -108,6 +131,7 @@ class AlphaFoldIteration(hk.Module):
         continue
       else:
         ret[name] = module(representations, batch, is_training)
+
 
     # Add confidence heads after StructureModule is executed.
     if self.config.heads.get('predicted_lddt.weight', 0.0):
@@ -155,8 +179,18 @@ class AlphaFold(hk.Module):
 
     assert isinstance(batch, dict)
     num_res = batch['aatype'].shape[0]
+    
+    if "asym_id" not in batch:
+      batch["asym_id"] = jnp.ones(num_res)
+    
+    if "entity_id" not in batch:
+      batch["entity_id"] = jnp.ones(num_res)
+    
     if "sym_id" not in batch:
-      batch["sym_id"] = jnp.zeros(num_res, dtype=int)
+      batch["sym_id"] = jnp.ones(num_res)
+
+    if "all_atom_positions" not in batch:
+      batch["all_atom_positions"] = jnp.zeros((num_res,37,3))
 
     def get_prev(ret):
       new_prev = {
@@ -178,7 +212,7 @@ class AlphaFold(hk.Module):
     
     if not return_representations:
       del ret['representations']
-    return ret, None
+    return ret
 
 class EmbeddingsAndEvoformer(hk.Module):
   """Embeds the input data and runs Evoformer.
@@ -279,7 +313,7 @@ class EmbeddingsAndEvoformer(hk.Module):
 
     #safe_key, sample_key, mask_key = safe_key.split(3)
     
-    target_feat = batch['target_feat'][1:] # reusing from monomer
+    target_feat = batch['target_feat'][:,1:] # reusing from monomer
     msa_feat = batch['msa_feat']
 
     preprocess_1d = common_modules.Linear(
@@ -334,7 +368,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       template_batch = {
           'template_aatype': batch['template_aatype'],
           'template_all_atom_positions': batch['template_all_atom_positions'],
-          'template_all_atom_mask': batch['template_all_atom_mask']
+          'template_all_atom_masks': batch['template_all_atom_masks']
       }
       # Construct a mask such that only intra-chain template features are
       # computed, since all templates are for each chain individually.
@@ -477,7 +511,7 @@ class TemplateEmbedding(hk.Module):
         `template_aatype`: [num_templates, num_res] aatype for each template.
         `template_all_atom_positions`: [num_templates, num_res, 37, 3] atom
           positions for all templates.
-        `template_all_atom_mask`: [num_templates, num_res, 37] mask for each
+        `template_all_atom_masks`: [num_templates, num_res, 37] mask for each
           template.
       padding_mask_2d: [num_res, num_res] Pair mask for attention operations.
       multichain_mask_2d: [num_res, num_res] Mask indicating which residue pairs
@@ -500,13 +534,13 @@ class TemplateEmbedding(hk.Module):
     template_embedder = SingleTemplateEmbedding(self.config, self.global_config)
     def partial_template_embedder(template_aatype,
                                   template_all_atom_positions,
-                                  template_all_atom_mask,
+                                  template_all_atom_masks,
                                   unsafe_key):
       safe_key = prng.SafeKey(unsafe_key)
       return template_embedder(query_embedding,
                                template_aatype,
                                template_all_atom_positions,
-                               template_all_atom_mask,
+                               template_all_atom_masks,
                                padding_mask_2d,
                                multichain_mask_2d,
                                is_training,
@@ -524,7 +558,7 @@ class TemplateEmbedding(hk.Module):
         scan_fn, scan_init,
         (template_batch['template_aatype'],
          template_batch['template_all_atom_positions'],
-         template_batch['template_all_atom_mask'], unsafe_keys))
+         template_batch['template_all_atom_masks'], unsafe_keys))
 
     embedding = summed_template_embeddings / num_templates
     embedding = jax.nn.relu(embedding)
@@ -545,7 +579,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.global_config = global_config
 
   def __call__(self, query_embedding, template_aatype,
-               template_all_atom_positions, template_all_atom_mask,
+               template_all_atom_positions, template_all_atom_masks,
                padding_mask_2d, multichain_mask_2d, is_training,
                safe_key):
     """Build the single template embedding graph.
@@ -556,7 +590,7 @@ class SingleTemplateEmbedding(hk.Module):
       template_aatype: [num_res] aatype for each template.
       template_all_atom_positions: [num_res, 37, 3] atom positions for all
         templates.
-      template_all_atom_mask: [num_res, 37] mask for each template.
+      template_all_atom_masks: [num_res, 37] mask for each template.
       padding_mask_2d: Padding mask (Note: this doesn't care if a template
         exists, unlike the template_pseudo_beta_mask).
       multichain_mask_2d: A mask indicating intra-chain residue pairs, used
@@ -575,12 +609,12 @@ class SingleTemplateEmbedding(hk.Module):
     num_channels = self.config.num_channels
 
     def construct_input(query_embedding, template_aatype,
-                        template_all_atom_positions, template_all_atom_mask,
+                        template_all_atom_positions, template_all_atom_masks,
                         multichain_mask_2d):
 
       # Compute distogram feature for the template.
       template_positions, pseudo_beta_mask = modules.pseudo_beta_fn(
-          template_aatype, template_all_atom_positions, template_all_atom_mask)
+          template_aatype, template_all_atom_positions, template_all_atom_masks)
       pseudo_beta_mask_2d = (pseudo_beta_mask[:, None] *
                              pseudo_beta_mask[None, :])
       pseudo_beta_mask_2d *= multichain_mask_2d
@@ -603,7 +637,7 @@ class SingleTemplateEmbedding(hk.Module):
       atom_pos = geometry.Vec3Array.from_array(raw_atom_pos)
       rigid, backbone_mask = folding_multimer.make_backbone_affine(
           atom_pos,
-          template_all_atom_mask,
+          template_all_atom_masks,
           template_aatype)
       points = rigid.translation
       rigid_vec = rigid[:, None].inverse().apply_to_point(points)
@@ -642,7 +676,7 @@ class SingleTemplateEmbedding(hk.Module):
       return act
 
     act = construct_input(query_embedding, template_aatype,
-                          template_all_atom_positions, template_all_atom_mask,
+                          template_all_atom_positions, template_all_atom_masks,
                           multichain_mask_2d)
 
     template_iteration = TemplateEmbeddingIteration(
@@ -759,7 +793,7 @@ def template_embedding_1d(batch, num_channel):
       template_aatype, (num_templates, num_res) aatype for the templates.
       template_all_atom_positions, (num_templates, num_residues, 37, 3) atom
         positions for the templates.
-      template_all_atom_mask, (num_templates, num_residues, 37) atom mask for
+      template_all_atom_masks, (num_templates, num_residues, 37) atom mask for
         each template.
     num_channel: The number of channels in the output.
 
@@ -779,7 +813,7 @@ def template_embedding_1d(batch, num_channel):
         batch['template_all_atom_positions'][i, :, :, :])
     template_chi_angles, template_chi_mask = all_atom_multimer.compute_chi_angles(
         atom_pos,
-        batch['template_all_atom_mask'][i, :, :],
+        batch['template_all_atom_masks'][i, :, :],
         batch['template_aatype'][i, :])
     all_chi_angles.append(template_chi_angles)
     all_chi_masks.append(template_chi_mask)

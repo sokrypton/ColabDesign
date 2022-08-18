@@ -227,13 +227,12 @@ class AlphaFold(hk.Module):
       The output of AlphaFoldIteration is a nested dictionary containing
       predictions from the various heads.
     """
-    if "dropout_scale" not in batch: batch["dropout_scale"] = jnp.ones((1,))
-    impl = AlphaFoldIteration(self.config, self.global_config)
-
     if jnp.issubdtype(batch['aatype'].dtype, jnp.integer):
-      num_residues = batch['aatype'].shape
+      num_res = batch['aatype'].shape
     else:
-      num_residues, _ = batch['aatype'].shape
+      num_res, _ = batch['aatype'].shape
+
+    impl = AlphaFoldIteration(self.config, self.global_config)
 
     def get_prev(ret):
       new_prev = {
@@ -249,13 +248,13 @@ class AlphaFold(hk.Module):
     
     emb_config = self.config.embeddings_and_evoformer
     prev = {
-      'prev_msa_first_row': jnp.zeros([num_residues, emb_config.msa_channel]),
-      'prev_pair': jnp.zeros([num_residues, num_residues, emb_config.pair_channel])
+      'prev_msa_first_row': jnp.zeros([num_res, emb_config.msa_channel]),
+      'prev_pair': jnp.zeros([num_res, num_res, emb_config.pair_channel])
     }
     if self.config.use_struct:
-      prev['prev_pos'] = jnp.zeros([num_residues, residue_constants.atom_type_num, 3])
+      prev['prev_pos'] = jnp.zeros([num_res, residue_constants.atom_type_num, 3])
     else:
-      prev['prev_dgram'] = jnp.zeros([num_residues, num_residues, 64])
+      prev['prev_dgram'] = jnp.zeros([num_res, num_res, 64])
       
     #  copy previous from input batch (if defined)
     if "prev" in batch:
@@ -1511,10 +1510,15 @@ class EmbeddingsAndEvoformer(hk.Module):
     
     if c.template.enabled:
       template_batch = {k: batch[k] for k in batch if k.startswith('template_')}
+
+      multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
+      multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, 1)
+
       template_pair_representation = TemplateEmbedding(c.template, gc)(
           pair_activations,
           template_batch,
           mask_2d,
+          multichain_mask,
           is_training=is_training,
           dropout_scale=batch["dropout_scale"])
 
@@ -1641,7 +1645,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, batch, mask_2d, is_training, dropout_scale=1.0):
+  def __call__(self, query_embedding, batch, mask_2d, multichain_mask_2d, is_training, dropout_scale=1.0):
     """Build the single template embedding.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
@@ -1660,6 +1664,7 @@ class SingleTemplateEmbedding(hk.Module):
                     .triangle_attention_ending_node.value_dim)
     template_mask = batch['template_pseudo_beta_mask']
     template_mask_2d = template_mask[:, None] * template_mask[None, :]
+    template_mask_2d = template_mask_2d * multichain_mask_2d
     template_mask_2d = template_mask_2d.astype(dtype)
 
     if "template_dgram" in batch:
@@ -1672,8 +1677,8 @@ class SingleTemplateEmbedding(hk.Module):
       else:
         template_dgram = dgram_from_positions(batch['template_pseudo_beta'],
                                               **self.config.dgram_features)
+    template_dgram *= template_mask_2d[..., None]
     template_dgram = template_dgram.astype(dtype)
-
     to_concat = [template_dgram, template_mask_2d[:, :, None]]
 
     if jnp.issubdtype(batch['template_aatype'].dtype, jnp.integer):
@@ -1749,7 +1754,8 @@ class TemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, template_batch, mask_2d, is_training, dropout_scale=1.0):
+  def __call__(self, query_embedding, template_batch, mask_2d, multichain_mask_2d, 
+               is_training, dropout_scale=1.0):
     """Build TemplateEmbedding module.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
@@ -1778,7 +1784,8 @@ class TemplateEmbedding(hk.Module):
     template_embedder = SingleTemplateEmbedding(self.config, self.global_config)
 
     def map_fn(batch):
-      return template_embedder(query_embedding, batch, mask_2d, is_training, dropout_scale=dropout_scale)
+      return template_embedder(query_embedding, batch, mask_2d, multichain_mask_2d,
+                               is_training, dropout_scale=dropout_scale)
 
     template_pair_representation = mapping.sharded_map(map_fn, in_axes=0)(template_batch)
 

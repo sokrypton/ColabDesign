@@ -9,6 +9,8 @@ import re
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.model import config
+
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos
@@ -72,7 +74,7 @@ class _af_prep:
     if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
-      if split_templates: num_templates = 2      
+      self.opt["template"]["mask_interchain"] = split_templates
       # get input features
       self._inputs = self._prep_features(target_len + binder_len, num_templates=num_templates)
 
@@ -97,7 +99,7 @@ class _af_prep:
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
-      self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
+      self._inputs = make_fixed_size(self._inputs, total_len)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
@@ -108,6 +110,10 @@ class _af_prep:
     self._target_len = target_len
     self._binder_len = self._len = binder_len
     self._lengths = [self._target_len, self._binder_len]
+
+    # set info for alphafold-multimer
+    multi_id = np.append(np.full(target_len,1),np.full(binder_len,1))
+    self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
 
     self._prep_model(**kwargs)
 
@@ -164,7 +170,7 @@ class _af_prep:
           self._len = self._len // copies
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
         else:
-          self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
+          self._inputs = make_fixed_size(self._inputs, self._len * copies)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
@@ -335,8 +341,11 @@ def prep_pdb(pdb_filename, chain=None):
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
 
-def make_fixed_size(feat, cfg, length):
+def make_fixed_size(feat, length):
   '''pad input features'''
+
+  cfg = config.model_config("model_1_ptm")
+
   shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
   num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
@@ -347,7 +356,7 @@ def make_fixed_size(feat, cfg, length):
   }
   for k,v in feat.items():
     if k == "batch":
-      feat[k] = make_fixed_size(v, cfg, length)
+      feat[k] = make_fixed_size(v, length)
     else:
       shape = list(v.shape)
       schema = shape_schema[k]
@@ -419,10 +428,16 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'extra_msa_mask': np.zeros((eN,L)),
             'extra_msa_row_mask': np.zeros(eN),
 
+            # for template inputs
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
             'template_all_atom_positions': np.zeros((T,L,37,3)),
             'template_mask': np.zeros(T),
             'template_pseudo_beta': np.zeros((T,L,3)),
-            'template_pseudo_beta_mask': np.zeros((T,L))}
-  return inputs
+            'template_pseudo_beta_mask': np.zeros((T,L)),
+
+            # for alphafold-multimer
+            'asym_id': np.ones(L),
+            'sym_id': np.ones(L),
+            'entity_id': np.ones(L),
+            'all_atom_positions': np.zeros((N,37,3))}

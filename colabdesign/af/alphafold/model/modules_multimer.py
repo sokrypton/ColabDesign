@@ -180,18 +180,6 @@ class AlphaFold(hk.Module):
     assert isinstance(batch, dict)
     num_res = batch['aatype'].shape[0]
     
-    if "asym_id" not in batch:
-      batch["asym_id"] = jnp.ones(num_res)
-    
-    if "entity_id" not in batch:
-      batch["entity_id"] = jnp.ones(num_res)
-    
-    if "sym_id" not in batch:
-      batch["sym_id"] = jnp.ones(num_res)
-
-    if "all_atom_positions" not in batch:
-      batch["all_atom_positions"] = jnp.zeros((num_res,37,3))
-
     def get_prev(ret):
       new_prev = {
           'prev_pos': ret['structure_module']['final_atom_positions'],
@@ -373,6 +361,8 @@ class EmbeddingsAndEvoformer(hk.Module):
       # Construct a mask such that only intra-chain template features are
       # computed, since all templates are for each chain individually.
       multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
+      multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, 1)
+
       safe_key, safe_subkey = safe_key.split()
       template_act = template_module(
           query_embedding=pair_activations,

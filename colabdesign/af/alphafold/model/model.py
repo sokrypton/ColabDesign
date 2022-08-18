@@ -35,7 +35,7 @@ class RunModel:
                is_training=True,
                return_representations=True,
                recycle_mode=None,
-               multimer_mode=False):
+               use_multimer=False):
 
     self.config = config
     self.params = params
@@ -49,12 +49,12 @@ class RunModel:
       if self.config.model.backprop_recycle:
         self.mode.append("backprop")
 
-    if multimer_mode:
-      model = modules_multimer.AlphaFold(self.config.model)
-    else:
-      model = modules.AlphaFold(self.config.model)
 
     def _forward_fn(batch):
+      if use_multimer:
+        model = modules_multimer.AlphaFold(self.config.model)
+      else:
+        model = modules.AlphaFold(self.config.model)
       return model(
           batch,
           is_training=is_training,

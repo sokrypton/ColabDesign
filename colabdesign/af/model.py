@@ -92,7 +92,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if model_names is None:
       model_names = []
       if use_multimer:
-        model_names += [f"model_{k}_multimer" for k in [1,2,3,4,5]]
+        model_names += [f"model_{k}_multimer_v2" for k in [1,2,3,4,5]]
       else:
         if use_templates:
           if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2]]

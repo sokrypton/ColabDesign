@@ -207,6 +207,7 @@ CONFIG = ml_collections.ConfigDict({
                     'shared_dropout': True
                 },
                 'outer_product_mean': {
+                    'first': False,
                     'chunk_size': 128,
                     'dropout_rate': 0.0,
                     'num_outer_channel': 32,
@@ -330,8 +331,8 @@ CONFIG = ml_collections.ConfigDict({
             }
         },
         'global_config': {
-            'mixed_precision': False,
             'deterministic': False,
+            'multimer_mode': False,
             'subbatch_size': 4,
             'use_remat': False,
             'zero_init': True

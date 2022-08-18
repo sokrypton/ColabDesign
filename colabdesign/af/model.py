@@ -24,7 +24,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, use_openfold=False, use_alphafold=True,
-               crop_len=None, crop_mode="slide",               
+               use_multimer=False, crop_len=None, crop_mode="slide",               
                debug=False, loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
@@ -60,22 +60,29 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     # configure AlphaFold
     #############################
-    cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
-    cfg.model.global_config.use_remat = True    
-    # number of sequences
-    if use_templates:
-      cfg.data.eval.max_templates = 1
-      cfg.data.eval.max_msa_clusters = num_seq + 1
-    else:
-      cfg.data.eval.max_templates = 0
-      cfg.data.eval.max_msa_clusters = num_seq
-    cfg.data.common.max_extra_msa = 1
-    cfg.data.eval.masked_msa_replace_fraction = 0
+    if recycle_mode == "average":
+      num_recycles = 0
 
-    # number of recycles
-    if recycle_mode == "average": num_recycles = 0
-    cfg.data.common.num_recycle = 0      # for feature processing
+    if use_multimer:
+      cfg = config.model_config("model_1_multimer")
+      cfg.model.embeddings_and_evoformer.template.max_templates = 1
+    else:
+      cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
+      # number of sequences
+      if use_templates:
+        cfg.data.eval.max_templates = 1
+        cfg.data.eval.max_msa_clusters = num_seq + 1
+      else:
+        cfg.data.eval.max_templates = 0
+        cfg.data.eval.max_msa_clusters = num_seq
+      cfg.data.common.max_extra_msa = 1
+      cfg.data.eval.masked_msa_replace_fraction = 0
+
+      # number of recycles
+      cfg.data.common.num_recycle = 0      # for feature processing
+
     cfg.model.num_recycle = num_recycles # for model configuration
+    cfg.model.global_config.use_remat = True    
 
     # setup model
     self._cfg = cfg 
@@ -83,18 +90,21 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     # load model_params
     if model_names is None:
       model_names = []
-      if use_templates:
-        if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2]]
-        if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]]    
+      if use_multimer:
+        model_names += [f"model_{k}_multimer" for k in [1,2,3,4,5]]
       else:
-        if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
-        if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
+        if use_templates:
+          if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2]]
+          if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]]    
+        else:
+          if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
+          if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
 
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
       params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
       if params is not None:
-        if not use_templates:
+        if not use_multimer and not use_templates:
           params = {k:v for k,v in params.items() if "template" not in k}
         self._model_params.append(params)
         self._model_names.append(model_name)

@@ -23,15 +23,15 @@ Lower-level modules up to EvoformerIteration are reused from modules.py.
 import functools
 from typing import Sequence
 
-from alphafold.common import residue_constants
-from alphafold.model import all_atom_multimer
-from alphafold.model import common_modules
-from alphafold.model import folding_multimer
-from alphafold.model import geometry
-from alphafold.model import layer_stack
-from alphafold.model import modules
-from alphafold.model import prng
-from alphafold.model import utils
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.model import all_atom_multimer
+from colabdesign.af.alphafold.model import common_modules
+from colabdesign.af.alphafold.model import folding_multimer
+from colabdesign.af.alphafold.model import geometry
+from colabdesign.af.alphafold.model import layer_stack
+from colabdesign.af.alphafold.model import modules
+from colabdesign.af.alphafold.model import prng
+from colabdesign.af.alphafold.model import utils
 
 import haiku as hk
 import jax
@@ -155,6 +155,8 @@ class AlphaFold(hk.Module):
 
     assert isinstance(batch, dict)
     num_res = batch['aatype'].shape[0]
+    if "sym_id" not in batch:
+      batch["sym_id"] = jnp.zeros(num_res, dtype=int)
 
     def get_prev(ret):
       new_prev = {
@@ -211,10 +213,14 @@ class EmbeddingsAndEvoformer(hk.Module):
     """
     c = self.config
     rel_feats = []
-    pos = batch['residue_index']
     asym_id = batch['asym_id']
     asym_id_same = jnp.equal(asym_id[:, None], asym_id[None, :])
-    offset = pos[:, None] - pos[None, :]
+
+    if "offset" in batch:
+      offset = batch['offset']
+    else:
+      pos = batch['residue_index']
+      offset = pos[:, None] - pos[None, :]
 
     clipped_offset = jnp.clip(
         offset + c.max_relative_idx, a_min=0, a_max=2 * c.max_relative_idx)

@@ -18,14 +18,14 @@ import functools
 import numbers
 from typing import Any, Dict, Iterable, Mapping, Optional, Tuple, Union
 
-from alphafold.common import residue_constants
-from alphafold.model import all_atom_multimer
-from alphafold.model import common_modules
-from alphafold.model import geometry
-from alphafold.model import modules
-from alphafold.model import prng
-from alphafold.model import utils
-from alphafold.model.geometry import utils as geometry_utils
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.model import all_atom_multimer
+from colabdesign.af.alphafold.model import common_modules
+from colabdesign.af.alphafold.model import geometry
+from colabdesign.af.alphafold.model import modules
+from colabdesign.af.alphafold.model import prng
+from colabdesign.af.alphafold.model import utils
+from colabdesign.af.alphafold.model.geometry import utils as geometry_utils
 import haiku as hk
 import jax
 import jax.numpy as jnp

@@ -15,17 +15,16 @@
 
 from typing import Dict, Text
 
-from alphafold.common import residue_constants
-from alphafold.model import geometry
-from alphafold.model import utils
+from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.alphafold.model import geometry
+from colabdesign.af.alphafold.model import utils
+
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-
 def squared_difference(x, y):
   return jnp.square(x - y)
-
 
 def _make_chi_atom_indices():
   """Returns atom indices needed to compute chi angles for all residue types.

@@ -88,7 +88,7 @@ def convert_monomer_features(
       feature = np.argmax(feature, axis=-1).astype(np.int32)
       new_order_list = residue_constants.MAP_HHBLITS_AATYPE_TO_OUR_AATYPE
       feature = np.take(new_order_list, feature.astype(np.int32), axis=0)
-    elif feature_name == 'template_all_atom_masks':
+    elif feature_name == 'template_all_atom_mask':
       feature_name = 'template_all_atom_mask'
     converted[feature_name] = feature
   return converted

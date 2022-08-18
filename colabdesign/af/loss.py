@@ -254,7 +254,7 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
   # get true features
   x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
                                             all_atom_positions=batch["all_atom_positions"],
-                                            all_atom_masks=batch["all_atom_mask"])
+                                            all_atom_mask=batch["all_atom_mask"])
 
   dm = jnp.square(x[:,None]-x[None,:]).sum(-1,keepdims=True)
   bin_edges = jnp.linspace(2.3125, 21.6875, pred.shape[-1] - 1)

@@ -59,7 +59,7 @@ FEATURES = {
     "template_all_atom_positions": (tf.float32, [
         NUM_TEMPLATES, NUM_RES, residue_constants.atom_type_num, 3
     ]),
-    "template_all_atom_masks": (tf.float32, [
+    "template_all_atom_mask": (tf.float32, [
         NUM_TEMPLATES, NUM_RES, residue_constants.atom_type_num, 1
     ]),
 }

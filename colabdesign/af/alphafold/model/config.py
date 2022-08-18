@@ -109,7 +109,7 @@ CONFIG = ml_collections.ConfigDict({
             'resample_msa_in_recycling': True,
             'template_features': [
                 'template_all_atom_positions', 'template_sum_probs',
-                'template_aatype', 'template_all_atom_masks',
+                'template_aatype', 'template_all_atom_mask',
                 'template_domain_names'
             ],
             'unsupervised_features': [
@@ -162,7 +162,7 @@ CONFIG = ml_collections.ConfigDict({
                 'seq_mask': [NUM_RES],
                 'target_feat': [NUM_RES, None],
                 'template_aatype': [NUM_TEMPLATES, NUM_RES],
-                'template_all_atom_masks': [NUM_TEMPLATES, NUM_RES, None],
+                'template_all_atom_mask': [NUM_TEMPLATES, NUM_RES, None],
                 'template_all_atom_positions': [
                     NUM_TEMPLATES, NUM_RES, None, None],
                 'template_backbone_affine_mask': [NUM_TEMPLATES, NUM_RES],

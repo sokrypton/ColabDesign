@@ -66,7 +66,7 @@ class _af_inputs:
       # define template features
       template_feats = {"template_aatype": template_aatype,
                         "template_all_atom_positions": batch["all_atom_positions"],
-                        "template_all_atom_masks": batch["all_atom_mask"],
+                        "template_all_atom_mask": batch["all_atom_mask"],
                         "template_pseudo_beta": pb,
                         "template_pseudo_beta_mask": pb_mask}
 
@@ -83,7 +83,7 @@ class _af_inputs:
         if self.protocol == "partial":
           inputs[k] = inputs[k].at[0,opt["pos"]].set(v)
         
-        if k == "template_all_atom_masks":
+        if k == "template_all_atom_mask":
           rt = jnp.logical_or(opt["rm_template_seq"],opt["rm_template_sc"])
           if self.protocol == "binder":
             inputs[k] = jnp.where(rt,inputs[k].at[-1,n:,5:].set(0),inputs[k])
@@ -94,7 +94,7 @@ class _af_inputs:
     L = inputs["template_aatype"].shape[1]
     n = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,n:].multiply(pos_mask[n:,None])
+    inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
     inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):

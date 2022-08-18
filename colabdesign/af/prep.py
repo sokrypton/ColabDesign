@@ -38,8 +38,7 @@ class _af_prep:
   def _prep_features(self, length, num_seq=None, num_templates=1):
     '''process features'''
     if num_seq is None: num_seq = self._num
-    return prep_input_features(L=length, N=num_seq, T=num_templates,
-                               use_templates=self._args["use_templates"])
+    return prep_input_features(L=length, N=num_seq, T=num_templates)
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
@@ -398,7 +397,7 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
 
-def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
+def prep_input_features(L, N=1, T=1, eN=1):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
@@ -418,13 +417,11 @@ def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
             'extra_has_deletion': np.zeros((eN,L)),
             'extra_msa': np.zeros((eN,L),int),
             'extra_msa_mask': np.zeros((eN,L)),
-            'extra_msa_row_mask': np.zeros(eN)}
-                   
-  if use_templates:
-    inputs.update({'template_aatype': np.zeros((T,L),int),
-                   'template_all_atom_masks': np.zeros((T,L,37)),
-                   'template_all_atom_positions': np.zeros((T,L,37,3)),
-                   'template_mask': np.ones(T),
-                   'template_pseudo_beta': np.zeros((T,L,3)),
-                   'template_pseudo_beta_mask': np.zeros((T,L))})
+            'extra_msa_row_mask': np.zeros(eN),
+            'template_aatype': np.zeros((T,L),int),
+            'template_all_atom_mask': np.zeros((T,L,37)),
+            'template_all_atom_positions': np.zeros((T,L,37,3)),
+            'template_mask': np.ones(T),
+            'template_pseudo_beta': np.zeros((T,L,3)),
+            'template_pseudo_beta_mask': np.zeros((T,L))}
   return inputs

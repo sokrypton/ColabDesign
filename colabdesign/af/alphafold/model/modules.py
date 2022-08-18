@@ -1257,7 +1257,7 @@ def dgram_from_positions_soft(positions, num_bins, min_bin, max_bin, temp=2.0):
   o = o/(o.sum(-1,keepdims=True) + 1e-8)
   return o[...,1:]
 
-def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
+def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
   """Create pseudo beta features."""
   
   ca_idx = residue_constants.atom_order['CA']
@@ -1268,8 +1268,8 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
     is_gly_tile = jnp.tile(is_gly[..., None], [1] * len(is_gly.shape) + [3])
     pseudo_beta = jnp.where(is_gly_tile, all_atom_positions[..., ca_idx, :], all_atom_positions[..., cb_idx, :])
 
-    if all_atom_masks is not None:
-      pseudo_beta_mask = jnp.where(is_gly, all_atom_masks[..., ca_idx], all_atom_masks[..., cb_idx])
+    if all_atom_mask is not None:
+      pseudo_beta_mask = jnp.where(is_gly, all_atom_mask[..., ca_idx], all_atom_mask[..., cb_idx])
       pseudo_beta_mask = pseudo_beta_mask.astype(jnp.float32)
       return pseudo_beta, pseudo_beta_mask
     else:
@@ -1279,9 +1279,9 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
     ca_pos = all_atom_positions[...,ca_idx,:]
     cb_pos = all_atom_positions[...,cb_idx,:]
     pseudo_beta = is_gly[...,None] * ca_pos + (1-is_gly[...,None]) * cb_pos
-    if all_atom_masks is not None:
-      ca_mask = all_atom_masks[...,ca_idx]
-      cb_mask = all_atom_masks[...,cb_idx]
+    if all_atom_mask is not None:
+      ca_mask = all_atom_mask[...,ca_idx]
+      cb_mask = all_atom_mask[...,cb_idx]
       pseudo_beta_mask = is_gly * ca_mask + (1-is_gly) * cb_mask
       return pseudo_beta, pseudo_beta_mask
     else:
@@ -1566,7 +1566,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       ret = all_atom.atom37_to_torsion_angles(
           aatype=aatype,
           all_atom_pos=batch['template_all_atom_positions'],
-          all_atom_mask=batch['template_all_atom_masks'],
+          all_atom_mask=batch['template_all_atom_mask'],
           # Ensure consistent behaviour during testing:
           placeholder_for_undefined=not gc.zero_init)
 
@@ -1688,9 +1688,9 @@ class SingleTemplateEmbedding(hk.Module):
     # (the template mask defined above only considers pseudo CB).
     n, ca, c = [residue_constants.atom_order[a] for a in ('N', 'CA', 'C')]
     template_mask = (
-        batch['template_all_atom_masks'][..., n] *
-        batch['template_all_atom_masks'][..., ca] *
-        batch['template_all_atom_masks'][..., c])
+        batch['template_all_atom_mask'][..., n] *
+        batch['template_all_atom_mask'][..., ca] *
+        batch['template_all_atom_mask'][..., c])
     template_mask_2d = template_mask[:, None] * template_mask[None, :]
 
     # compute unit_vector (not used by default)

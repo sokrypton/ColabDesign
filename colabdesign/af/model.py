@@ -37,7 +37,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._loss_callback = loss_callback
     self._num = num_seq
-    self._args = {"use_templates":use_templates,
+    self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode,
                   "debug":debug,
                   "repeat":False, "homooligomer":False, "copies":1,
@@ -66,6 +66,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if use_multimer:
       cfg = config.model_config("model_1_multimer")
       cfg.model.embeddings_and_evoformer.template.max_templates = 1
+    
     else:
       cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
       # number of sequences
@@ -120,7 +121,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
   def _get_model(self, cfg, callback=None):
 
-    runner = model.RunModel(cfg, is_training=True, recycle_mode=self._args["recycle_mode"])
+    runner = model.RunModel(cfg, is_training=True, recycle_mode=self._args["recycle_mode"],
+                            use_multimer=self._args["use_multimer"])
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key, opt):

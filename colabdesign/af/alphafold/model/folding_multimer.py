@@ -398,6 +398,7 @@ class FoldIteration(hk.Module):
       initial_act: jnp.ndarray,
       safe_key: Optional[prng.SafeKey] = None,
       static_feat_2d: Optional[jnp.ndarray] = None,
+      dropout_scale=1.0,
   ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     c = self.config
@@ -409,7 +410,7 @@ class FoldIteration(hk.Module):
       return modules.apply_dropout(
           tensor=tensor,
           safe_key=safe_key,
-          rate=0.0 if self.global_config.deterministic else c.dropout,
+          rate=0.0 if self.global_config.deterministic else (c.dropout * dropout_scale),
           is_training=is_training)
 
     rigid = activations['rigid']
@@ -540,7 +541,8 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
           safe_key=prng.SafeKey(key),
           sequence_mask=sequence_mask,
           update_rigid=True,
-          is_training=is_training)
+          is_training=is_training,
+          dropout_scale=batch["dropout_scale"])
       return act, out
 
   keys = jax.random.split(safe_key.get(), c.num_layer)

@@ -380,6 +380,7 @@ class EmbeddingsAndEvoformer(hk.Module):
           padding_mask_2d=mask_2d,
           multichain_mask_2d=multichain_mask,
           is_training=is_training,
+          dropout_scale=batch["dropout_scale"],
           safe_key=safe_subkey)
       pair_activations += template_act
 
@@ -408,6 +409,7 @@ class EmbeddingsAndEvoformer(hk.Module):
           activations=act,
           masks=extra_masks,
           is_training=is_training,
+          dropout_scale=batch["dropout_scale"],
           safe_key=safe_subkey)
       return (extra_evoformer_output, safe_key)
 
@@ -452,6 +454,7 @@ class EmbeddingsAndEvoformer(hk.Module):
           activations=act,
           masks=evoformer_masks,
           is_training=is_training,
+          dropout_scale=batch["dropout_scale"],
           safe_key=safe_subkey)
       return (evoformer_output, safe_key)
 
@@ -499,7 +502,7 @@ class TemplateEmbedding(hk.Module):
     self.global_config = global_config
 
   def __call__(self, query_embedding, template_batch, padding_mask_2d,
-               multichain_mask_2d, is_training,
+               multichain_mask_2d, is_training, dropout_scale,
                safe_key=None):
     """Generate an embedding for a set of templates.
 
@@ -544,6 +547,7 @@ class TemplateEmbedding(hk.Module):
                                padding_mask_2d,
                                multichain_mask_2d,
                                is_training,
+                               dropout_scale,
                                safe_key)
 
     safe_key, unsafe_key = safe_key.split()
@@ -580,7 +584,7 @@ class SingleTemplateEmbedding(hk.Module):
 
   def __call__(self, query_embedding, template_aatype,
                template_all_atom_positions, template_all_atom_masks,
-               padding_mask_2d, multichain_mask_2d, is_training,
+               padding_mask_2d, multichain_mask_2d, is_training, dropout_scale,
                safe_key):
     """Build the single template embedding graph.
 
@@ -690,6 +694,7 @@ class SingleTemplateEmbedding(hk.Module):
           act=act,
           pair_mask=padding_mask_2d,
           is_training=is_training,
+          dropout_scale=dropout_scale,
           safe_key=safe_subkey)
       return (act, safe_key)
 
@@ -720,7 +725,7 @@ class TemplateEmbeddingIteration(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, act, pair_mask, is_training=True,
+  def __call__(self, act, pair_mask, is_training=True, dropout_scale=1.0,
                safe_key=None):
     """Build a single iteration of the template embedder.
 
@@ -742,6 +747,7 @@ class TemplateEmbeddingIteration(hk.Module):
     dropout_wrapper_fn = functools.partial(
         modules.dropout_wrapper,
         is_training=is_training,
+        dropout_scale=dropout_scale,
         global_config=gc)
 
     safe_key, *sub_keys = safe_key.split(20)

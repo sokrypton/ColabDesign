@@ -80,7 +80,6 @@ class _af_inputs:
           inputs[k] = inputs[k].at[-1,n:].set(v[n:])
         
         if self.protocol == "fixbb":
-          print(k, inputs[k].shape, v.shape)
           inputs[k] = inputs[k].at[0].set(v)
 
         if self.protocol == "partial":

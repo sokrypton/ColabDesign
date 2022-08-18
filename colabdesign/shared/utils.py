@@ -10,27 +10,28 @@ def clear_mem():
 
 def update_dict(D, *args, **kwargs):
   '''robust function for updating dictionary'''
-  def set_dict(d, x):
+  def set_dict(d, x, override=False):
     for k,v in x.items():
       if v is not None:
         if k in d:
           if isinstance(v, dict):
-            set_dict(d[k], x[k])
+            set_dict(d[k], x[k], override=override)
+          elif override or d[k] is None:
+            d[k] = v
           elif isinstance(d[k],(np.ndarray,jnp.ndarray)):
             d[k] = np.asarray(v)
-          elif d[k] is None:
-            d[k] = v
           elif isinstance(d[k], dict):
             d[k] = jax.tree_map(lambda x: type(x)(v), d[k])
           else:
             d[k] = type(d[k])(v)
         else:
           print(f"ERROR: '{k}' not found in {list(d.keys())}")  
+  override = kwargs.pop("override", False)
   while len(args) > 0 and isinstance(args[0],str):
     D,args = D[args[0]],args[1:]
   for a in args:
-    if isinstance(a, dict): set_dict(D, a)
-  set_dict(D, kwargs)
+    if isinstance(a, dict): set_dict(D, a, override=override)
+  set_dict(D, kwargs, override=override)
 
 def copy_dict(x):
   '''deepcopy dictionary'''

@@ -41,14 +41,7 @@ class RunModel:
     self.params = params
     
     self.mode = recycle_mode
-    if self.mode is None:
-      self.mode = []
-      # backward compatibility
-      if self.config.model.add_prev:
-        self.mode.append("add_prev")
-      if self.config.model.backprop_recycle:
-        self.mode.append("backprop")
-
+    if self.mode is None: self.mode = []
 
     def _forward_fn(batch):
       if use_multimer:

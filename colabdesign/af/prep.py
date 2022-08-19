@@ -45,8 +45,9 @@ class _af_prep:
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
-                   use_binder_template=False, split_templates=False,
-                   hotspot=None, rm_template_seq=True, rm_template_sc=True, **kwargs):
+                   use_binder_template=False, 
+                   split_templates=False,rm_template_seq=True, rm_template_sc=True,
+                   hotspot=None, **kwargs):
     '''
     prep inputs for binder design
     ---------------------------------------------------
@@ -61,7 +62,9 @@ class _af_prep:
     
     redesign = binder_chain is not None
 
-    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
+    self.opt.update({"rm_template_seq":rm_template_seq,
+                     "rm_template_sc":rm_template_sc, 
+                     "mask_interchain":split_templates})
     self._args.update({"redesign":redesign})
 
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
@@ -73,7 +76,6 @@ class _af_prep:
     if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
-      self.opt["template"]["mask_interchain"] = split_templates
       # get input features
       self._inputs = self._prep_features(target_len + binder_len)
 
@@ -111,13 +113,13 @@ class _af_prep:
     self._lengths = [self._target_len, self._binder_len]
 
     # set info for alphafold-multimer
-    multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
-    self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
+    self._inputs.update(get_multi_id(self._lengths))
 
     self._prep_model(**kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=True, rm_template_seq=True, rm_template_sc=True,
+  def _prep_fixbb(self, pdb_filename, chain=None,
+                  copies=1, repeat=False, homooligomer=False, block_diag=True,                  
+                  rm_template_seq=True, rm_template_sc=True, split_templates=False,
                   pos=None, fix_seq=True, **kwargs):
     '''
     prep inputs for fixed backbone design
@@ -133,13 +135,15 @@ class _af_prep:
                       protocol to apply supervised loss to only subset of positions
     ---------------------------------------------------
     '''
-    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
+    self.opt.update({"rm_template_seq":rm_template_seq,
+                     "rm_template_sc":rm_template_sc,
+                     "mask_interchain":split_templates})
+
     # block_diag the msa features
     if block_diag and not repeat and copies > 1:
-      max_msa_clusters = 1 + self._num * copies
-      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
+      num_seq = 1 + self._num * copies
     else:
-      max_msa_clusters = self._num
+      num_seq = self._num
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
@@ -147,7 +151,7 @@ class _af_prep:
       copies = len(chain.split(","))
 
     self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)
+    self._inputs = self._prep_features(self._len, num_seq=num_seq)
     self._inputs["batch"] = pdb["batch"]
 
     self._args.update({"repeat":repeat,
@@ -174,19 +178,9 @@ class _af_prep:
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
 
-        # set info for alphafold-multimer
-        multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
-        if homooligomer:
-          self._inputs["asym_id"] = self._inputs["sym_id"] = multi_id
-          self._inputs["entity_id"] = np.array([0]*sum(self._lengths))
-        else:
-          self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
-
     else:
       self._inputs["residue_index"] = pdb["residue_index"]
       self._lengths = pdb["lengths"]
-      multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
-      self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
 
     # fix certain positions
     self.opt["fix_seq"] = fix_seq
@@ -195,6 +189,10 @@ class _af_prep:
       self.opt["pos"] = self._pos_info["pos"]
 
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
+
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
+
     self._prep_model(**kwargs)
 
     # undocumented: for dist cropping (for Shihao)
@@ -234,16 +232,14 @@ class _af_prep:
         self._lengths = [self._len * copies]
       else:
         offset = 50
-        self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
         self._lengths = [self._len] * copies
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]
     
-    multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
-    self._inputs["asym_id"] = self._inputs["sym_id"] = multi_id
-    self._inputs["entity_id"] = np.array([0]*sum(self._lengths))
-    
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
+
     self._prep_model(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
@@ -365,8 +361,7 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
       shape_placeholders.NUM_MSA_SEQ: num_seq,
       shape_placeholders.NUM_EXTRA_SEQ: 1,
       shape_placeholders.NUM_TEMPLATES: num_templates
-  }
-  
+  }  
   for k,v in feat.items():
     if k == "batch":
       feat[k] = make_fixed_size(v, num_res)
@@ -455,3 +450,11 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'entity_id': np.zeros(L),
             'all_atom_positions': np.zeros((N,37,3))}
   return inputs
+
+def get_multi_id(lengths, homooligomer=False):
+  '''set info for alphafold-multimer'''
+  i = np.concatenate([[n]*l for n,l in enumerate(lengths)])
+  if homooligomer:
+    return {"asym_id":i, "sym_id":i, "entity_id":np.zeros_like(i)}
+  else:
+    return {"asym_id":i, "sym_id":i, "entity_id":i}

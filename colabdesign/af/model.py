@@ -60,31 +60,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     # configure AlphaFold
     #############################
-    if recycle_mode == "average":
-      num_recycles = 0
-
     if use_multimer:
       cfg = config.model_config("model_1_multimer")
-      cfg.model.embeddings_and_evoformer.template.max_templates = 1
-      cfg.model.embeddings_and_evoformer.num_msa = 1
-      cfg.model.embeddings_and_evoformer.num_extra_msa = 1
-
     else:
       cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
-      # number of sequences
-      if use_templates:
-        cfg.data.eval.max_templates = 1
-        cfg.data.eval.max_msa_clusters = num_seq + 1
-      else:
-        cfg.data.eval.max_templates = 0
-        cfg.data.eval.max_msa_clusters = num_seq
-      cfg.data.common.max_extra_msa = 1
-      cfg.data.eval.masked_msa_replace_fraction = 0
-
-      # number of recycles
-      cfg.data.common.num_recycle = 0      # for feature processing
-
-    cfg.model.num_recycle = num_recycles # for model configuration
+    if recycle_mode == "average":num_recycles = 0
+    cfg.model.num_recycle = num_recycles
     cfg.model.global_config.use_remat = True    
 
     # setup model
@@ -151,7 +132,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # update template features
       if self._args["use_templates"]:
         self._update_template(inputs, opt, key())
-        inputs["mask_template_interchain"] = opt["template"]["mask_interchain"]
+      inputs["mask_template_interchain"] = opt["template"]["mask_interchain"]
       
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)

@@ -38,26 +38,19 @@ def model_config(name: str) -> ml_collections.ConfigDict:
 CONFIG_DIFFS = {
     'model_1': {
         # Jumper et al. (2021) Suppl. Table 5, Model 1.1.1
-        'data.common.max_extra_msa': 5120,
-        'data.common.reduce_msa_clusters_by_max_templates': True,
-        'data.common.use_templates': True,
         'model.embeddings_and_evoformer.template.embed_torsion_angles': True,
         'model.embeddings_and_evoformer.template.enabled': True
     },
     'model_2': {
         # Jumper et al. (2021) Suppl. Table 5, Model 1.1.2
-        'data.common.reduce_msa_clusters_by_max_templates': True,
-        'data.common.use_templates': True,
         'model.embeddings_and_evoformer.template.embed_torsion_angles': True,
         'model.embeddings_and_evoformer.template.enabled': True
     },
     'model_3': {
         # Jumper et al. (2021) Suppl. Table 5, Model 1.2.1
-        'data.common.max_extra_msa': 5120,
     },
     'model_4': {
         # Jumper et al. (2021) Suppl. Table 5, Model 1.2.2
-        'data.common.max_extra_msa': 5120,
     },
     'model_5': {
         # Jumper et al. (2021) Suppl. Table 5, Model 1.2.3
@@ -67,26 +60,19 @@ CONFIG_DIFFS = {
     # with an additional predicted_aligned_error head that can produce
     # predicted TM-score (pTM) and predicted aligned errors.
     'model_1_ptm': {
-        'data.common.max_extra_msa': 5120,
-        'data.common.reduce_msa_clusters_by_max_templates': True,
-        'data.common.use_templates': True,
         'model.embeddings_and_evoformer.template.embed_torsion_angles': True,
         'model.embeddings_and_evoformer.template.enabled': True,
         'model.heads.predicted_aligned_error.weight': 0.1
     },
     'model_2_ptm': {
-        'data.common.reduce_msa_clusters_by_max_templates': True,
-        'data.common.use_templates': True,
         'model.embeddings_and_evoformer.template.embed_torsion_angles': True,
         'model.embeddings_and_evoformer.template.enabled': True,
         'model.heads.predicted_aligned_error.weight': 0.1
     },
     'model_3_ptm': {
-        'data.common.max_extra_msa': 5120,
         'model.heads.predicted_aligned_error.weight': 0.1
     },
     'model_4_ptm': {
-        'data.common.max_extra_msa': 5120,
         'model.heads.predicted_aligned_error.weight': 0.1
     },
     'model_5_ptm': {
@@ -96,29 +82,6 @@ CONFIG_DIFFS = {
 
 CONFIG = ml_collections.ConfigDict({
     'data': {
-        'common': {
-            'masked_msa': {
-                'profile_prob': 0.1,
-                'same_prob': 0.1,
-                'uniform_prob': 0.1
-            },
-            'max_extra_msa': 1024,
-            'msa_cluster_features': True,
-            'num_recycle': 3,
-            'reduce_msa_clusters_by_max_templates': False,
-            'resample_msa_in_recycling': True,
-            'template_features': [
-                'template_all_atom_positions', 'template_sum_probs',
-                'template_aatype', 'template_all_atom_mask',
-                'template_domain_names'
-            ],
-            'unsupervised_features': [
-                'aatype', 'residue_index', 'sequence', 'msa', 'domain_name',
-                'num_alignments', 'seq_length', 'between_segment_residues',
-                'deletion_matrix'
-            ],
-            'use_templates': False,
-        },
         'eval': {
             'feat': {
                 'aatype': [NUM_RES],
@@ -177,12 +140,6 @@ CONFIG = ml_collections.ConfigDict({
                 'sym_id': [NUM_RES],
                 'entity_id': [NUM_RES]
             },
-            'fixed_size': True,
-            'subsample_templates': False,  # We want top templates.
-            'masked_msa_replace_fraction': 0.15,
-            'max_msa_clusters': 512,
-            'max_templates': 4,
-            'num_ensemble': 1,
         },
     },
     'model': {
@@ -328,7 +285,6 @@ CONFIG = ml_collections.ConfigDict({
                         'shared_dropout': True
                     }
                 },
-                'max_templates': 4,
                 'subbatch_size': 128,
                 'use_template_unit_vector': False,
             }
@@ -411,9 +367,6 @@ CONFIG = ml_collections.ConfigDict({
             },
         },
         'num_recycle': 3,
-        'backprop_recycle': False,
-        'resample_msa_in_recycling': True,
-        'add_prev': False,
         'use_struct': True,
     },
 })
@@ -488,8 +441,7 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
             },
             'extra_msa_channel': 64,
             'extra_msa_stack_num_block': 4,
-            'num_msa': 252,
-            'num_extra_msa': 1152,
+            'num_extra_msa': 1,
             'masked_msa': {
                 'profile_prob': 0.1,
                 'replace_fraction': 0.15,
@@ -520,7 +472,6 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
                     'num_bins': 39
                 },
                 'enabled': True,
-                'max_templates': 4,
                 'num_channels': 64,
                 'subbatch_size': 128,
                 'template_pair_stack': {
@@ -636,8 +587,6 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
                 'weight': 1.0
             }
         },
-        'num_ensemble_eval': 1,
         'num_recycle': 3,
-        'resample_msa_in_recycling': True
     }
 })

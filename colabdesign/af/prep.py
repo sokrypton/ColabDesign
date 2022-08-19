@@ -9,6 +9,8 @@ import re
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.model import config
+
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos
@@ -63,7 +65,6 @@ class _af_prep:
     self._args.update({"redesign":redesign})
 
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
-    num_templates = 1
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
@@ -74,7 +75,7 @@ class _af_prep:
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
       self.opt["template"]["mask_interchain"] = split_templates
       # get input features
-      self._inputs = self._prep_features(target_len + binder_len, num_templates=num_templates)
+      self._inputs = self._prep_features(target_len + binder_len)
 
     else:
       target_len = pdb["residue_index"].shape[0]
@@ -97,7 +98,7 @@ class _af_prep:
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
-      self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
+      self._inputs = make_fixed_size(self._inputs, num_res=total_len, num_seq=self._num)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
@@ -110,7 +111,7 @@ class _af_prep:
     self._lengths = [self._target_len, self._binder_len]
 
     # set info for alphafold-multimer
-    multi_id = np.append(np.full(target_len,1),np.full(binder_len,1))
+    multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
     self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
 
     self._prep_model(**kwargs)
@@ -168,13 +169,24 @@ class _af_prep:
           self._len = self._len // copies
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
         else:
-          self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
+          self._inputs = make_fixed_size(self._inputs, num_res=self._len * copies, num_seq=self._num)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
+
+        # set info for alphafold-multimer
+        multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
+        if homooligomer:
+          self._inputs["asym_id"] = self._inputs["sym_id"] = multi_id
+          self._inputs["entity_id"] = np.array([0]*sum(self._lengths))
+        else:
+          self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
+
     else:
       self._inputs["residue_index"] = pdb["residue_index"]
-      self._lengths = [self._len]
+      self._lengths = pdb["lengths"]
+      multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
+      self._inputs["asym_id"] = self._inputs["sym_id"] = self._inputs["entity_id"] = multi_id
 
     # fix certain positions
     self.opt["fix_seq"] = fix_seq
@@ -204,16 +216,15 @@ class _af_prep:
     
     # set [arg]uments
     if block_diag and not repeat and copies > 1:
-      max_msa_clusters = 1 + self._num * copies
-      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
+      num_seq = 1 + self._num * copies
     else:
-      max_msa_clusters = self._num
+      num_seq = self._num
       block_diag = False
     self._args.update({"block_diag":block_diag, "repeat":repeat, "copies":copies})
       
     # prep features
     self._len = length
-    self._inputs = self._prep_features(length * copies, num_seq=max_msa_clusters)
+    self._inputs = self._prep_features(length * copies, num_seq=num_seq)
     
     # set weights
     self.opt["weights"].update({"con":1.0})
@@ -228,6 +239,10 @@ class _af_prep:
       self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]
+    
+    multi_id = np.array([[n]*l for n,l in enumerate(self._lengths)])
+    self._inputs["asym_id"] = self._inputs["sym_id"] = multi_id
+    self._inputs["entity_id"] = np.array([0]*sum(self._lengths))
     
     self._prep_model(**kwargs)
 
@@ -311,6 +326,7 @@ def prep_pdb(pdb_filename, chain=None):
   chains = [None] if chain is None else chain.split(",")
   o,last = [],0
   residue_idx, chain_idx = [],[]
+  lengths = []
   for chain in chains:
     protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
     batch = {'aatype': protein_obj.aatype,
@@ -331,27 +347,29 @@ def prep_pdb(pdb_filename, chain=None):
     
     residue_idx.append(protein_obj.residue_index[has_ca])
     chain_idx.append([chain] * len(residue_idx[-1]))
+    lengths.append(len(residue_index))
 
   # concatenate chains
   o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
   
   # save original residue and chain index
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
+  o["lengths"] = lengths
   return o
 
-def make_fixed_size(feat, cfg, length):
+def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
   '''pad input features'''
-  shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
-  num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
+  shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
   pad_size_map = {
-      shape_placeholders.NUM_RES: length,
-      shape_placeholders.NUM_MSA_SEQ: num_msa_seq,
-      shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
-      shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
+      shape_placeholders.NUM_RES: num_res,
+      shape_placeholders.NUM_MSA_SEQ: num_seq,
+      shape_placeholders.NUM_EXTRA_SEQ: 1,
+      shape_placeholders.NUM_TEMPLATES: num_templates
   }
+  
   for k,v in feat.items():
     if k == "batch":
-      feat[k] = make_fixed_size(v, cfg, length)
+      feat[k] = make_fixed_size(v, num_res)
     else:
       shape = list(v.shape)
       schema = shape_schema[k]

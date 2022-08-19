@@ -118,7 +118,7 @@ class _af_prep:
     self._prep_model(**kwargs)
 
   def _prep_fixbb(self, pdb_filename, chain=None,
-                  copies=1, repeat=False, homooligomer=False, block_diag=True,                  
+                  copies=1, repeat=False, homooligomer=False,
                   rm_template_seq=True, rm_template_sc=True, split_templates=False,
                   pos=None, fix_seq=True, **kwargs):
     '''
@@ -126,7 +126,6 @@ class _af_prep:
     ---------------------------------------------------
     if copies > 1:
       -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
-        -block_diag=True - each copy is it's own sequence in the MSA
       -repeat=True - tie the repeating sequence within single chain
     -rm_template_seq - if template is defined, remove information about template sequence
     if fix_seq:
@@ -140,8 +139,9 @@ class _af_prep:
                      "mask_interchain":split_templates})
 
     # block_diag the msa features
-    if block_diag and not repeat and copies > 1:
+    if not repeat and copies > 1 and not self._args["use_multimer"]:
       num_seq = 1 + self._num * copies
+      block_diag = True
     else:
       num_seq = self._num
       block_diag = False
@@ -166,7 +166,6 @@ class _af_prep:
     if copies > 1:
       if repeat:
         self._len = self._len // copies
-        block_diag = False
         self._lengths = [self._len * copies]
       else:
         if homooligomer:
@@ -200,21 +199,19 @@ class _af_prep:
     cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
     self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
     
-  def _prep_hallucination(self, length=100, copies=1,
-                          repeat=False, block_diag=True, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
     '''
     prep inputs for hallucination
     ---------------------------------------------------
     if copies > 1:
-      -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
-        -block_diag=True - each copy is it's own sequence in the MSA
       -repeat=True - tie the repeating sequence within single chain
     ---------------------------------------------------
     '''
     
     # set [arg]uments
-    if block_diag and not repeat and copies > 1:
+    if not repeat and copies > 1 and not self._args["use_multimer"]:
       num_seq = 1 + self._num * copies
+      block_diag = True
     else:
       num_seq = self._num
       block_diag = False
@@ -356,6 +353,7 @@ def prep_pdb(pdb_filename, chain=None):
 def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
   '''pad input features'''
   shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
+
   pad_size_map = {
       shape_placeholders.NUM_RES: num_res,
       shape_placeholders.NUM_MSA_SEQ: num_seq,

@@ -151,6 +151,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         batch.update(all_atom.atom37_to_frames(**batch))
       else:
         batch = None
+        
+      inputs["batch"] = batch
+      
       #######################################################################
       # OUTPUTS
       #######################################################################
@@ -172,20 +175,22 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
 
       if self._args["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
-
+            
       #######################################################################
       # LOSS
       #######################################################################
-      inputs["batch"] = batch
-      if self._args["debug"]: aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       aux["losses"] = {}
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 
+      inputs["seq"] = aux["seq"]      
       if self._loss_callback is not None:
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
         for loss_fn in loss_fns:
           aux["losses"].update(loss_fn(inputs, outputs, opt))
+
+      if self._args["debug"]:
+        aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
   
       # weighted loss
       w = opt["weights"]

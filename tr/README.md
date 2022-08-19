@@ -3,7 +3,7 @@ Work in Progress...
 For original version implemented in keras see: https://github.com/gjoni/trDesign/tree/master/02-GD
 
 ### Google Colab
-<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/tr/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 

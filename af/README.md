@@ -1,4 +1,4 @@
-# AfDesign (v1.0.5)
+# AfDesign (v1.0.6)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -16,6 +16,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
 - **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
 - **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
+- **19Aug2022** - v1.0.6 - Adding support for alphafold-multimer. To enable set `mk_afdesign_model(..., use_multimer=True)`.
 
 ### setup
 ```bash
@@ -23,7 +24,7 @@ pip install git+https://github.com/sokrypton/ColabDesign.git
 
 # download alphafold weights
 mkdir params
-curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
+curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2022-03-02.tar | tar x -C params
 
 # download openfold weights (optional)
 for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
@@ -122,8 +123,6 @@ model.set_opt(num_models=1)
 #### Can I use OpenFold model params for design instead of AlphaFold?
 ```python
 model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
-# OR
-model.set_opt(use_openfold=True, use_alphafold=False)
 ```
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:

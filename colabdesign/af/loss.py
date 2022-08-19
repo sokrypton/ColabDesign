@@ -4,7 +4,7 @@ import numpy as np
 
 from colabdesign.shared.utils import Key
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
-from colabdesign.af.alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.model import model, folding, all_atom, folding_multimer
 from colabdesign.af.alphafold.common import confidence_jax
 
 ####################################################
@@ -32,7 +32,7 @@ class _af_loss:
     rmsd, aux["atom_positions"] = aln["rmsd"], aln["align"](aux["atom_positions"])
 
     # dgram loss
-    aatype = inputs["aatype"][0]
+    aatype = inputs["aatype"]
     dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
     
     aux["losses"].update({"fape": get_fape_loss(inputs, outputs, model_config=self._cfg),
@@ -52,7 +52,7 @@ class _af_loss:
       fape = get_fape_loss(inputs, outputs, model_config=self._cfg)
       
       # compute cce of binder + interface
-      aatype = inputs["aatype"][0]
+      aatype = inputs["aatype"]
       cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_cce=True)
 
       aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[self._target_len:,:].mean()})
@@ -76,7 +76,7 @@ class _af_loss:
       return jax.tree_map(fn, x)
 
     pos = opt["pos"]
-    aatype = inputs["aatype"][0]
+    aatype = inputs["aatype"]
     _config = self._cfg.model.heads.structure_module
 
     # dgram
@@ -94,17 +94,23 @@ class _af_loss:
     fape_loss = {"loss":0.0}
     struct = outputs["structure_module"]
     traj = {"traj":sub(struct["traj"],pos,-2)}
-    folding.backbone_loss(fape_loss, batch, traj, _config)
+    
+    if not self._args["use_multimer"]:
+      folding.backbone_loss(fape_loss, batch, traj, _config)
+    
     aux["losses"]["fape"] = fape_loss["loss"]
 
     # sidechain specific losses
     if self._args["use_sidechains"]:
       # sc_fape
       pred_pos = sub(struct["final_atom14_positions"],pos)
+      
       sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                    "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
-
-      aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct, _config)["loss"]
+      if not self._args["use_multimer"]:
+        aux["losses"]["sc_fape"] = folding_fn.sidechain_loss(batch, sc_struct, _config)["loss"]
+      else:
+        aux["losses"]["sc_fape"] = 0.0
 
       # sc_rmsd
       true_pos = all_atom.atom37_to_atom14(batch["all_atom_positions"], self._sc["batch"])
@@ -119,9 +125,9 @@ class _af_loss:
 
     # decide on what offset to use
     if "offset" in inputs:
-      offset = inputs["offset"][0]
+      offset = inputs["offset"]
     else:
-      idx = inputs["residue_index"][0]
+      idx = inputs["residue_index"]
       offset = idx[:,None] - idx[None,:]
 
     # pae loss
@@ -248,7 +254,7 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
   # get true features
   x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
                                             all_atom_positions=batch["all_atom_positions"],
-                                            all_atom_masks=batch["all_atom_mask"])
+                                            all_atom_mask=batch["all_atom_mask"])
 
   dm = jnp.square(x[:,None]-x[None,:]).sum(-1,keepdims=True)
   bin_edges = jnp.linspace(2.3125, 21.6875, pred.shape[-1] - 1)
@@ -391,12 +397,13 @@ def get_sc_rmsd(true, pred, sc):
 # TODO (make copies friendly)
 #--------------------------------------
 def get_fape_loss(inputs, outputs, model_config, use_clamped_fape=False):
-  batch = inputs["batch"]
-  sub_batch = jax.tree_map(lambda x: x, batch)
-  sub_batch["use_clamped_fape"] = use_clamped_fape
   loss = {"loss":0.0}    
-  _config = model_config.model.heads.structure_module
-  folding.backbone_loss(loss, sub_batch, outputs["structure_module"], _config)
+  if not model_config.model.global_config.multimer_mode:
+    batch = inputs["batch"]
+    sub_batch = jax.tree_map(lambda x: x, batch)
+    sub_batch["use_clamped_fape"] = use_clamped_fape
+    _config = model_config.model.heads.structure_module
+    folding.backbone_loss(loss, sub_batch, outputs["structure_module"], _config)
   return loss["loss"]
 
 def get_6D_loss(inputs, outputs, **kwargs):

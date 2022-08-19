@@ -73,15 +73,8 @@ class _af_design:
     callbacks = [self._crop(), callback]
     
     # decide which model params to use
-    ns,ns_name = [],[]
-    count = {"openfold":0,"alphafold":0}
-    for n,name in enumerate(self._model_names):
-      if "openfold" in name:
-        if self._args["use_openfold"]:  ns.append(n); ns_name.append(name); count["openfold"] += 1
-      else:
-        if self._args["use_alphafold"]: ns.append(n); ns_name.append(name); count["alphafold"] += 1
-    for k in count:
-      if self._args[f"use_{k}"] and count[k] == 0: print(f"ERROR: {k} params not found")
+    ns_name = self._model_names.copy()
+    ns = list(range(len(ns_name)))
 
     # sub select number of model params
     if self._args["models"] is not None:
@@ -161,7 +154,7 @@ class _af_design:
       if mode == "average":
         # run recycles manually, average gradients
         if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
-        else: L = self._inputs["residue_index"].shape[-1]
+        else: L = self._inputs["residue_index"].shape[0]
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                                 'prev_pair': np.zeros([L,L,128]),
                                 'prev_pos': np.zeros([L,37,3])}

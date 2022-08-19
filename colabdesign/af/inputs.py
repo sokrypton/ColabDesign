@@ -5,7 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.af.alphafold.model import model
+from colabdesign.af.alphafold.model import model, config
 
 ############################################################################
 # AF_INPUTS - functions for modifying inputs before passing to alphafold
@@ -39,12 +39,14 @@ class _af_inputs:
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
 
+    # enable templates
+    inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
+
     # aatype = is used to define template's CB coordinates (CA in case of glycine)
     # template_aatype = is used as template's sequence
-
     batch = inputs["batch"]
     if self.protocol in ["partial","fixbb","binder"]:      
-      L = batch["aatype"].shape[0]      
+      L = batch["aatype"].shape[0]
       if self.protocol in ["partial","fixbb"]:
         rt = opt["rm_template_seq"]
         aatype          = jnp.where(rt,0,batch["aatype"])
@@ -66,7 +68,7 @@ class _af_inputs:
       # define template features
       template_feats = {"template_aatype": template_aatype,
                         "template_all_atom_positions": batch["all_atom_positions"],
-                        "template_all_atom_masks": batch["all_atom_mask"],
+                        "template_all_atom_mask": batch["all_atom_mask"],
                         "template_pseudo_beta": pb,
                         "template_pseudo_beta_mask": pb_mask}
 
@@ -74,28 +76,28 @@ class _af_inputs:
       for k,v in template_feats.items():
         if self.protocol == "binder":
           n = self._target_len
-          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
+          inputs[k] = inputs[k].at[0,:n].set(v[:n])
+          inputs[k] = inputs[k].at[-1,n:].set(v[n:])
         
         if self.protocol == "fixbb":
-          inputs[k] = inputs[k].at[:,0].set(v)
+          inputs[k] = inputs[k].at[0].set(v)
 
         if self.protocol == "partial":
-          inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
+          inputs[k] = inputs[k].at[0,opt["pos"]].set(v)
         
-        if k == "template_all_atom_masks":
+        if k == "template_all_atom_mask":
           rt = jnp.logical_or(opt["rm_template_seq"],opt["rm_template_sc"])
           if self.protocol == "binder":
-            inputs[k] = jnp.where(rt,inputs[k].at[:,-1,n:,5:].set(0),inputs[k])
+            inputs[k] = jnp.where(rt,inputs[k].at[-1,n:,5:].set(0),inputs[k])
           else:
-            inputs[k] = jnp.where(rt,inputs[k].at[:,0,:,5:].set(0),inputs[k])
+            inputs[k] = jnp.where(rt,inputs[k].at[0,:,5:].set(0),inputs[k])
 
     # dropout template input features
-    L = inputs["template_aatype"].shape[2]
+    L = inputs["template_aatype"].shape[1]
     n = self._target_len if self.protocol == "binder" else 0
     pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
+    inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
+    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   '''update the sequence features'''
@@ -107,10 +109,7 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   seq_pssm = jnp.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
   
   msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
-  if seq.ndim == 3:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
-  else:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[...,:20])
+  target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
     
   inputs.update({"target_feat":target_feat,"msa_feat":msa_feat})
 
@@ -149,7 +148,7 @@ def expand_copies(x, copies, block_diag=True):
   else:
     return x
 
-def crop_feat(feat, pos, cfg, add_batch=True):  
+def crop_feat(feat, pos, add_batch=True):  
   '''
   crop features to specified [pos]itions
   '''
@@ -161,13 +160,13 @@ def crop_feat(feat, pos, cfg, add_batch=True):
       if y == k: i.append(j)
     return i
 
-  shapes = cfg.data.eval.feat
+  shapes = config.CONFIG.data.eval.feat
   NUM_RES = "num residues placeholder"
   idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
   new_feat = copy_dict(feat)
   for k in new_feat.keys():
     if k == "batch":
-      new_feat[k] = crop_feat(feat[k], pos, cfg, add_batch=False)
+      new_feat[k] = crop_feat(feat[k], pos, add_batch=False)
     if k in idx:
       for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
   

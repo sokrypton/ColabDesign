@@ -9,6 +9,8 @@ import re
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
+from colabdesign.af.alphafold.model import config
+
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos
@@ -35,17 +37,17 @@ class _af_prep:
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
-  def _prep_features(self, length, num_seq=None, num_templates=1, template_features=None):
+  def _prep_features(self, length, num_seq=None, num_templates=1):
     '''process features'''
     if num_seq is None: num_seq = self._num
-    return prep_input_features(L=length, N=num_seq, T=num_templates,
-                               use_templates=self._args["use_templates"])
+    return prep_input_features(L=length, N=num_seq, T=num_templates)
   
   # prep functions specific to protocol
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
-                   use_binder_template=False, split_templates=False,
-                   hotspot=None, rm_template_seq=True, rm_template_sc=True, **kwargs):
+                   use_binder_template=False, 
+                   split_templates=False,rm_template_seq=True, rm_template_sc=True,
+                   hotspot=None, **kwargs):
     '''
     prep inputs for binder design
     ---------------------------------------------------
@@ -60,11 +62,12 @@ class _af_prep:
     
     redesign = binder_chain is not None
 
-    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
+    self.opt.update({"rm_template_seq":rm_template_seq,
+                     "rm_template_sc":rm_template_sc, 
+                     "mask_interchain":split_templates})
     self._args.update({"redesign":redesign})
 
     self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
-    num_templates = 1
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
@@ -73,15 +76,14 @@ class _af_prep:
     if redesign:
       target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
       binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
-      if split_templates: num_templates = 2      
       # get input features
-      self._inputs = self._prep_features(target_len + binder_len, num_templates=num_templates)
+      self._inputs = self._prep_features(target_len + binder_len)
 
     else:
       target_len = pdb["residue_index"].shape[0]
       self._inputs = self._prep_features(target_len)
       
-    self._inputs["residue_index"][...,:] = pdb["residue_index"]
+    self._inputs["residue_index"] = pdb["residue_index"]
 
     # gather hotspot info
     hotspot = kwargs.pop("pos", hotspot)
@@ -98,11 +100,11 @@ class _af_prep:
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
-      self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
+      self._inputs = make_fixed_size(self._inputs, num_res=total_len, num_seq=self._num)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
-      self._inputs["residue_index"][:,target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
+      self._inputs["residue_index"][target_len:] = pdb["residue_index"][-1] + np.arange(binder_len) + 50
       for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
       self.opt["weights"].update({"con":0.5, "i_pae":0.01, "i_con":0.5})
 
@@ -110,17 +112,20 @@ class _af_prep:
     self._binder_len = self._len = binder_len
     self._lengths = [self._target_len, self._binder_len]
 
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths))
+
     self._prep_model(**kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None, copies=1, homooligomer=False, 
-                  repeat=False, block_diag=True, rm_template_seq=True, rm_template_sc=True,
+  def _prep_fixbb(self, pdb_filename, chain=None,
+                  copies=1, repeat=False, homooligomer=False,
+                  rm_template_seq=True, rm_template_sc=True, split_templates=False,
                   pos=None, fix_seq=True, **kwargs):
     '''
     prep inputs for fixed backbone design
     ---------------------------------------------------
     if copies > 1:
       -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
-        -block_diag=True - each copy is it's own sequence in the MSA
       -repeat=True - tie the repeating sequence within single chain
     -rm_template_seq - if template is defined, remove information about template sequence
     if fix_seq:
@@ -129,13 +134,16 @@ class _af_prep:
                       protocol to apply supervised loss to only subset of positions
     ---------------------------------------------------
     '''
-    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
+    self.opt.update({"rm_template_seq":rm_template_seq,
+                     "rm_template_sc":rm_template_sc,
+                     "mask_interchain":split_templates})
+
     # block_diag the msa features
-    if block_diag and not repeat and copies > 1:
-      max_msa_clusters = 1 + self._num * copies
-      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
+    if not repeat and copies > 1 and not self._args["use_multimer"]:
+      num_seq = 1 + self._num * copies
+      block_diag = True
     else:
-      max_msa_clusters = self._num
+      num_seq = self._num
       block_diag = False
 
     pdb = prep_pdb(pdb_filename, chain=chain)
@@ -143,7 +151,7 @@ class _af_prep:
       copies = len(chain.split(","))
 
     self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len, num_seq=max_msa_clusters)
+    self._inputs = self._prep_features(self._len, num_seq=num_seq)
     self._inputs["batch"] = pdb["batch"]
 
     self._args.update({"repeat":repeat,
@@ -158,20 +166,20 @@ class _af_prep:
     if copies > 1:
       if repeat:
         self._len = self._len // copies
-        block_diag = False
         self._lengths = [self._len * copies]
       else:
         if homooligomer:
           self._len = self._len // copies
-          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)[None]
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
         else:
-          self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
-          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)[None]
+          self._inputs = make_fixed_size(self._inputs, num_res=self._len * copies, num_seq=self._num)
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
+
     else:
-      self._inputs["residue_index"] = pdb["residue_index"][None]
-      self._lengths = [self._len]
+      self._inputs["residue_index"] = pdb["residue_index"]
+      self._lengths = pdb["lengths"]
 
     # fix certain positions
     self.opt["fix_seq"] = fix_seq
@@ -180,6 +188,10 @@ class _af_prep:
       self.opt["pos"] = self._pos_info["pos"]
 
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
+
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
+
     self._prep_model(**kwargs)
 
     # undocumented: for dist cropping (for Shihao)
@@ -187,30 +199,27 @@ class _af_prep:
     cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
     self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
     
-  def _prep_hallucination(self, length=100, copies=1,
-                          repeat=False, block_diag=True, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
     '''
     prep inputs for hallucination
     ---------------------------------------------------
     if copies > 1:
-      -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
-        -block_diag=True - each copy is it's own sequence in the MSA
       -repeat=True - tie the repeating sequence within single chain
     ---------------------------------------------------
     '''
     
     # set [arg]uments
-    if block_diag and not repeat and copies > 1:
-      max_msa_clusters = 1 + self._num * copies
-      self._cfg.data.eval.max_msa_clusters = max_msa_clusters
+    if not repeat and copies > 1 and not self._args["use_multimer"]:
+      num_seq = 1 + self._num * copies
+      block_diag = True
     else:
-      max_msa_clusters = self._num
+      num_seq = self._num
       block_diag = False
     self._args.update({"block_diag":block_diag, "repeat":repeat, "copies":copies})
       
     # prep features
     self._len = length
-    self._inputs = self._prep_features(length * copies, num_seq=max_msa_clusters)
+    self._inputs = self._prep_features(length * copies, num_seq=num_seq)
     
     # set weights
     self.opt["weights"].update({"con":1.0})
@@ -220,12 +229,14 @@ class _af_prep:
         self._lengths = [self._len * copies]
       else:
         offset = 50
-        self.opt["weights"].update({"i_pae":0.01, "i_con":0.1})
         self._lengths = [self._len] * copies
-      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)[None]
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]
     
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
+
     self._prep_model(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
@@ -289,12 +300,12 @@ def repeat_idx(idx, copies=1, offset=50):
   idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
   return np.tile(idx,copies) + idx_offset
 
-def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
+def prep_pdb(pdb_filename, chain=None):
   '''extract features from pdb'''
 
   def add_cb(batch):
     '''add missing CB atoms based on N,CA,C'''
-    p,m = batch["all_atom_positions"],batch["all_atom_mask"]
+    p,m = batch["all_atom_positions"], batch["all_atom_mask"]
     atom_idx = residue_constants.atom_order
     atoms = {k:p[...,atom_idx[k],:] for k in ["N","CA","C"]}
     cb = atom_idx["CB"]
@@ -308,6 +319,7 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
   chains = [None] if chain is None else chain.split(",")
   o,last = [],0
   residue_idx, chain_idx = [],[]
+  lengths = []
   for chain in chains:
     protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
     batch = {'aatype': protein_obj.aatype,
@@ -322,50 +334,35 @@ def prep_pdb(pdb_filename, chain=None, for_alphafold=True):
     residue_index = protein_obj.residue_index[has_ca] + last      
     last = residue_index[-1] + 50
     
-    if for_alphafold:
-      template_aatype = residue_constants.sequence_to_onehot(seq, residue_constants.HHBLITS_AA_TO_ID)
-      template_features = {"template_aatype":template_aatype,
-                           "template_all_atom_masks":batch["all_atom_mask"],
-                           "template_all_atom_positions":batch["all_atom_positions"]}
-      o.append({"batch":batch,
-                "template_features":template_features,
-                "residue_index": residue_index,
-                "cb_feat":cb_feat})
-    else:        
-      o.append({"batch":batch,
-                "residue_index": residue_index,
-                "cb_feat":cb_feat})
+    o.append({"batch":batch,
+              "residue_index": residue_index,
+              "cb_feat":cb_feat})
     
     residue_idx.append(protein_obj.residue_index[has_ca])
     chain_idx.append([chain] * len(residue_idx[-1]))
+    lengths.append(len(residue_index))
 
   # concatenate chains
   o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
   
-  if for_alphafold:
-    o["template_features"] = jax.tree_map(lambda x:x[None],o["template_features"])
-    o["template_features"]["template_domain_names"] = np.asarray(["None"])
-
   # save original residue and chain index
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
+  o["lengths"] = lengths
   return o
 
-def make_fixed_size(feat, cfg, length, batch_axis=True):
+def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
   '''pad input features'''
-  if batch_axis:
-    shape_schema = {k:[None]+v for k,v in dict(cfg.data.eval.feat).items()}
-  else:
-    shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
-  num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
+  shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
+
   pad_size_map = {
-      shape_placeholders.NUM_RES: length,
-      shape_placeholders.NUM_MSA_SEQ: num_msa_seq,
-      shape_placeholders.NUM_EXTRA_SEQ: cfg.data.common.max_extra_msa,
-      shape_placeholders.NUM_TEMPLATES: cfg.data.eval.max_templates
-  }
+      shape_placeholders.NUM_RES: num_res,
+      shape_placeholders.NUM_MSA_SEQ: num_seq,
+      shape_placeholders.NUM_EXTRA_SEQ: 1,
+      shape_placeholders.NUM_TEMPLATES: num_templates
+  }  
   for k,v in feat.items():
     if k == "batch":
-      feat[k] = make_fixed_size(v, cfg, length, batch_axis=False)
+      feat[k] = make_fixed_size(v, num_res)
     else:
       shape = list(v.shape)
       schema = shape_schema[k]
@@ -415,7 +412,7 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
 
-def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
+def prep_input_features(L, N=1, T=1, eN=1):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
@@ -435,14 +432,27 @@ def prep_input_features(L, N=1, T=1, use_templates=False, eN=1):
             'extra_has_deletion': np.zeros((eN,L)),
             'extra_msa': np.zeros((eN,L),int),
             'extra_msa_mask': np.zeros((eN,L)),
-            'extra_msa_row_mask': np.zeros(eN)}
-                   
-  if use_templates:
-    inputs.update({'template_aatype': np.zeros((T,L),int),
-                   'template_all_atom_masks': np.zeros((T,L,37)),
-                   'template_all_atom_positions': np.zeros((T,L,37,3)),
-                   'template_mask': np.ones(T),
-                   'template_pseudo_beta': np.zeros((T,L,3)),
-                   'template_pseudo_beta_mask': np.zeros((T,L))})
+            'extra_msa_row_mask': np.zeros(eN),
 
-  return jax.tree_map(lambda x:x[None], inputs)
+            # for template inputs
+            'template_aatype': np.zeros((T,L),int),
+            'template_all_atom_mask': np.zeros((T,L,37)),
+            'template_all_atom_positions': np.zeros((T,L,37,3)),
+            'template_mask': np.zeros(T),
+            'template_pseudo_beta': np.zeros((T,L,3)),
+            'template_pseudo_beta_mask': np.zeros((T,L)),
+
+            # for alphafold-multimer
+            'asym_id': np.zeros(L),
+            'sym_id': np.zeros(L),
+            'entity_id': np.zeros(L),
+            'all_atom_positions': np.zeros((N,37,3))}
+  return inputs
+
+def get_multi_id(lengths, homooligomer=False):
+  '''set info for alphafold-multimer'''
+  i = np.concatenate([[n]*l for n,l in enumerate(lengths)])
+  if homooligomer:
+    return {"asym_id":i, "sym_id":i, "entity_id":np.zeros_like(i)}
+  else:
+    return {"asym_id":i, "sym_id":i, "entity_id":i}

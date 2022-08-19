@@ -172,7 +172,7 @@ CONFIG = ml_collections.ConfigDict({
                 'template_pseudo_beta': [NUM_TEMPLATES, NUM_RES, None],
                 'template_pseudo_beta_mask': [NUM_TEMPLATES, NUM_RES],
                 'template_sum_probs': [NUM_TEMPLATES, None],
-                'true_msa': [NUM_MSA_SEQ, NUM_RES]
+                'true_msa': [NUM_MSA_SEQ, NUM_RES],
                 'asym_id': [NUM_RES],
                 'sym_id': [NUM_RES],
                 'entity_id': [NUM_RES]

@@ -9,8 +9,6 @@ import re
 from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
-from colabdesign.af.alphafold.model import config
-
 
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos
@@ -99,7 +97,7 @@ class _af_prep:
     else: # binder hallucination            
       # pad inputs
       total_len = target_len + binder_len
-      self._inputs = make_fixed_size(self._inputs, total_len)
+      self._inputs = make_fixed_size(self._inputs, self._cfg, total_len)
 
       # offset residue index for binder
       self._inputs["residue_index"] = self._inputs["residue_index"].copy()
@@ -170,7 +168,7 @@ class _af_prep:
           self._len = self._len // copies
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
         else:
-          self._inputs = make_fixed_size(self._inputs, self._len * copies)
+          self._inputs = make_fixed_size(self._inputs, self._cfg, self._len * copies)
           self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
           for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
         self._lengths = [self._len] * copies
@@ -341,11 +339,8 @@ def prep_pdb(pdb_filename, chain=None):
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
   return o
 
-def make_fixed_size(feat, length):
+def make_fixed_size(feat, cfg, length):
   '''pad input features'''
-
-  cfg = config.model_config("model_1_ptm")
-
   shape_schema = {k:v for k,v in dict(cfg.data.eval.feat).items()}
   num_msa_seq = cfg.data.eval.max_msa_clusters - cfg.data.eval.max_templates
   pad_size_map = {
@@ -356,7 +351,7 @@ def make_fixed_size(feat, length):
   }
   for k,v in feat.items():
     if k == "batch":
-      feat[k] = make_fixed_size(v, length)
+      feat[k] = make_fixed_size(v, cfg, length)
     else:
       shape = list(v.shape)
       schema = shape_schema[k]

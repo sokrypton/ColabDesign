@@ -437,7 +437,8 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'template_pseudo_beta_mask': np.zeros((T,L)),
 
             # for alphafold-multimer
-            'asym_id': np.ones(L),
-            'sym_id': np.ones(L),
-            'entity_id': np.ones(L),
+            'asym_id': np.zeros(L),
+            'sym_id': np.zeros(L),
+            'entity_id': np.zeros(L),
             'all_atom_positions': np.zeros((N,37,3))}
+  return inputs

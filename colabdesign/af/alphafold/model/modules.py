@@ -234,6 +234,7 @@ class AlphaFold(hk.Module):
 
     impl = AlphaFoldIteration(self.config, self.global_config)
 
+
     def get_prev(ret):
       new_prev = {
           'prev_msa_first_row': ret['representations']['msa_first_row'],

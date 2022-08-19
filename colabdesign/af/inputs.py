@@ -5,7 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.af.alphafold.model import model
+from colabdesign.af.alphafold.model import model, config
 
 ############################################################################
 # AF_INPUTS - functions for modifying inputs before passing to alphafold
@@ -148,7 +148,7 @@ def expand_copies(x, copies, block_diag=True):
   else:
     return x
 
-def crop_feat(feat, pos, cfg, add_batch=True):  
+def crop_feat(feat, pos, add_batch=True):  
   '''
   crop features to specified [pos]itions
   '''
@@ -160,13 +160,13 @@ def crop_feat(feat, pos, cfg, add_batch=True):
       if y == k: i.append(j)
     return i
 
-  shapes = cfg.data.eval.feat
+  shapes = config.CONFIG.data.eval.feat
   NUM_RES = "num residues placeholder"
   idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
   new_feat = copy_dict(feat)
   for k in new_feat.keys():
     if k == "batch":
-      new_feats[k] = crop_feats(feats[k], pos, cfg, add_batch=False)
+      new_feat[k] = crop_feat(feats[k], pos, add_batch=False)
     if k in idx:
       for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
   

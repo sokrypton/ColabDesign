@@ -239,7 +239,9 @@ def get_pae(outputs):
 
 def get_ptm(inputs, outputs, interface=False):
   pae = outputs["predicted_aligned_error"]
-  return confidence_jax.predicted_tm_score_jax(**pae, asym_id=inputs["asym_id"], interface=interface)
+  if "asym_id" not in pae:
+    pae["asym_id"] = inputs["asym_id"]
+  return confidence_jax.predicted_tm_score_jax(**pae, interface=interface)
 
 ####################
 # loss functions

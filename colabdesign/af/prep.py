@@ -62,10 +62,10 @@ class _af_prep:
     
     redesign = binder_chain is not None
 
-    self.opt.update({"template":{"rm_seq":rm_template_seq,
+    self.opt["template"].update({"rm_seq":rm_template_seq,
                                  "rm_sc":rm_template_sc,
                                  "mask_interchain":mask_interchain,
-                                 "dropout":(0.0 if use_binder_template else 1.0)}})
+                                 "dropout":(0.0 if use_binder_template else 1.0)})
     self._args.update({"redesign":redesign})
 
     # get pdb info
@@ -133,9 +133,9 @@ class _af_prep:
                       protocol to apply supervised loss to only subset of positions
     ---------------------------------------------------
     '''
-    self.opt.update({"template":{"rm_seq":rm_template_seq,
+    self.opt["template"].update({"rm_seq":rm_template_seq,
                                  "rm_sc":rm_template_sc,
-                                 "mask_interchain":mask_interchain}})
+                                 "mask_interchain":mask_interchain})
 
     # block_diag the msa features
     if not repeat and copies > 1 and not self._args["use_multimer"]:
@@ -252,8 +252,8 @@ class _af_prep:
     -rm_template_seq - if template is defined, remove information about template sequence
     ---------------------------------------------------    
     '''    
-    self.opt.update({"template":{"rm_seq":rm_template_seq,
-                                 "rm_sc":rm_template_sc}})
+    self.opt["template"].update({"rm_seq":rm_template_seq,
+                                 "rm_sc":rm_template_sc})
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)

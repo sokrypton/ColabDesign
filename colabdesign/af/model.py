@@ -50,8 +50,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
-                "template": {"aatype":21, "dropout":0.0, "mask_interchain":False,
-                             "rm_seq":True, "rm_sc":True},
+                "template": {"aatype":21, "dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0}
     
@@ -134,7 +133,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # update template features
       if self._args["use_templates"]:
         self._update_template(inputs, opt, key())
-      inputs["mask_template_interchain"] = opt["template"]["mask_interchain"]
+      inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)

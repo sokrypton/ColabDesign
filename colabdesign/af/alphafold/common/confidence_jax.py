@@ -20,7 +20,6 @@ converted by @konstin
 import jax
 from jax import jit
 
-
 @jit
 def compute_plddt_jax(logits):
     """Port of confidence.compute_plddt to jax
@@ -114,8 +113,7 @@ def predicted_tm_score_jax(
 
     pair_residue_weights = pair_mask * (
         residue_weights[None, :] * residue_weights[:, None])
-    normed_residue_mask = pair_residue_weights / (1e-8 + jax.numpy.sum(
-        pair_residue_weights, axis=-1, keepdims=True))
+    normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1,keepdims=True))
     per_alignment = jax.numpy.sum(predicted_tm_term * normed_residue_mask, axis=-1)
     return jax.numpy.asarray(per_alignment[(per_alignment * residue_weights).argmax()])
 

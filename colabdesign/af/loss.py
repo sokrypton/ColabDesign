@@ -237,9 +237,9 @@ def get_pae(outputs):
   bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
   return (prob*bin_centers).sum(-1)
 
-def get_ptm(outputs):
+def get_ptm(inputs, outputs, interface=False):
   pae = outputs["predicted_aligned_error"]
-  return confidence_jax.predicted_tm_score_jax(**pae)
+  return confidence_jax.predicted_tm_score_jax(**pae, asym_id=inputs["asym_id"], interface=interface)
 
 ####################
 # loss functions

@@ -48,13 +48,13 @@ class _af_inputs:
     if self.protocol in ["partial","fixbb","binder"]:      
       L = batch["aatype"].shape[0]
       if self.protocol in ["partial","fixbb"]:
-        rt = opt["rm_template_seq"]
+        rt = opt["template"]["rm_seq"]
         aatype          = jnp.where(rt,0,batch["aatype"])
         template_aatype = jnp.where(rt,opt["template"]["aatype"],batch["aatype"])
       
       if self.protocol == "binder":
         if self._args["redesign"]:
-          rt = opt["rm_template_seq"]
+          rt = opt["template"]["rm_seq"]
           aatype          = jnp.where(rt,batch["aatype"].at[self._target_len:].set(0),batch["aatype"])
           template_aatype = jnp.where(rt,batch["aatype"].at[self._target_len:].set(opt["template"]["aatype"]),batch["aatype"])
         else:
@@ -86,7 +86,8 @@ class _af_inputs:
           inputs[k] = inputs[k].at[0,opt["pos"]].set(v)
         
         if k == "template_all_atom_mask":
-          rt = jnp.logical_or(opt["rm_template_seq"],opt["rm_template_sc"])
+          rt = jnp.logical_or(opt["template"]["rm_seq"],
+                              opt["template"]["rm_sc"])
           if self.protocol == "binder":
             inputs[k] = jnp.where(rt,inputs[k].at[-1,n:,5:].set(0),inputs[k])
           else:

@@ -50,7 +50,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
-                "template": {"aatype":21, "dropout":0.0, "mask_interchain":False},
+                "template": {"aatype":21, "dropout":0.0, "mask_interchain":False
+                             "rm_seq":True, "rm_sc":True},
                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0}
     
@@ -104,7 +105,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
   def _get_model(self, cfg, callback=None):
 
-    runner = model.RunModel(cfg, is_training=True, recycle_mode=self._args["recycle_mode"],
+    runner = model.RunModel(cfg, is_training=True,
+                            recycle_mode=self._args["recycle_mode"],
                             use_multimer=self._args["use_multimer"])
 
     # setup function to get gradients
@@ -161,8 +163,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
                   "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
                   "residue_index":inputs["residue_index"], "aatype":inputs["aatype"],
-                  "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(outputs),
-                  "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
+                  "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(inputs, outputs),
+                  "iptm":get_ptm(inputs, outputs, interface=True), "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
 
       # experimental
       # crop outputs (TODO)

@@ -46,7 +46,7 @@ class _af_prep:
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, 
-                   split_templates=False,rm_template_seq=True, rm_template_sc=True,
+                   mask_interchain=False,rm_template_seq=True, rm_template_sc=True,
                    hotspot=None, **kwargs):
     '''
     prep inputs for binder design
@@ -54,7 +54,7 @@ class _af_prep:
     -binder_len = length of binder to hallucinate (option ignored if binder_chain is defined)
     -binder_chain = chain of binder to redesign
     -use_binder_template = use binder coordinates as template input
-    -split_templates = use target and binder coordinates as seperate template inputs
+    -mask_interchain = use target and binder coordinates as seperate template inputs
     -hotspot = define position/hotspots on target
     -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
     ---------------------------------------------------
@@ -62,12 +62,11 @@ class _af_prep:
     
     redesign = binder_chain is not None
 
-    self.opt.update({"rm_template_seq":rm_template_seq,
-                     "rm_template_sc":rm_template_sc, 
-                     "mask_interchain":split_templates})
+    self.opt.update({"template":{"rm_seq":rm_template_seq,
+                                 "rm_sc":rm_template_sc,
+                                 "mask_interchain":mask_interchain,
+                                 "dropout":(0.0 if use_binder_template else 1.0)}})
     self._args.update({"redesign":redesign})
-
-    self.opt["template"]["dropout"] = 0.0 if use_binder_template else 1.0
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
@@ -119,7 +118,7 @@ class _af_prep:
 
   def _prep_fixbb(self, pdb_filename, chain=None,
                   copies=1, repeat=False, homooligomer=False,
-                  rm_template_seq=True, rm_template_sc=True, split_templates=False,
+                  rm_template_seq=True, rm_template_sc=True, mask_interchain=False,
                   pos=None, fix_seq=True, **kwargs):
     '''
     prep inputs for fixed backbone design
@@ -134,9 +133,9 @@ class _af_prep:
                       protocol to apply supervised loss to only subset of positions
     ---------------------------------------------------
     '''
-    self.opt.update({"rm_template_seq":rm_template_seq,
-                     "rm_template_sc":rm_template_sc,
-                     "mask_interchain":split_templates})
+    self.opt.update({"template":{"rm_seq":rm_template_seq,
+                                 "rm_sc":rm_template_sc,
+                                 "mask_interchain":mask_interchain}})
 
     # block_diag the msa features
     if not repeat and copies > 1 and not self._args["use_multimer"]:
@@ -253,7 +252,8 @@ class _af_prep:
     -rm_template_seq - if template is defined, remove information about template sequence
     ---------------------------------------------------    
     '''    
-    self.opt.update({"rm_template_seq":rm_template_seq,"rm_template_sc":rm_template_sc})
+    self.opt.update({"template":{"rm_seq":rm_template_seq,
+                                 "rm_sc":rm_template_sc}})
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)

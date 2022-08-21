@@ -572,7 +572,7 @@ def compute_renamed_ground_truth(
   }
 
 
-def backbone_loss(ret, batch, value, config):
+def backbone_loss(batch, value, config):
   """Backbone FAPE Loss.
 
   Jumper et al. (2021) Suppl. Alg. 20 "StructureModule" line 17
@@ -631,9 +631,8 @@ def backbone_loss(ret, batch, value, config):
                                                  backbone_mask)
 
     fape_loss = (fape_loss * use_clamped_fape + fape_loss_unclamped * (1 - use_clamped_fape))
-
-  ret['fape'] = fape_loss[-1]
-  ret['loss'] += jnp.mean(fape_loss)
+  
+  jnp.mean(fape_loss), fape_loss[-1]
 
 
 def sidechain_loss(batch, value, config):

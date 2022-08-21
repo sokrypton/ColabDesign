@@ -36,8 +36,8 @@ class _af_loss:
     aatype = inputs["aatype"]
     dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"fape": get_fape_loss(inputs, outputs, model_config=self._cfg),
-                          "rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
+    aux["losses"].update({"rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
+    aux["losses"].update(get_fape_loss(inputs, outputs, model_config=self._cfg))
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -49,14 +49,13 @@ class _af_loss:
     if self._args["redesign"]:      
       aln = get_rmsd_loss(inputs, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
-
-      fape = get_fape_loss(inputs, outputs, model_config=self._cfg)
       
       # compute cce of binder + interface
       aatype = inputs["aatype"]
       cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_cce=True)
 
-      aux["losses"].update({"rmsd":aln["rmsd"], "fape":fape, "dgram_cce":cce[self._target_len:,:].mean()})
+      aux["losses"].update({"rmsd":aln["rmsd"], **fape, "dgram_cce":cce[self._target_len:,:].mean()})
+      aux["losses"].update(get_fape_loss(inputs, outputs, model_config=self._cfg))
     
     else:
       align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
@@ -93,7 +92,7 @@ class _af_loss:
 
     # fape
     outputs["structure_module"]["traj"] = sub(outputs["structure_module"]["traj"],pos,-2)
-    aux["losses"]["fape"] = get_fape_loss(inputs, outputs, self._cfg)
+    aux["losses"].update(get_fape_loss(inputs, outputs, self._cfg))
 
     # sidechain specific losses
     if self._args["use_sidechains"]:
@@ -400,28 +399,24 @@ def get_fape_loss(inputs, outputs, model_config):
   batch = inputs["batch"]
   value = outputs["structure_module"]
   config = model_config.model.heads.structure_module
+  mask = inputs['asym_id'][:, None] == inputs['asym_id'][None, :]
   
   if not model_config.model.global_config.multimer_mode:
-    loss = {"loss":0.0}    
-    folding.backbone_loss(loss, batch, value, _config)
-    return loss["loss"]
+    fape, _ = folding.backbone_loss(batch, value, config, pair_mask=mask)
+    i_fape, _ = folding.backbone_loss(batch, value, config, pair_mask=1-mask)
   
   else:
     x = {}    
-    # truth
     all_atom_positions = geometry.Vec3Array.from_array(batch['all_atom_positions'])
     x["gt_rigid"], x["gt_frames_mask"] = folding_multimer.make_backbone_affine(
       all_atom_positions, batch["all_atom_mask"], batch["aatype"])
-
-    # pred
     x["target_rigid"] = geometry.Rigid3Array.from_array(value['traj'])    
     x["gt_positions_mask"] = x["gt_frames_mask"]
 
-    mask = inputs['asym_id'][:, None] == inputs['asym_id'][None, :]
-    fape_loss, _ = folding_multimer.backbone_loss(**x, pair_mask=mask, config=config.intra_chain_fape)
-    i_fape_loss, _ = folding_multimer.backbone_loss(**x, pair_mask=1-mask, config=config.interface_fape)
+    fape, _ = folding_multimer.backbone_loss(**x, pair_mask=mask, config=config.intra_chain_fape)
+    i_fape, _ = folding_multimer.backbone_loss(**x, pair_mask=1-mask, config=config.interface_fape)
 
-    return fape_loss + i_fape_loss
+  return {"fape":fape, "i_fape":i_fape}
 
 def get_6D_loss(inputs, outputs, **kwargs):
   batch = inputs["batch"]

@@ -2,9 +2,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from colabdesign.shared.utils import Key
+from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
-from colabdesign.af.alphafold.model import model, folding, all_atom, folding_multimer
+from colabdesign.af.alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer, geometry
 from colabdesign.af.alphafold.common import confidence_jax
 
 ####################################################
@@ -91,25 +92,22 @@ class _af_loss:
     aux["losses"]["rmsd"] = aln["rmsd"]
 
     # fape
-    fape_loss = {"loss":0.0}
-    struct = outputs["structure_module"]
-    traj = {"traj":sub(struct["traj"],pos,-2)}
-    
-    if not self._args["use_multimer"]:
-      folding.backbone_loss(fape_loss, batch, traj, _config)
-    
-    aux["losses"]["fape"] = fape_loss["loss"]
+    outputs["structure_module"]["traj"] = sub(outputs["structure_module"]["traj"],pos,-2)
+    aux["losses"]["fape"] = get_fape_loss(inputs, outputs, self._cfg)
 
     # sidechain specific losses
     if self._args["use_sidechains"]:
       # sc_fape
+      struct = outputs["structure_module"]
       pred_pos = sub(struct["final_atom14_positions"],pos)
       
-      sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
-                   "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
       if not self._args["use_multimer"]:
+        sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
+                     "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
         aux["losses"]["sc_fape"] = folding_fn.sidechain_loss(batch, sc_struct, _config)["loss"]
       else:
+        ### TODO ###
+        print("ERROR: 'sc_fape' not currently supported for 'multimer' mode")
         aux["losses"]["sc_fape"] = 0.0
 
       # sc_rmsd
@@ -398,15 +396,32 @@ def get_sc_rmsd(true, pred, sc):
 #--------------------------------------
 # TODO (make copies friendly)
 #--------------------------------------
-def get_fape_loss(inputs, outputs, model_config, use_clamped_fape=False):
-  loss = {"loss":0.0}    
+def get_fape_loss(inputs, outputs, model_config):
+  batch = inputs["batch"]
+  value = outputs["structure_module"]
+  config = model_config.model.heads.structure_module
+  
   if not model_config.model.global_config.multimer_mode:
-    batch = inputs["batch"]
-    sub_batch = jax.tree_map(lambda x: x, batch)
-    sub_batch["use_clamped_fape"] = use_clamped_fape
-    _config = model_config.model.heads.structure_module
-    folding.backbone_loss(loss, sub_batch, outputs["structure_module"], _config)
-  return loss["loss"]
+    loss = {"loss":0.0}    
+    folding.backbone_loss(loss, batch, value, _config)
+    return loss["loss"]
+  
+  else:
+    x = {}    
+    # truth
+    all_atom_positions = geometry.Vec3Array.from_array(batch['all_atom_positions'])
+    x["gt_rigid"], x["gt_frames_mask"] = folding_mulitmer.make_backbone_affine(
+      all_atom_positions, batch["all_atom_mask"], batch["aatype"])
+
+    # pred
+    x["target_rigid"] = geometry.Rigid3Array.from_array(value['traj'])    
+    x["gt_positions_mask"] = x["gt_frames_mask"]
+
+    mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
+      fape_loss, _ = folding_mulitmer.backbone_loss(**x, pair_mask=mask, config=config.intra_chain_fape)
+    i_fape_loss, _ = folding_mulitmer.backbone_loss(**x, pair_mask=1-mask, config=config.interface_fape)
+
+    return fape_loss + i_fape_loss
 
 def get_6D_loss(inputs, outputs, **kwargs):
   batch = inputs["batch"]

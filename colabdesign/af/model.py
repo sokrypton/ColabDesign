@@ -166,7 +166,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
                   "residue_index":inputs["residue_index"], "aatype":inputs["aatype"],
                   "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(inputs, outputs),
-                  "iptm":get_ptm(inputs, outputs, interface=True), "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
+                  "i_ptm":get_ptm(inputs, outputs, interface=True), "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
 
       # experimental - uncrop outputs
       if opt["crop_pos"].shape[0] < L:

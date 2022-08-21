@@ -112,7 +112,7 @@ class _af_design:
 
     # update log
     self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"],
-                       "ptm":self.aux["ptm"], "iptm":self.aux["iptm"]}
+                       "ptm":self.aux["ptm"], "i_ptm":self.aux["i_ptm"]}
     self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
 
     # compute sequence recovery
@@ -221,7 +221,7 @@ class _af_design:
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "msa_ent","plddt","pae","helix","con","i_pae","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","ptm"]
-    if sum(self._lengths) > 0: keys.append("iptm")
+    if sum(self._lengths) > 0: keys.append("i_ptm")
     keys.append("rmsd")
     print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
                       print_str=print_str, keys=keys, ok="rmsd"))

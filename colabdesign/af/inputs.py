@@ -82,7 +82,7 @@ class _af_inputs:
         
         # remove sidechains (mask anything beyond CB)
         if k == "template_all_atom_mask":
-          inputs[k] = jnp.where(rm_sc[:,None],jnp.ones(37).at[5:].set(0),inputs[k])
+          inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
 
     # dropout template input features
     L = inputs["template_aatype"].shape[1]

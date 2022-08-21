@@ -39,64 +39,55 @@ class _af_inputs:
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
 
+    opt = opt["template"]
+
     # enable templates
     inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
 
-    # aatype = is used to define template's CB coordinates (CA in case of glycine)
-    # template_aatype = is used as template's sequence
     batch = inputs["batch"]
-    if self.protocol in ["partial","fixbb","binder"]:      
+    if self.protocol in ["partial","fixbb","binder"]:
+
       L = batch["aatype"].shape[0]
-      if self.protocol in ["partial","fixbb"]:
-        rt = opt["template"]["rm_seq"]
-        aatype          = jnp.where(rt,0,batch["aatype"])
-        template_aatype = jnp.where(rt,opt["template"]["aatype"],batch["aatype"])
       
-      if self.protocol == "binder":
-        if self._args["redesign"]:
-          rt = opt["template"]["rm_seq"]
-          aatype          = jnp.where(rt,batch["aatype"].at[self._target_len:].set(0),batch["aatype"])
-          template_aatype = jnp.where(rt,batch["aatype"].at[self._target_len:].set(opt["template"]["aatype"]),batch["aatype"])
-        else:
-          aatype = template_aatype = batch["aatype"]
-              
+      # decide which position to remove sequence and/or sidechains
+      rm = jnp.logical_or(opt["rm_seq"],opt["rm_sc"])
+      rm_seq = jnp.full(L,opt["rm_seq"])
+      rm_sc  = jnp.full(L,rm)
+      if self.protocol in ["binder"]:
+        rm_seq = rm_seq.at[:self._target_len].set(False)
+        rm_sc  = rm_sc.at[:self._target_len].set(False)
+
+      # aatype = is used to define template's CB coordinates (CA in case of glycine)
+      # template_aatype = is used as template's sequence
+      aatype = jnp.where(rm_seq,0,batch["aatype"])
+      template_aatype = jnp.where(rm_seq,21,batch["aatype"])
+                    
       # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-      pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
-                                                 batch["all_atom_positions"],
-                                                 batch["all_atom_mask"])
+      cb, cb_mask = model.modules.pseudo_beta_fn(aatype, batch["all_atom_positions"], batch["all_atom_mask"])
       
       # define template features
       template_feats = {"template_aatype": template_aatype,
                         "template_all_atom_positions": batch["all_atom_positions"],
                         "template_all_atom_mask": batch["all_atom_mask"],
-                        "template_pseudo_beta": pb,
-                        "template_pseudo_beta_mask": pb_mask}
+                        "template_pseudo_beta": cb,
+                        "template_pseudo_beta_mask": cb_mask}
 
-      # protocol specific template injection
+      # inject template features
       for k,v in template_feats.items():
-        if self.protocol == "binder":
-          n = self._target_len
-          inputs[k] = inputs[k].at[0,:n].set(v[:n])
-          inputs[k] = inputs[k].at[-1,n:].set(v[n:])
-        
-        if self.protocol == "fixbb":
-          inputs[k] = inputs[k].at[0].set(v)
 
         if self.protocol == "partial":
           inputs[k] = inputs[k].at[0,opt["pos"]].set(v)
+        else:
+          inputs[k] = inputs[k].at[0].set(v)
         
+        # remove sidechains (mask anything beyond CB)
         if k == "template_all_atom_mask":
-          rt = jnp.logical_or(opt["template"]["rm_seq"],
-                              opt["template"]["rm_sc"])
-          if self.protocol == "binder":
-            inputs[k] = jnp.where(rt,inputs[k].at[-1,n:,5:].set(0),inputs[k])
-          else:
-            inputs[k] = jnp.where(rt,inputs[k].at[0,:,5:].set(0),inputs[k])
+          inputs[k] = jnp.where(rm_sc[:,None],jnp.ones(37).at[5:].set(0),inputs[k])
 
     # dropout template input features
     L = inputs["template_aatype"].shape[1]
     n = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
+    pos_mask = jax.random.bernoulli(key, 1-opt["dropout"],(L,))
     inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
     inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 

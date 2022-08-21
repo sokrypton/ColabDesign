@@ -50,7 +50,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
-                "template": {"aatype":21, "dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
+                "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0}
     
@@ -142,7 +142,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if self._args["recycle_mode"] in ["last","sample"]:
         inputs["num_iter_recycling"] = opt["num_recycles"]
 
-      # crop inputs
+      # experimental - crop inputs
       if opt["crop_pos"].shape[0] < L:
         inputs = crop_feat(inputs, opt["crop_pos"])    
 
@@ -168,8 +168,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "plddt":get_plddt(outputs),"pae":get_pae(outputs), "ptm":get_ptm(inputs, outputs),
                   "iptm":get_ptm(inputs, outputs, interface=True), "cmap":get_contact_map(outputs, opt["cmap_cutoff"])})
 
-      # experimental
-      # crop outputs (TODO)
+      # experimental - uncrop outputs
       if opt["crop_pos"].shape[0] < L:
         p = opt["crop_pos"]
         aux["cmap"] = jnp.zeros((L,L)).at[p[:,None],p[None,:]].set(aux["cmap"])

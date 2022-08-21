@@ -632,7 +632,7 @@ def backbone_loss(batch, value, config):
 
     fape_loss = (fape_loss * use_clamped_fape + fape_loss_unclamped * (1 - use_clamped_fape))
   
-  jnp.mean(fape_loss), fape_loss[-1]
+  return jnp.mean(fape_loss), fape_loss[-1]
 
 
 def sidechain_loss(batch, value, config):

@@ -1032,7 +1032,6 @@ def frame_aligned_point_error(
     target_positions: r3.Vecs,  # shape (num_positions)
     positions_mask: jnp.ndarray,  # shape (num_positions)
     length_scale: float,
-    pair_mask: Optional[jnp.ndarray] = None,  # shape (num_frames, num_posiitons)
     l1_clamp_distance: Optional[float] = None,
     epsilon=1e-4) -> jnp.ndarray:  # shape ()
   """Measure point error under different alignments.
@@ -1086,13 +1085,10 @@ def frame_aligned_point_error(
   normed_error = error_dist / length_scale
   normed_error *= jnp.expand_dims(frames_mask, axis=-1)
   normed_error *= jnp.expand_dims(positions_mask, axis=-2)
-  if pair_mask is not None: normed_error *= pair_mask
 
   mask = (jnp.expand_dims(frames_mask, axis=-1) *
           jnp.expand_dims(positions_mask, axis=-2))
-  if pair_mask is not None: mask *= pair_mask
   normalization_factor = jnp.sum(mask, axis=(-1, -2))
-
   return (jnp.sum(normed_error, axis=(-2, -1)) /
           (epsilon + normalization_factor))
 

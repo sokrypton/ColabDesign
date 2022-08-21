@@ -220,7 +220,7 @@ class _af_design:
   def _print_log(self, print_str=None):
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "msa_ent","plddt","pae","helix","con","i_pae","i_con",
-            "sc_fape","sc_rmsd","dgram_cce","i_fape","fape","ptm"]
+            "sc_fape","sc_rmsd","dgram_cce","fape","ptm"]
     if sum(self._lengths) > 0: keys.append("i_ptm")
     keys.append("rmsd")
     print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
@@ -231,7 +231,8 @@ class _af_design:
     if "metric" not in self._best or metric < self._best["metric"]:
       self._best.update({"metric":metric, "aux":self.aux})
 
-  def clear_best(self): self._best = {}
+  def clear_best(self):
+    self._best = {}
 
   def _save_results(self, save_best=False, verbose=True):    
     self._update_traj()

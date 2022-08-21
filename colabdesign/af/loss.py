@@ -5,7 +5,6 @@ import numpy as np
 from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
-from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer, geometry
 from colabdesign.af.alphafold.common import confidence_jax
 
 ####################################################
@@ -36,8 +35,9 @@ class _af_loss:
     aatype = inputs["aatype"]
     dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
     
-    aux["losses"].update({"rmsd": rmsd, "dgram_cce": dgram_cce, "plddt":plddt_loss.mean()})
-    aux["losses"].update(get_fape_loss(inputs, outputs, model_config=self._cfg))
+    # fape loss
+    fape = get_fape_loss(inputs, outputs, copies=copies)
+    aux["losses"].update({"rmsd": rmsd, "dgram_cce": dgram_cce, "fape":fape, "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -52,10 +52,14 @@ class _af_loss:
       
       # compute cce of binder + interface
       aatype = inputs["aatype"]
-      cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_cce=True)
+      cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_mtx=True)
+      cce = cce[self._target_len:,:].mean()
 
-      aux["losses"].update({"rmsd":aln["rmsd"], **fape, "dgram_cce":cce[self._target_len:,:].mean()})
-      aux["losses"].update(get_fape_loss(inputs, outputs, model_config=self._cfg))
+      # compute fape
+      fape = get_dgram_loss(inputs, outputs, return_mtx=True)
+      fape = fape[self._target_len:,:].mean()
+
+      aux["losses"].update({"rmsd":aln["rmsd"], "dgram_cce":cce, "fape":fape})
     
     else:
       align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
@@ -92,7 +96,7 @@ class _af_loss:
 
     # fape
     outputs["structure_module"]["traj"] = sub(outputs["structure_module"]["traj"],pos,-2)
-    aux["losses"].update(get_fape_loss(inputs, outputs, self._cfg))
+    aux["losses"]["fape"] = get_fape_loss(inputs, outputs)
 
     # sidechain specific losses
     if self._args["use_sidechains"]:
@@ -243,7 +247,7 @@ def get_ptm(inputs, outputs, interface=False):
 ####################
 # loss functions
 ####################
-def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, return_cce=False):
+def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, return_mtx=False):
 
   batch = inputs["batch"]
   # gather features
@@ -259,29 +263,32 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
   bin_edges = jnp.linspace(2.3125, 21.6875, pred.shape[-1] - 1)
   true = jax.nn.one_hot((dm > jnp.square(bin_edges)).sum(-1), pred.shape[-1])
 
-  return _get_dgram_loss(true, pred, weights, copies, return_cce=return_cce)
+  return _get_dgram_loss(true, pred, weights, copies, return_mtx=return_mtx)
 
-def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
-  
+def get_fape_loss(inputs, outputs, copies=1, return_mtx=False):
+  true = inputs["batch"]["all_atom_positions"]
+  pred = outputs["structure_module"]["final_atom_positions"]
+  return _get_fape_loss(true, pred, weights=None, copies=copies, return_mtx=return_mtx)
+
+def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
   length = true.shape[0]
-  if weights is None: weights = jnp.ones(length)
+  
+  if weights is None:
+    weights = jnp.ones(length)
+  
   F = {"t":true, "p":pred, "m":weights[:,None] * weights[None,:]}  
-
-  def cce_fn(t,p,m):
-    cce = -(t*jax.nn.log_softmax(p)).sum(-1)
-    return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
 
   if copies > 1:
     (L,C) = (length//copies, copies-1)
 
     # intra (L,L,F)
     intra = jax.tree_map(lambda x:x[:L,:L], F)
-    cce, cce_loss = cce_fn(**intra)
+    mtx, loss = loss_fn(**intra)
 
     # inter (C*L,L,F)
     inter = jax.tree_map(lambda x:x[L:,:L], F)
     if C == 0:
-      i_cce, i_cce_loss = cce_fn(**inter)
+      i_mtx, i_loss = loss_fn(**inter)
 
     else:
       # (C,L,L,F)
@@ -291,15 +298,52 @@ def _get_dgram_loss(true, pred, weights=None, copies=1, return_cce=False):
                "m":inter["m"][:,None,:,:,0]}  # (C,1,L,L)             
       
       # (C,C,L,L,F) → (C,C,L,L) → (C,C) → (C) → ()
-      i_cce, i_cce_loss = cce_fn(**inter)
-      i_cce_loss = sum([i_cce_loss.min(i).sum() for i in [0,1]]) / 2
+      i_mtx, i_loss = loss_fn(**inter)
+      i_loss = sum([i_loss.min(i).sum() for i in [0,1]]) / 2
 
-    total_loss = (cce_loss + i_cce_loss) / copies
-    return (cce, i_cce) if return_cce else total_loss
+    total_loss = (loss + i_loss) / copies
+    return (mtx, i_mtx) if return_mtx else total_loss
 
   else:
-    cce, cce_loss = cce_fn(**F)
-    return cce if return_cce else cce_loss
+    mtx, loss = loss_fn(**F)
+    return mtx if return_mtx else loss
+
+def _get_dgram_loss(true, pred, weights=None, copies=1, return_mtx=False):
+  
+  def loss_fn(t,p,m):
+    cce = -(t*jax.nn.log_softmax(p)).sum(-1)
+    return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
+  
+  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
+
+def _get_fape_loss(true, pred, weights=None, copies=1, return_mtx=False):
+
+  def get_R(N, Ca, C):
+    v1 = C-Ca
+    v2 = N-Ca
+    e1 = v1 / robust_norm(v1, axis=-1, keepdims=True)
+    c = jnp.einsum('li, li -> l', e1, v2)[:,None]
+    e2 = v2 - c * e1
+    e2 = e2 / robust_norm(e2, axis=-1, keepdims=True)
+    e3 = jnp.cross(e1, e2, axis=-1)
+    return jnp.concatenate([e1[:,:,None], e2[:,:,None], e3[:,:,None]], axis=-1)
+
+  def get_ij(R,T):
+    return jnp.einsum('rji,rsj->rsi',R,T[None,:]-T[:,None])
+
+  def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
+    return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
+
+  def loss_fn(t,p,m):
+    fape = robust_norm(t-p)
+    fape = jnp.clip(fape, 0, 10.0) / 10.0
+    return fape, (fape*m).sum((-1,-2))/(m.sum((-1,-2)) + 1e-8)
+
+  true_ca,pred_ca = true[:,1],pred[:,1]
+  true = get_ij(get_R(true[:,0],true_ca,true[:,2]),true_ca)
+  pred = get_ij(get_R(pred[:,0],pred_ca,pred[:,2]),pred_ca)
+
+  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 
 def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
   batch = inputs["batch"]
@@ -391,36 +435,3 @@ def get_sc_rmsd(true, pred, sc):
     msd = sd.mean()
   rmsd = jnp.sqrt(msd + 1e-8)
   return {"rmsd":rmsd, "align":align_fn}
-
-#--------------------------------------
-# TODO (make copies friendly)
-#--------------------------------------
-def get_fape_loss(inputs, outputs, model_config):
-  batch = inputs["batch"]
-  value = outputs["structure_module"]
-  config = model_config.model.heads.structure_module
-  mask = inputs['asym_id'][:, None] == inputs['asym_id'][None, :]
-  
-  if not model_config.model.global_config.multimer_mode:
-    fape, _ = folding.backbone_loss(batch, value, config, pair_mask=mask)
-    i_fape, _ = folding.backbone_loss(batch, value, config, pair_mask=1-mask)
-  
-  else:
-    x = {}    
-    all_atom_positions = geometry.Vec3Array.from_array(batch['all_atom_positions'])
-    x["gt_rigid"], x["gt_frames_mask"] = folding_multimer.make_backbone_affine(
-      all_atom_positions, batch["all_atom_mask"], batch["aatype"])
-    x["target_rigid"] = geometry.Rigid3Array.from_array(value['traj'])    
-    x["gt_positions_mask"] = x["gt_frames_mask"]
-
-    fape, _ = folding_multimer.backbone_loss(**x, pair_mask=mask, config=config.intra_chain_fape)
-    i_fape, _ = folding_multimer.backbone_loss(**x, pair_mask=1-mask, config=config.interface_fape)
-
-  return {"fape":fape, "i_fape":i_fape}
-
-def get_6D_loss(inputs, outputs, **kwargs):
-  batch = inputs["batch"]
-  true = batch["all_atom_positions"]
-  pred = outputs["structure_module"]["final_atom_positions"]
-  mask = batch["all_atom_mask"]
-  return _np_get_6D_loss(true, pred, mask, **kwargs)

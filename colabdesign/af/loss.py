@@ -104,7 +104,7 @@ class _af_loss:
       if not self._args["use_multimer"]:
         sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                      "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
-        aux["losses"]["sc_fape"] = folding_fn.sidechain_loss(batch, sc_struct, _config)["loss"]
+        aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct, _config)["loss"]
       else:
         ### TODO ###
         print("ERROR: 'sc_fape' not currently supported for 'multimer' mode")
@@ -410,16 +410,16 @@ def get_fape_loss(inputs, outputs, model_config):
     x = {}    
     # truth
     all_atom_positions = geometry.Vec3Array.from_array(batch['all_atom_positions'])
-    x["gt_rigid"], x["gt_frames_mask"] = folding_mulitmer.make_backbone_affine(
+    x["gt_rigid"], x["gt_frames_mask"] = folding_multimer.make_backbone_affine(
       all_atom_positions, batch["all_atom_mask"], batch["aatype"])
 
     # pred
     x["target_rigid"] = geometry.Rigid3Array.from_array(value['traj'])    
     x["gt_positions_mask"] = x["gt_frames_mask"]
 
-    mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
-      fape_loss, _ = folding_mulitmer.backbone_loss(**x, pair_mask=mask, config=config.intra_chain_fape)
-    i_fape_loss, _ = folding_mulitmer.backbone_loss(**x, pair_mask=1-mask, config=config.interface_fape)
+    mask = inputs['asym_id'][:, None] == inputs['asym_id'][None, :]
+    fape_loss, _ = folding_multimer.backbone_loss(**x, pair_mask=mask, config=config.intra_chain_fape)
+    i_fape_loss, _ = folding_multimer.backbone_loss(**x, pair_mask=1-mask, config=config.interface_fape)
 
     return fape_loss + i_fape_loss
 

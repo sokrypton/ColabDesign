@@ -183,11 +183,16 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # LOSS
       #######################################################################
+      aux["losses"] = {}
 
-      seq_ent = -(aux["pssm"] * jnp.log(aux["pssm"] + 1e-8)).sum(-1).mean()
-      aux["losses"] = {"seq_ent":seq_ent}
+      # add entropy loss on sequence to push to be categorical
+      p = jax.nn.relu(aux["seq"]["soft"])
+      aux["losses"]["seq_ent"] = -(p * jnp.log(p + 1e-8)).sum(-1).mean()
+
+      # add protocol specific losses
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 
+      # add user defined losses
       inputs["seq"] = aux["seq"]      
       if self._loss_callback is not None:
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]

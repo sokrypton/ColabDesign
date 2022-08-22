@@ -94,7 +94,7 @@ class _af_prep:
     
     if redesign:      
       self._wt_aatype = self._inputs["batch"]["aatype"][target_len:]
-      self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.01,
+      self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
                                   "con":0.0, "i_pae":0.01, "i_con":0.0})
     else: # binder hallucination            
       # pad inputs
@@ -159,7 +159,7 @@ class _af_prep:
                        "copies":copies})
 
     # set weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.01, "con":0.0})
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
 
     # update residue index from pdb
     if copies > 1:
@@ -273,7 +273,7 @@ class _af_prep:
 
     # configure options/weights
     self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.01, "con":1.0})
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
     self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests

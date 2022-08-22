@@ -5,7 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
-from colabdesign.af.alphafold.common import confidence_jax
+from colabdesign.af.alphafold.common import confidence_jax, residue_constants
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -271,9 +271,8 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
 
 def get_fape_loss(inputs, outputs, copies=1, return_mtx=False):
 
-  def get_R(N, Ca, C):
-    v1 = C-Ca
-    v2 = N-Ca
+  def get_R(N, CA, C):
+    (v1,v2) = (C-CA, N-CA)
     e1 = v1 / robust_norm(v1, axis=-1, keepdims=True)
     c = jnp.einsum('li, li -> l', e1, v2)[:,None]
     e2 = v2 - c * e1
@@ -295,9 +294,13 @@ def get_fape_loss(inputs, outputs, copies=1, return_mtx=False):
   true = inputs["batch"]["all_atom_positions"]
   pred = outputs["structure_module"]["final_atom_positions"]
 
-  true_ca,pred_ca = true[:,1],pred[:,1]
-  true = get_ij(get_R(true[:,0],true_ca,true[:,2]),true_ca)
-  pred = get_ij(get_R(pred[:,0],pred_ca,pred[:,2]),pred_ca)
+  N,CA,C = (residue_constants.atom_order[k] for k in ["N","CA","C"])
+
+  true_mask = inputs["batch"]["all_atom_mask"]
+  weights = true_mask[:,N] * true_mask[:,CA] * true_mask[:,C]
+
+  true = get_ij(get_R(true[:,N],true[:,CA],true[:,C]),true[:,CA])
+  pred = get_ij(get_R(pred[:,N],pred[:,CA],pred[:,C]),pred[:,CA])
 
   return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 

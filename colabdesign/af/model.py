@@ -51,7 +51,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
-                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
+                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01, "seq_ent":0.1},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
     
     self._params = {}
@@ -184,7 +184,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # LOSS
       #######################################################################
 
-      aux["losses"] = {}
+      seq_ent = -(aux["pssm"] * jnp.log(aux["pssm"] + 1e-8)).sum(-1).mean()
+      aux["losses"] = {"seq_ent":seq_ent}
       self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
 
       inputs["seq"] = aux["seq"]      

@@ -271,6 +271,9 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
 
 def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
 
+  def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
+    return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
+
   def get_R(N, CA, C):
     (v1,v2) = (C-CA, N-CA)
     e1 = v1 / robust_norm(v1, axis=-1, keepdims=True)
@@ -282,9 +285,6 @@ def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
 
   def get_ij(R,T):
     return jnp.einsum('rji,rsj->rsi',R,T[None,:]-T[:,None])
-
-  def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
-    return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
 
   def loss_fn(t,p,m):
     fape = robust_norm(t-p)

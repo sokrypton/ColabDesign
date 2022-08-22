@@ -186,12 +186,15 @@ class _af_design:
     # run
     self.run(backprop=backprop, callback=callback)
 
-    # normalize gradient
     g = self.aux["grad"]["seq"]
-    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    
     eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
-    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
+    
+    # statistical correction - doi:10.1101/2022.04.29.490102
+    g = g - g.sum(-2,keepdims=True) / eff_len
+    
+    # normalize gradient    
+    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    self.aux["grad"]["seq"] = g * jnp.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     lr = self.opt["lr"] * lr_scale

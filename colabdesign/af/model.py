@@ -52,7 +52,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
                 "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
-                "cmap_cutoff": 10.0}
+                "cmap_cutoff": 10.0, "fape_cutoff":10.0}
     
     self._params = {}
     self._inputs = {}

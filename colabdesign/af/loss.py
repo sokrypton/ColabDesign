@@ -36,7 +36,7 @@ class _af_loss:
     dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
     
     # fape loss
-    fape = get_fape_loss(inputs, outputs, copies=copies)
+    fape = get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"])
     aux["losses"].update({"rmsd": rmsd, "dgram_cce": dgram_cce, "fape":fape, "plddt":plddt_loss.mean()})
 
   def _loss_binder(self, inputs, outputs, opt, aux):
@@ -56,7 +56,7 @@ class _af_loss:
       cce = cce[self._target_len:,:].mean()
 
       # compute fape
-      fape = get_dgram_loss(inputs, outputs, return_mtx=True)
+      fape = get_fape_loss(inputs, outputs, clamp=opt["fape_cutoff"], return_mtx=True)
       fape = fape[self._target_len:,:].mean()
 
       aux["losses"].update({"rmsd":aln["rmsd"], "dgram_cce":cce, "fape":fape})
@@ -96,7 +96,7 @@ class _af_loss:
 
     # fape
     outputs["structure_module"]["traj"] = sub(outputs["structure_module"]["traj"],pos,-2)
-    aux["losses"]["fape"] = get_fape_loss(inputs, outputs)
+    aux["losses"]["fape"] = get_fape_loss(inputs, outputs, clamp=opt["fape_cutoff"])
 
     # sidechain specific losses
     if self._args["use_sidechains"]:
@@ -269,7 +269,7 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
   
   return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 
-def get_fape_loss(inputs, outputs, copies=1, return_mtx=False):
+def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
 
   def get_R(N, CA, C):
     (v1,v2) = (C-CA, N-CA)
@@ -288,7 +288,7 @@ def get_fape_loss(inputs, outputs, copies=1, return_mtx=False):
 
   def loss_fn(t,p,m):
     fape = robust_norm(t-p)
-    fape = jnp.clip(fape, 0, 10.0) / 10.0
+    fape = jnp.clip(fape, 0, clamp) / 10.0
     return fape, (fape*m).sum((-1,-2))/(m.sum((-1,-2)) + 1e-8)
 
   true = inputs["batch"]["all_atom_positions"]

@@ -263,12 +263,43 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
   bin_edges = jnp.linspace(2.3125, 21.6875, pred.shape[-1] - 1)
   true = jax.nn.one_hot((dm > jnp.square(bin_edges)).sum(-1), pred.shape[-1])
 
-  return _get_dgram_loss(true, pred, weights, copies, return_mtx=return_mtx)
+  def loss_fn(t,p,m):
+    cce = -(t*jax.nn.log_softmax(p)).sum(-1)
+    return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
+  
+  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 
 def get_fape_loss(inputs, outputs, copies=1, return_mtx=False):
+
+  def get_R(N, Ca, C):
+    v1 = C-Ca
+    v2 = N-Ca
+    e1 = v1 / robust_norm(v1, axis=-1, keepdims=True)
+    c = jnp.einsum('li, li -> l', e1, v2)[:,None]
+    e2 = v2 - c * e1
+    e2 = e2 / robust_norm(e2, axis=-1, keepdims=True)
+    e3 = jnp.cross(e1, e2, axis=-1)
+    return jnp.concatenate([e1[:,:,None], e2[:,:,None], e3[:,:,None]], axis=-1)
+
+  def get_ij(R,T):
+    return jnp.einsum('rji,rsj->rsi',R,T[None,:]-T[:,None])
+
+  def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
+    return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
+
+  def loss_fn(t,p,m):
+    fape = robust_norm(t-p)
+    fape = jnp.clip(fape, 0, 10.0) / 10.0
+    return fape, (fape*m).sum((-1,-2))/(m.sum((-1,-2)) + 1e-8)
+
   true = inputs["batch"]["all_atom_positions"]
   pred = outputs["structure_module"]["final_atom_positions"]
-  return _get_fape_loss(true, pred, weights=None, copies=copies, return_mtx=return_mtx)
+
+  true_ca,pred_ca = true[:,1],pred[:,1]
+  true = get_ij(get_R(true[:,0],true_ca,true[:,2]),true_ca)
+  pred = get_ij(get_R(pred[:,0],pred_ca,pred[:,2]),pred_ca)
+
+  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 
 def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
   length = true.shape[0]
@@ -307,44 +338,7 @@ def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
   else:
     mtx, loss = loss_fn(**F)
     return mtx if return_mtx else loss
-
-def _get_dgram_loss(true, pred, weights=None, copies=1, return_mtx=False):
   
-  def loss_fn(t,p,m):
-    cce = -(t*jax.nn.log_softmax(p)).sum(-1)
-    return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
-  
-  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
-
-def _get_fape_loss(true, pred, weights=None, copies=1, return_mtx=False):
-
-  def get_R(N, Ca, C):
-    v1 = C-Ca
-    v2 = N-Ca
-    e1 = v1 / robust_norm(v1, axis=-1, keepdims=True)
-    c = jnp.einsum('li, li -> l', e1, v2)[:,None]
-    e2 = v2 - c * e1
-    e2 = e2 / robust_norm(e2, axis=-1, keepdims=True)
-    e3 = jnp.cross(e1, e2, axis=-1)
-    return jnp.concatenate([e1[:,:,None], e2[:,:,None], e3[:,:,None]], axis=-1)
-
-  def get_ij(R,T):
-    return jnp.einsum('rji,rsj->rsi',R,T[None,:]-T[:,None])
-
-  def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
-    return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
-
-  def loss_fn(t,p,m):
-    fape = robust_norm(t-p)
-    fape = jnp.clip(fape, 0, 10.0) / 10.0
-    return fape, (fape*m).sum((-1,-2))/(m.sum((-1,-2)) + 1e-8)
-
-  true_ca,pred_ca = true[:,1],pred[:,1]
-  true = get_ij(get_R(true[:,0],true_ca,true[:,2]),true_ca)
-  pred = get_ij(get_R(pred[:,0],pred_ca,pred[:,2]),pred_ca)
-
-  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
-
 def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
   batch = inputs["batch"]
   true = batch["all_atom_positions"][:,1,:]

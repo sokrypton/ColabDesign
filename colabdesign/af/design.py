@@ -180,7 +180,7 @@ class _af_design:
     return aux
 
   def step(self, lr_scale=1.0, backprop=True, repredict=False,
-           callback=None, save_best=False, verbose=1):
+           callback=None, stats_correct=False, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
@@ -190,9 +190,10 @@ class _af_design:
     eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
     
     # statistical correction - doi:10.1101/2022.04.29.490102
-    g = g - g.sum(-2,keepdims=True) / eff_len
-    
-    # normalize gradient    
+    if stats_correct:
+      g = g - g.sum(-2,keepdims=True) / eff_len
+
+    # normalize gradient
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
     self.aux["grad"]["seq"] = g * jnp.sqrt(eff_len)/(gn+1e-7)
 

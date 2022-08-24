@@ -29,8 +29,7 @@ class _af_loss:
     rmsd, aux["atom_positions"] = aln["rmsd"], aln["align"](aux["atom_positions"])
 
     # dgram loss
-    aatype = inputs["aatype"]
-    dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=aatype)
+    dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"])
     
     # fape loss
     fape = get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"])
@@ -68,29 +67,29 @@ class _af_loss:
     aux["losses"]["plddt"] = get_plddt_loss(outputs).mean()
     aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt))
 
+    copies = self._args["copies"]
+    if self._args["repeat"] or not self._args["homooligomer"]: copies = 1
+
+    # subset inputs/outputs
     def sub(x, p, axis=0):
       fn = lambda y:jnp.take(y,p,axis)
       # fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
       return jax.tree_map(fn, x)
-
+    
     pos = opt["pos"]
-    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    aatype = inputs["aatype"]
+    inputs["aatype"] = sub(inputs["aatype"],pos)
+    outputs["structure_module"]["final_atom_positions"] = sub(outputs["structure_module"]["final_atom_positions"],pos)
+    outputs["distogram"]["logits"] = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
 
-    copies = self._args["copies"]
-    if self._args["repeat"] or not self._args["homooligomer"]: copies = 1
-
-    # dgram
-    dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
-    if aatype is not None: aatype = sub(aatype,pos,0)
-    aux["losses"]["dgram_cce"] = get_dgram_loss(inputs, pred=dgram, copies=copies, aatype=aatype)
+    # dgram_cce
+    aux["losses"]["dgram_cce"] = get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"])
 
     # rmsd
-    aln = get_rmsd_loss(inputs, pred=pred[:,1], copies=copies)
+    aln = get_rmsd_loss(inputs, outputs, copies=copies)
     aux["losses"]["rmsd"] = aln["rmsd"]
 
     # fape
-    aux["losses"]["fape"] = get_fape_loss(inputs, pred=pred, copies=copies, clamp=opt["fape_cutoff"])
+    aux["losses"]["fape"] = get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"])
 
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
@@ -193,12 +192,12 @@ def get_ptm(inputs, outputs, interface=False):
 ####################
 # loss functions
 ####################
-def get_dgram_loss(inputs, outputs=None, pred=None, copies=1, aatype=None, return_mtx=False):
+def get_dgram_loss(inputs, outputs, copies=1, aatype=None, return_mtx=False):
 
   batch = inputs["batch"]
   # gather features
   if aatype is None: aatype = batch["aatype"]
-  if pred is None: pred = outputs["distogram"]["logits"]
+  pred = outputs["distogram"]["logits"]
 
   # get true features
   x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
@@ -215,7 +214,7 @@ def get_dgram_loss(inputs, outputs=None, pred=None, copies=1, aatype=None, retur
   
   return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 
-def get_fape_loss(inputs, outputs=None, pred=None, copies=1, clamp=10.0, return_mtx=False):
+def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
 
   def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
     return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
@@ -238,8 +237,7 @@ def get_fape_loss(inputs, outputs=None, pred=None, copies=1, clamp=10.0, return_
     return fape, (fape*m).sum((-1,-2))/(m.sum((-1,-2)) + 1e-8)
 
   true = inputs["batch"]["all_atom_positions"]
-  if pred is None:
-    pred = outputs["structure_module"]["final_atom_positions"]
+  pred = outputs["structure_module"]["final_atom_positions"]
 
   N,CA,C = (residue_constants.atom_order[k] for k in ["N","CA","C"])
 
@@ -289,11 +287,10 @@ def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
     mtx, loss = loss_fn(**F)
     return mtx if return_mtx else loss
   
-def get_rmsd_loss(inputs, outputs=None, pred=None, L=None, include_L=True, copies=1):
+def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
   batch = inputs["batch"]
   true = batch["all_atom_positions"][:,1]
-  if pred is None:
-    pred = outputs["structure_module"]["final_atom_positions"][:,1]
+  pred = outputs["structure_module"]["final_atom_positions"][:,1]
   weights = batch["all_atom_mask"][:,1]
   return _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
 

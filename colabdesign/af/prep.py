@@ -77,7 +77,6 @@ class _af_prep:
     self._inputs = self._prep_features(self._len, num_seq=num_seq)
     self._inputs["batch"] = pdb["batch"]
 
-
     # set weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
 
@@ -101,8 +100,10 @@ class _af_prep:
       self._lengths = pdb["lengths"]
 
     # fix certain positions
-    self.opt["fix_seq"] = fix_seq
-    if pos is not None:
+    if pos is None:
+      self.opt["fix_seq"] = False
+    else:
+      self.opt["fix_seq"] = fix_seq
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = self._pos_info["pos"]
 
@@ -251,16 +252,37 @@ class _af_prep:
     self._inputs = self._prep_features(self._len)
     self._inputs["batch"] = pdb["batch"]
 
+    # get [pos]itions of interests
+    if pos is None:
+      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
+      self.opt["fix_seq"] = False
+    else:
+      self._pos_info = prep_pos(pos, **pdb["idx"])
+      self.opt["pos"] = self._pos_info["pos"]
+      self.opt["fix_seq"] = fix_seq
+
     # undocumented: experimental homo-oligomeric support
-    if kwargs.pop("homooligomer",False):
+    if kwargs.pop("homooligomer", False):
       copies = kwargs.pop("copies",1)
-      if chain is not None copies == 1: copies = len(chain.split(","))
+      if chain is not None and copies == 1: copies = len(chain.split(","))
       if copies > 1:
         self._len = self._len // copies
         self._inputs["residue_index"] = repeat_idx(self._inputs["residue_index"][:self._len], copies)
         self._lengths = [self._len] * copies
-        self._args.update(dict(copies=copies, repeat=False, homooligomer=True,
-          block_diag=not self._args["use_multimer"]))
+        
+        if self._args["use_multimer"]:
+          block_diag = False
+        else:
+          (num_seq, block_diag) = (self._num * copies + 1, True)
+          self._inputs = make_fixed_size(self._inputs, num_res=sum(self._lengths), num_seq=num_seq)
+          for k in ["msa_row_mask","msa_mask"]:
+            self._inputs[k] = np.ones_like(self._inputs[k])
+
+        p = self.opt["pos"][self.opt["pos"] < self._len]
+        self.opt["pos"] = (np.repeat(p,copies).reshape(p.shape[0],copies) + np.arange(copies) * self._len).T.reshape(-1)
+
+        self._args.update(dict(copies=copies, repeat=False, homooligomer=True, block_diag=block_diag))
+        self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
 
     # undocumented: experimental repeat support
     if kwargs.pop("repeat",False):
@@ -272,16 +294,8 @@ class _af_prep:
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
-    self.opt["fix_seq"] = fix_seq
-
-    # get [pos]itions of interests
-    if pos is None:
-      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
-    else:
-      self._pos_info = prep_pos(pos, **pdb["idx"])
-      self.opt["pos"] = self._pos_info["pos"]
-      self._inputs["batch"] = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
     
+    self._inputs["batch"] = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
     self._wt_aatype = self._inputs["batch"]["aatype"]
 
     # configure sidechains

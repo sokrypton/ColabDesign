@@ -246,28 +246,33 @@ class _af_prep:
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
+    pdb["len"] = sum(pdb["lengths"])
     
-    self._len = pdb["residue_index"].shape[0] if length is None else length
+    self._len = pdb["len"] if length is None else length
     self._lengths = [self._len]
     self._inputs = self._prep_features(self._len)
-    self._inputs["batch"] = pdb["batch"]
 
     # get [pos]itions of interests
     if pos is None:
-      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
+      self.opt["pos"] = pdb["pos"] = np.arange(pdb["len"])
       self.opt["fix_seq"] = False
+    
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
-      self.opt["pos"] = self._pos_info["pos"]
+      self.opt["pos"] = pdb["pos"] = self._pos_info["pos"]
       self.opt["fix_seq"] = fix_seq
 
     # undocumented: experimental homo-oligomeric support
     if kwargs.pop("homooligomer", False):
       copies = kwargs.pop("copies",1)
-      if chain is not None and copies == 1: copies = len(chain.split(","))
+      
+      if chain is not None and copies == 1:
+        copies = len(chain.split(","))
+      
       if copies > 1:
         self._len = self._len // copies
-        self._inputs["residue_index"] = repeat_idx(self._inputs["residue_index"][:self._len], copies)
+        pdb["len"] = pdb["len"] // copies
+        self._inputs["residue_index"] = repeat_idx(np.arange(self._len), copies)
         self._lengths = [self._len] * copies
         
         if self._args["use_multimer"]:
@@ -282,8 +287,11 @@ class _af_prep:
         c = copies
         p = self.opt["pos"][self.opt["pos"] < self._len]
         self.opt["pos"] = (np.repeat(p,c).reshape(-1,c) + np.arange(c) * self._len).T.flatten()
+        
+        p_pdb = pdb["pos"][pdb["pos"] < pdb["len"]]
+        pdb["pos"] = (np.repeat(p_pos,c).reshape(-1,c) + np.arange(c) * pdb["len"]).T.flatten()
 
-        self._args.update(dict(copies=copies, repeat=False, homooligomer=True, block_diag=block_diag))
+        self._args.update({"copies":copies, "repeat":False, "homooligomer":True, "block_diag":block_diag})
         self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
 
     # undocumented: experimental repeat support
@@ -292,12 +300,12 @@ class _af_prep:
       if copies > 1:
         self._len = self._len // copies
         self._lengths = [self._len * copies]
-        self._args.update(dict(copies=copies, repeat=True, homooligomer=False, block_diag=False))
+        self._args.update({"copies":copies, "repeat":True, "homooligomer":False, "block_diag":False})
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
     
-    self._inputs["batch"] = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
+    self._inputs["batch"] = jax.tree_map(lambda x:x[pdb["pos"]], pdb["batch"])     
     self._wt_aatype = self._inputs["batch"]["aatype"]
 
     # configure sidechains

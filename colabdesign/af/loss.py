@@ -429,3 +429,8 @@ def get_pw_conf_loss(inputs, outputs, opt, L=None, H=None):
       losses.update({k:x.mean(),
                      f"i_{k}":ix.mean()})
     return losses
+
+def get_seq_ent_loss(inputs, outputs, opt):
+  x = inputs["seq"]["logits"] / opt["temp"]
+  ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
+  return {"seq_ent":ent.mean()}

@@ -9,7 +9,7 @@ from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_feat
@@ -51,7 +51,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
                 "i_con":    {"num":1, "cutoff":20.0, "binary":False},                 
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
-                "weights":  {"helix":0.0, "plddt":0.01, "pae":0.01},
+                "weights":  {"seq_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
     
     self._params = {}
@@ -149,7 +149,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if "batch" in inputs:
         # need frames for fape
         batch = inputs.pop("batch")
-        batch.update(all_atom.atom37_to_frames(**batch))
+        if self._args.get("use_sidechains",False):
+          batch.update(all_atom.atom37_to_frames(**batch))
       else:
         batch = None
         
@@ -197,6 +198,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       if self._args["debug"]:
         aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
+
+      # sequence entropy loss
+      aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
   
       # weighted loss
       w = opt["weights"]

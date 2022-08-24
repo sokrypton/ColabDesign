@@ -43,6 +43,119 @@ class _af_prep:
     return prep_input_features(L=length, N=num_seq, T=num_templates)
   
   # prep functions specific to protocol
+  def _prep_fixbb(self, pdb_filename, chain=None,
+                  copies=1, repeat=False, homooligomer=False,
+                  rm_template_seq=True, rm_template_sc=True, rm_template_ic=False,
+                  pos=None, fix_seq=True, **kwargs):
+    '''
+    prep inputs for fixed backbone design
+    ---------------------------------------------------
+    if copies > 1:
+      -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
+      -repeat=True - tie the repeating sequence within single chain
+    -rm_template_seq - if template is defined, remove information about template sequence
+    if fix_seq:
+      -pos="1,2-10" - specify which positions to keep fixed in the sequence
+                      note: supervised loss is applied to all positions, use "partial" 
+                      protocol to apply supervised loss to only subset of positions
+    ---------------------------------------------------
+    '''
+    self.opt["template"].update({"rm_seq":rm_template_seq, "rm_sc":rm_template_sc, "rm_ic":rm_template_ic})
+
+    # define num copies (for repeats/ homo-oligomers)
+    if not repeat and copies > 1 and not self._args["use_multimer"]:
+      (num_seq, block_diag) = (self._num * copies + 1, True)
+    else:
+      (num_seq, block_diag) = (self._num, False)
+    if chain is not None and homooligomer and copies == 1: copies = len(chain.split(","))
+    self._args.update({"repeat":repeat,"homooligomer":homooligomer,
+                       "block_diag":block_diag,"copies":copies})
+
+    # prep features
+    pdb = prep_pdb(pdb_filename, chain=chain)
+    self._len = pdb["residue_index"].shape[0]    
+    self._inputs = self._prep_features(self._len, num_seq=num_seq)
+    self._inputs["batch"] = pdb["batch"]
+
+
+    # set weights
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
+
+    # update residue index from pdb
+    if copies > 1:
+      if repeat:
+        self._len = self._len // copies
+        self._lengths = [self._len * copies]
+      else:
+        if homooligomer:
+          self._len = self._len // copies
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
+        else:
+          self._inputs = make_fixed_size(self._inputs, num_res=self._len * copies, num_seq=self._num)
+          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
+          for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
+        self._lengths = [self._len] * copies
+
+    else:
+      self._inputs["residue_index"] = pdb["residue_index"]
+      self._lengths = pdb["lengths"]
+
+    # fix certain positions
+    self.opt["fix_seq"] = fix_seq
+    if pos is not None:
+      self._pos_info = prep_pos(pos, **pdb["idx"])
+      self.opt["pos"] = self._pos_info["pos"]
+
+    self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
+
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
+
+    self._prep_model(**kwargs)
+
+    # undocumented: for dist cropping (for Shihao)
+    cb_atoms = pdb["cb_feat"]["atoms"]
+    cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
+    self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
+    
+  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
+    '''
+    prep inputs for hallucination
+    ---------------------------------------------------
+    if copies > 1:
+      -repeat=True - tie the repeating sequence within single chain
+    ---------------------------------------------------
+    '''
+    
+    # define num copies (for repeats/ homo-oligomers)
+    if not repeat and copies > 1 and not self._args["use_multimer"]:
+      (num_seq, block_diag) = (self._num * copies + 1, True)
+    else:
+      (num_seq, block_diag) = (self._num, False)
+    self._args.update({"repeat":repeat,"block_diag":block_diag,"copies":copies})
+      
+    # prep features
+    self._len = length
+    self._inputs = self._prep_features(length * copies, num_seq=num_seq)
+    
+    # set weights
+    self.opt["weights"].update({"con":1.0})
+    if copies > 1:
+      if repeat:
+        offset = 1
+        self._lengths = [self._len * copies]
+      else:
+        offset = 50
+        self._lengths = [self._len] * copies
+      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)
+    else:
+      self._lengths = [self._len]
+    
+    # set info for alphafold-multimer
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
+
+    self._prep_model(**kwargs)
+
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, 
@@ -62,9 +175,7 @@ class _af_prep:
     
     redesign = binder_chain is not None
 
-    self.opt["template"].update({"rm_seq":rm_template_seq,
-                                 "rm_sc":rm_template_sc,
-                                 "rm_ic":rm_template_ic,
+    self.opt["template"].update({"rm_seq":rm_template_seq, "rm_sc":rm_template_sc, "rm_ic":rm_template_ic,
                                  "dropout":(0.0 if use_binder_template else 1.0)})
     self._args.update({"redesign":redesign})
 
@@ -116,128 +227,6 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_fixbb(self, pdb_filename, chain=None,
-                  copies=1, repeat=False, homooligomer=False,
-                  rm_template_seq=True, rm_template_sc=True, rm_template_ic=False,
-                  pos=None, fix_seq=True, **kwargs):
-    '''
-    prep inputs for fixed backbone design
-    ---------------------------------------------------
-    if copies > 1:
-      -homooligomer=True - input pdb chains are parsed as homo-olgiomeric units
-      -repeat=True - tie the repeating sequence within single chain
-    -rm_template_seq - if template is defined, remove information about template sequence
-    if fix_seq:
-      -pos="1,2-10" - specify which positions to keep fixed in the sequence
-                      note: supervised loss is applied to all positions, use "partial" 
-                      protocol to apply supervised loss to only subset of positions
-    ---------------------------------------------------
-    '''
-    self.opt["template"].update({"rm_seq":rm_template_seq,
-                                 "rm_sc":rm_template_sc,
-                                 "rm_ic":rm_template_ic})
-
-    # block_diag the msa features
-    if not repeat and copies > 1 and not self._args["use_multimer"]:
-      num_seq = 1 + self._num * copies
-      block_diag = True
-    else:
-      num_seq = self._num
-      block_diag = False
-
-    pdb = prep_pdb(pdb_filename, chain=chain)
-    if chain is not None and homooligomer and copies == 1:
-      copies = len(chain.split(","))
-
-    self._len = pdb["residue_index"].shape[0]
-    self._inputs = self._prep_features(self._len, num_seq=num_seq)
-    self._inputs["batch"] = pdb["batch"]
-
-    self._args.update({"repeat":repeat,
-                       "block_diag":block_diag,
-                       "homooligomer":homooligomer,
-                       "copies":copies})
-
-    # set weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
-
-    # update residue index from pdb
-    if copies > 1:
-      if repeat:
-        self._len = self._len // copies
-        self._lengths = [self._len * copies]
-      else:
-        if homooligomer:
-          self._len = self._len // copies
-          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"][:self._len], copies)
-        else:
-          self._inputs = make_fixed_size(self._inputs, num_res=self._len * copies, num_seq=self._num)
-          self._inputs["residue_index"] = repeat_idx(pdb["residue_index"], copies)
-          for k in ["seq_mask","msa_mask"]: self._inputs[k] = np.ones_like(self._inputs[k])
-        self._lengths = [self._len] * copies
-
-    else:
-      self._inputs["residue_index"] = pdb["residue_index"]
-      self._lengths = pdb["lengths"]
-
-    # fix certain positions
-    self.opt["fix_seq"] = fix_seq
-    if pos is not None:
-      self._pos_info = prep_pos(pos, **pdb["idx"])
-      self.opt["pos"] = self._pos_info["pos"]
-
-    self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
-
-    # set info for alphafold-multimer
-    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
-
-    self._prep_model(**kwargs)
-
-    # undocumented: for dist cropping (for Shihao)
-    cb_atoms = pdb["cb_feat"]["atoms"]
-    cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
-    self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
-    
-  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
-    '''
-    prep inputs for hallucination
-    ---------------------------------------------------
-    if copies > 1:
-      -repeat=True - tie the repeating sequence within single chain
-    ---------------------------------------------------
-    '''
-    
-    # set [arg]uments
-    if not repeat and copies > 1 and not self._args["use_multimer"]:
-      num_seq = 1 + self._num * copies
-      block_diag = True
-    else:
-      num_seq = self._num
-      block_diag = False
-    self._args.update({"block_diag":block_diag, "repeat":repeat, "copies":copies})
-      
-    # prep features
-    self._len = length
-    self._inputs = self._prep_features(length * copies, num_seq=num_seq)
-    
-    # set weights
-    self.opt["weights"].update({"con":1.0})
-    if copies > 1:
-      if repeat:
-        offset = 1
-        self._lengths = [self._len * copies]
-      else:
-        offset = 50
-        self._lengths = [self._len] * copies
-      self._inputs["residue_index"] = repeat_idx(np.arange(length), copies, offset=offset)
-    else:
-      self._lengths = [self._len]
-    
-    # set info for alphafold-multimer
-    self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
-
-    self._prep_model(**kwargs)
-
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     pos=None, fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
                     rm_template_seq=False, rm_template_sc=False, **kwargs):
@@ -252,8 +241,7 @@ class _af_prep:
     -rm_template_seq - if template is defined, remove information about template sequence
     ---------------------------------------------------    
     '''    
-    self.opt["template"].update({"rm_seq":rm_template_seq,
-                                 "rm_sc":rm_template_sc})
+    self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc})
 
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
@@ -263,24 +251,37 @@ class _af_prep:
     self._inputs = self._prep_features(self._len)
     self._inputs["batch"] = pdb["batch"]
 
+    # undocumented: experimental homo-oligomeric support
+    if kwargs.pop("homooligomer",False):
+      copies = kwargs.pop("copies",1)
+      if chain is not None copies == 1: copies = len(chain.split(","))
+      if copies > 1:
+        self._len = self._len // copies
+        self._inputs["residue_index"] = repeat_idx(self._inputs["residue_index"][:self._len], copies)
+        self._lengths = [self._len] * copies
+        self._args.update(dict(copies=copies, repeat=False, homooligomer=True,
+          block_diag=not self._args["use_multimer"]))
+
     # undocumented: experimental repeat support
     if kwargs.pop("repeat",False):
       copies = kwargs.pop("copies",1)
       if copies > 1:
         self._len = self._len // copies
         self._lengths = [self._len * copies]
-        self._args.update({"copies":copies, "repeat":True, "block_diag":False})
+        self._args.update(dict(copies=copies, repeat=True, homooligomer=False, block_diag=False))
 
     # configure options/weights
-    self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
     self.opt["fix_seq"] = fix_seq
 
     # get [pos]itions of interests
-    if pos is not None:
+    if pos is None:
+      self.opt["pos"] = np.arange(pdb["residue_index"].shape[0])
+    else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = self._pos_info["pos"]
       self._inputs["batch"] = jax.tree_map(lambda x:x[self.opt["pos"]], pdb["batch"])     
+    
     self._wt_aatype = self._inputs["batch"]["aatype"]
 
     # configure sidechains

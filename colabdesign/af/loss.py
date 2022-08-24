@@ -74,26 +74,28 @@ class _af_loss:
       return jax.tree_map(fn, x)
 
     pos = opt["pos"]
+    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
     aatype = inputs["aatype"]
-    _config = self._cfg.model.heads.structure_module
+
+    copies = self._args["copies"]
+    if self._args["repeat"] or not self._args["homooligomer"]: copies = 1
 
     # dgram
     dgram = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
     if aatype is not None: aatype = sub(aatype,pos,0)
-    aux["losses"]["dgram_cce"] = get_dgram_loss(inputs, pred=dgram, copies=1, aatype=aatype)
+    aux["losses"]["dgram_cce"] = get_dgram_loss(inputs, pred=dgram, copies=copies, aatype=aatype)
 
     # rmsd
-    true = batch["all_atom_positions"]
-    pred = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    aln = _get_rmsd_loss(true[:,1], pred[:,1])
+    aln = get_rmsd_loss(inputs, pred=pred[:,1], copies=copies)
     aux["losses"]["rmsd"] = aln["rmsd"]
 
     # fape
-    outputs["structure_module"]["traj"] = sub(outputs["structure_module"]["traj"],pos,-2)
-    aux["losses"]["fape"] = get_fape_loss(inputs, outputs, clamp=opt["fape_cutoff"])
+    aux["losses"]["fape"] = get_fape_loss(inputs, pred=pred, copies=copies, clamp=opt["fape_cutoff"])
 
     # sidechain specific losses
-    if self._args["use_sidechains"]:
+    if self._args["use_sidechains"] and copies == 1:
+    
+      _config = self._cfg.model.heads.structure_module
       # sc_fape
       struct = outputs["structure_module"]
       pred_pos = sub(struct["final_atom14_positions"],pos)
@@ -102,8 +104,10 @@ class _af_loss:
         sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                      "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
         aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct, _config)["loss"]
+
       else:
-        ### TODO ###
+        
+        # TODO
         print("ERROR: 'sc_fape' not currently supported for 'multimer' mode")
         aux["losses"]["sc_fape"] = 0.0
 
@@ -189,7 +193,7 @@ def get_ptm(inputs, outputs, interface=False):
 ####################
 # loss functions
 ####################
-def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, return_mtx=False):
+def get_dgram_loss(inputs, outputs=None, pred=None, copies=1, aatype=None, return_mtx=False):
 
   batch = inputs["batch"]
   # gather features
@@ -211,7 +215,7 @@ def get_dgram_loss(inputs, outputs=None, copies=1, aatype=None, pred=None, retur
   
   return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
 
-def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
+def get_fape_loss(inputs, outputs=None, pred=None, copies=1, clamp=10.0, return_mtx=False):
 
   def robust_norm(x, axis=-1, keepdims=False, eps=1e-8):
     return jnp.sqrt(jnp.square(x).sum(axis=axis, keepdims=keepdims) + eps)
@@ -234,7 +238,8 @@ def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
     return fape, (fape*m).sum((-1,-2))/(m.sum((-1,-2)) + 1e-8)
 
   true = inputs["batch"]["all_atom_positions"]
-  pred = outputs["structure_module"]["final_atom_positions"]
+  if pred is None:
+    pred = outputs["structure_module"]["final_atom_positions"]
 
   N,CA,C = (residue_constants.atom_order[k] for k in ["N","CA","C"])
 
@@ -284,10 +289,11 @@ def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
     mtx, loss = loss_fn(**F)
     return mtx if return_mtx else loss
   
-def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
+def get_rmsd_loss(inputs, outputs=None, pred=None, L=None, include_L=True, copies=1):
   batch = inputs["batch"]
-  true = batch["all_atom_positions"][:,1,:]
-  pred = outputs["structure_module"]["final_atom_positions"][:,1,:]
+  true = batch["all_atom_positions"][:,1]
+  if pred is None:
+    pred = outputs["structure_module"]["final_atom_positions"][:,1]
   weights = batch["all_atom_mask"][:,1]
   return _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
 

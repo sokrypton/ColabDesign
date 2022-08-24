@@ -247,7 +247,7 @@ class _af_prep:
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain)
     pdb["len"] = sum(pdb["lengths"])
-    
+
     self._len = pdb["len"] if length is None else length
     self._lengths = [self._len]
     self._inputs = self._prep_features(self._len)
@@ -255,6 +255,7 @@ class _af_prep:
     # get [pos]itions of interests
     if pos is None:
       self.opt["pos"] = pdb["pos"] = np.arange(pdb["len"])
+      self._pos_info = {"length":np.array([pdb["len"]]), "pos":pdb["pos"]}
       self.opt["fix_seq"] = False
     
     else:
@@ -284,12 +285,9 @@ class _af_prep:
             self._inputs[k] = np.ones_like(self._inputs[k])
 
         # repeat positions across copies
-        c = copies
-        p = self.opt["pos"][self.opt["pos"] < self._len]
-        self.opt["pos"] = (np.repeat(p,c).reshape(-1,c) + np.arange(c) * self._len).T.flatten()
-        
-        p_pdb = pdb["pos"][pdb["pos"] < pdb["len"]]
-        pdb["pos"] = (np.repeat(p_pos,c).reshape(-1,c) + np.arange(c) * pdb["len"]).T.flatten()
+        pos = pdb["pos"][pdb["pos"] < pdb["len"]]
+        pdb["pos"] = repeat_pos(pos, copies, pdb["len"])
+        self.opt["pos"] = repeat_pos(pos, copies, self._len)
 
         self._args.update({"copies":copies, "repeat":False, "homooligomer":True, "block_diag":block_diag})
         self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
@@ -324,6 +322,9 @@ class _af_prep:
 def repeat_idx(idx, copies=1, offset=50):
   idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
   return np.tile(idx,copies) + idx_offset
+
+def repeat_pos(pos, copies, length):
+  return (np.repeat(pos,copies).reshape(-1,copies) + np.arange(copies) * length).T.flatten()
 
 def prep_pdb(pdb_filename, chain=None):
   '''extract features from pdb'''

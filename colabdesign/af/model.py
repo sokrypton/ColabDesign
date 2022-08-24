@@ -146,15 +146,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if opt["crop_pos"].shape[0] < L:
         inputs = crop_feat(inputs, opt["crop_pos"])    
 
-      if "batch" in inputs:
-        # need frames for fape
-        batch = inputs.pop("batch")
-        if self._args.get("use_sidechains",False):
-          batch.update(all_atom.atom37_to_frames(**batch))
-      else:
-        batch = None
-        
-      inputs["batch"] = batch
+      if "batch" not in inputs:
+        inputs["batch"] = None
       
       #######################################################################
       # OUTPUTS

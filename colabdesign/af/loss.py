@@ -100,7 +100,10 @@ class _af_loss:
       if not self._args["use_multimer"]:
         sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                      "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
-        aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct, _config)["loss"]
+        
+        batch_ = copy_dict(batch)
+        batch_.update(all_atom.atom37_to_frames(**batch_))
+        aux["losses"]["sc_fape"] = folding.sidechain_loss(batch_, sc_struct, _config)["loss"]
 
       else:
         
@@ -435,7 +438,6 @@ def get_seq_ent_loss(inputs, outputs, opt):
   ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
   mask = jnp.ones(ent.shape[-1])
   if "pos" in opt and "fix_seq" in opt:
-    ent = ent.at[...,opt["pos"]].set(0.0)
-    mask = mask.at[opt["pos"]].set(0.0)
-  ent = ent.sum(-1).mean() / (1e-8 + mask.sum())
-  return {"seq_ent":ent}
+    mask = mask.at[opt["pos"]].set(0)
+  ent = (ent * mask).sum() / (mask.sum() + 1e-8)
+  return {"seq_ent":ent.mean()}

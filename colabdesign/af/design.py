@@ -223,7 +223,7 @@ class _af_design:
 
   def _print_log(self, print_str=None):
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "plddt","pae","helix","con","i_pae","i_con",
+            "seq_ent","plddt","pae","helix","con","i_pae","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","ptm"]
     if sum(self._lengths) > 0: keys.append("i_ptm")
     keys.append("rmsd")

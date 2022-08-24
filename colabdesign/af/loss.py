@@ -433,6 +433,9 @@ def get_pw_conf_loss(inputs, outputs, opt, L=None, H=None):
 def get_seq_ent_loss(inputs, outputs, opt):
   x = inputs["seq"]["logits"] / opt["temp"]
   ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
+  mask = jnp.ones(ent.shape[-1])
   if "pos" in opt and "fix_seq" in opt:
     ent = ent.at[...,opt["pos"]].set(0.0)
-  return {"seq_ent":ent.mean()}
+    mask = mask.at[opt["pos"]].set(0.0)
+  ent = ent.sum(-1).mean() / (1e-8 + mask.sum())
+  return {"seq_ent":ent}

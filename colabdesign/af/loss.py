@@ -21,8 +21,7 @@ class _af_loss:
     '''get losses'''
     aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt))
 
-    copies = self._args["copies"]
-    if self._args["repeat"] or not self._args["homooligomer"]: copies = 1      
+    copies = self._args["copies"] if self._args["homooligomer"] else 1
     
     # rmsd loss
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
@@ -67,8 +66,7 @@ class _af_loss:
     aux["losses"]["plddt"] = get_plddt_loss(outputs).mean()
     aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt))
 
-    copies = self._args["copies"]
-    if self._args["repeat"] or not self._args["homooligomer"]: copies = 1
+    copies = self._args["copies"] if self._args["homooligomer"] else 1
 
     # subset inputs/outputs
     def sub(x, p, axis=0):

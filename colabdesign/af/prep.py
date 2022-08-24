@@ -278,8 +278,10 @@ class _af_prep:
           for k in ["msa_row_mask","msa_mask"]:
             self._inputs[k] = np.ones_like(self._inputs[k])
 
+        # repeat positions across copies
+        c = copies
         p = self.opt["pos"][self.opt["pos"] < self._len]
-        self.opt["pos"] = (np.repeat(p,copies).reshape(p.shape[0],copies) + np.arange(copies) * self._len).T.reshape(-1)
+        self.opt["pos"] = (np.repeat(p,c).reshape(-1,c) + np.arange(c) * self._len).T.flatten()
 
         self._args.update(dict(copies=copies, repeat=False, homooligomer=True, block_diag=block_diag))
         self._inputs.update(get_multi_id(self._lengths, homooligomer=True))

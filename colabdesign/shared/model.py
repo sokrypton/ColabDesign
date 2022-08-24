@@ -139,8 +139,15 @@ class design_model:
     '''
     self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
                              offset=offset, loops=loops)
-    if hasattr(self,"_opt"):
-      self._opt["pos"] = self.opt["pos"]
+
+    # repeat positions across copies
+    if self._args.get("homooligomer",False):
+      c = self._args.get("copies",1)
+      p = self.opt["pos"][self.opt["pos"] < self._len]
+      self.opt["pos"] = (np.repeat(p,c).reshape(-1,c) + np.arange(c) * self._len).T.flatten()
+
+    # make default
+    if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
 def soft_seq(x, opt, key=None):
   seq = {"input":x}

@@ -14,47 +14,67 @@ from colabdesign.af.alphafold.common import confidence_jax, residue_constants
 class _af_loss:
   # protocol specific loss functions
   def _loss_hallucination(self, inputs, outputs, opt, aux):
-    aux["losses"]["plddt"] = get_plddt_loss(outputs).mean()
-    aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt))
-    
+    aux["losses"].update({
+      "plddt": get_plddt_loss(outputs),
+      "pae":   get_pae_loss(outputs),
+      "con":   get_con_loss(inputs, outputs, opt["con"])})
+  
   def _loss_fixbb(self, inputs, outputs, opt, aux):
     '''get losses'''
-    aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt))
 
     copies = self._args["copies"] if self._args["homooligomer"] else 1
     
     # rmsd loss
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
-    rmsd, aux["atom_positions"] = aln["rmsd"], aln["align"](aux["atom_positions"])
-
-    # dgram loss
-    dgram_cce = get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"])
+    aux["atom_positions"] = aln["align"](aux["atom_positions"])
     
-    # fape loss
-    fape = get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"])
-    aux["losses"].update({"rmsd": rmsd, "dgram_cce": dgram_cce, "fape":fape, 
-                          "plddt":get_plddt_loss(outputs).mean()})
+    aux["losses"].update({
+
+      # unsupervised losses
+      "plddt":     get_plddt_loss(outputs),
+      "pae":       get_pae_loss(outputs),
+      "con":       get_con_loss(inputs, outputs, opt["con"]),
+
+      # supervised losses
+      "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
+      "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
+      "rmsd":      aln["rmsd"]
+    })
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
-    aux["losses"]["plddt"] = get_plddt_loss(outputs)[...,self._target_len:].mean()
-    aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt, L=self._target_len), H=opt.get("pos",None))
+    zeros = jnp.zeros(sum(self._lengths))
+    binder_id = zeros.at[self._target_len:].set(1)
+    target_id = zeros.at[opt["pos"]].set(1) if "pos" in opt else zeros.at[:self._target_len].set(1)
 
+    # UNSUPERVISED LOSSES
+    aux["losses"].update({
+      "plddt": get_plddt_loss(outputs, mask=binder_id),
+      "pae":   get_pae_loss(outputs, mask_a=binder_id, mask_b=binder_id),
+      "i_pae": get_pae_loss(outputs, mask_a=binder_id, mask_b=target_id),
+      "con":   get_con_loss(inputs, outputs, opt["con"],   mask_a=binder_id, mask_b=binder_id),
+      "i_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id)
+    })
+
+    # SUPERVISED LOSSES
     if self._args["redesign"]:      
+  
       aln = get_rmsd_loss(inputs, outputs, L=self._target_len, include_L=False)
       align_fn = aln["align"]
       
       # compute cce of binder + interface
       aatype = inputs["aatype"]
       cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_mtx=True)
-      cce = cce[self._target_len:,:].mean()
 
       # compute fape
       fape = get_fape_loss(inputs, outputs, clamp=opt["fape_cutoff"], return_mtx=True)
-      fape = fape[self._target_len:,:].mean()
 
-      aux["losses"].update({"rmsd":aln["rmsd"], "dgram_cce":cce, "fape":fape})
-    
+      aux["losses"].update({
+        "rmsd":      aln["rmsd"],
+        "dgram_cce": cce[self._target_len:,:].mean(),
+        "fape":      fape[self._target_len:,:].mean()
+      })
+
     else:
       align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
 
@@ -62,32 +82,30 @@ class _af_loss:
 
   def _loss_partial(self, inputs, outputs, opt, aux):
     '''get losses'''    
-    batch = inputs["batch"]
-    aux["losses"]["plddt"] = get_plddt_loss(outputs).mean()
-    aux["losses"].update(get_pw_conf_loss(inputs, outputs, opt))
+    pos = opt["pos"]
+    def sub(x, p, axis=0): return jnp.take(x,p,axis)
+    
+    # UNSUPERVISED LOSSES
+    unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
+    aux["losses"].update({
+      "plddt": get_plddt_loss(outputs, mask=unsup_id),
+      "pae":   get_pae_loss(outputs, mask_a=unsup_id),
+      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id)
+    })
+
+    # SUPERVISED LOSSES
+    I = {"aatype":sub(inputs["aatype"], pos), "batch":inputs["batch"]}
+    O = {"distogram":{"logits":sub(sub(outputs["distogram"]["logits"],pos),pos,1),
+                      "bin_edges":outputs["distogram"]["bin_edges"]},
+         "structure_module":{"final_atom_positions":sub(outputs["structure_module"]["final_atom_positions"],pos)}}
 
     copies = self._args["copies"] if self._args["homooligomer"] else 1
-
-    # subset inputs/outputs
-    def sub(x, p, axis=0):
-      fn = lambda y:jnp.take(y,p,axis)
-      # fn = lambda y:jnp.tensordot(p,y,(-1,axis)).swapaxes(axis,0)
-      return jax.tree_map(fn, x)
-    
-    pos = opt["pos"]
-    inputs["aatype"] = sub(inputs["aatype"],pos)
-    outputs["structure_module"]["final_atom_positions"] = sub(outputs["structure_module"]["final_atom_positions"],pos)
-    outputs["distogram"]["logits"] = sub(sub(outputs["distogram"]["logits"],pos),pos,1)
-
-    # dgram_cce
-    aux["losses"]["dgram_cce"] = get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"])
-
-    # rmsd
-    aln = get_rmsd_loss(inputs, outputs, copies=copies)
-    aux["losses"]["rmsd"] = aln["rmsd"]
-
-    # fape
-    aux["losses"]["fape"] = get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"])
+    aln = get_rmsd_loss(I, O, copies=copies)
+    aux["losses"].update({
+      "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),
+      "fape":      get_fape_loss(I, O, copies=copies, clamp=opt["fape_cutoff"]),
+      "rmsd":      aln["rmsd"]
+    })
 
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
@@ -121,7 +139,7 @@ class _af_loss:
 
 #####################################################################################
 
-def _get_pw_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
+def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   '''dgram to contacts'''
   if cutoff is None: cutoff = dgram_bins[-1]
   bins = dgram_bins < cutoff  
@@ -132,22 +150,9 @@ def _get_pw_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))
   return jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
 
-def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True,
-                 num=1, seqsep=0, offset=None):
-  '''convert distogram into contact loss'''  
-  x = _get_pw_con_loss(dgram, dgram_bins, cutoff, binary)  
-  a,b = x.shape
-  if offset is None:
-    mask = jnp.abs(jnp.arange(a)[:,None] - jnp.arange(b)[None,:]) >= seqsep
-  else:
-    mask = jnp.abs(offset) >= seqsep
-  x = jnp.sort(jnp.where(mask,x,jnp.nan))
-  k_mask = (jnp.arange(b) < num) * (jnp.isnan(x) == False)    
-  return jnp.where(k_mask,x,0.0).sum(-1) / (k_mask.sum(-1) + 1e-8)
-
 def _get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
   '''helix bias loss'''
-  x = _get_pw_con_loss(dgram, dgram_bins, cutoff=6.0, binary=True)
+  x = _get_con_loss(dgram, dgram_bins, cutoff=6.0, binary=True)
   if offset is None:
     return jnp.diagonal(x,3).mean()
   else:
@@ -164,9 +169,59 @@ def get_contact_map(outputs, dist=8.0):
 ####################
 # confidence metrics
 ####################
-def get_plddt_loss(outputs):
+def get_plddt_loss(outputs, mask=None):
   p = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
-  return (p * jnp.arange(p.shape[-1])[::-1]).mean(-1)
+  p = (p * jnp.arange(p.shape[-1])[::-1]).mean(-1)
+  if mask is None: mask = jnp.ones(p.shape[0])
+  return (p * mask).sum() / (1e-8 + mask.sum())
+
+def get_pae_loss(outputs, mask_a=None, mask_b=None):
+  p = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
+  p = (p * jnp.arange(p.shape[-1])).mean(-1)
+  p = (p + p.T)/2
+  
+  L = p.shape[0]
+  if mask_a is None: mask_a = jnp.ones(L)
+  if mask_b is None: mask_b = jnp.ones(L)
+
+  mask_2d = mask_a[:,None] * mask_b[None,:]
+  return (p * mask_2d).sum() / (1e-8 + mask_2d.sum())
+
+def get_con_loss(inputs, outputs, con_opt, mask_a=None, mask_b=None):
+
+  # contact [opt]ions
+  c = con_opt
+  
+  # decide on what offset to use
+  if "offset" in inputs:
+    offset = inputs["offset"]
+  else:
+    idx = inputs["residue_index"].flatten()
+    offset = idx[:,None] - idx[None,:]
+
+  # define distogram
+  dgram = outputs["distogram"]["logits"]
+  dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+
+  L = dgram.shape[0]
+  if mask_a is None: mask_a = jnp.ones(L)
+  if mask_b is None: mask_b = jnp.ones(L)
+
+  p = _get_con_loss(dgram, dgram_bins, cutoff=c["cutoff"], binary=c["binary"])
+  if "seqsep" in c:
+    m = jnp.abs(offset) >= c["seqsep"]
+  else:
+    m = jnp.ones_like(offset)
+  m = jnp.logical_and(m, mask_b)
+
+  # get top k
+  def top_k(x, k=1, mask=None):
+    y = jnp.sort(x if mask is None else jnp.where(mask,x,jnp.nan))
+    k_mask = jnp.logical_and(jnp.arange(y.shape[1]) < k, jnp.isnan(y) == False)
+    return jnp.where(k_mask,y,0).sum(-1) / (k_mask.sum(-1) + 1e-8)
+  
+  p = top_k(p,c["num"],m)
+  return (p * mask_a).sum() / (mask_a.sum() + 1e-8)
 
 def get_plddt(outputs):
   logits = outputs["predicted_lddt"]["logits"]
@@ -378,60 +433,6 @@ def _get_sc_rmsd(true, pred, sc):
     msd = sd.mean()
   rmsd = jnp.sqrt(msd + 1e-8)
   return {"rmsd":rmsd, "align":align_fn}
-
-
-def get_pw_conf_loss(inputs, outputs, opt, L=None, H=None):
-  '''get pairwise confidence loss (pae, contact, helix)'''
-
-  # decide on what offset to use
-  if "offset" in inputs:
-    offset = inputs["offset"]
-  else:
-    idx = inputs["residue_index"]
-    offset = idx[:,None] - idx[None,:]
-
-  # pae loss
-  pae_prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
-  pae = (pae_prob * jnp.arange(pae_prob.shape[-1])).mean(-1)
-  
-  # define distogram
-  dgram = outputs["distogram"]["logits"]
-  dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
-  
-  if L is None:
-    return {"con":_get_con_loss(dgram, dgram_bins, offset=offset, **opt["con"]).mean(),
-            "helix":_get_helix_loss(dgram, dgram_bins, offset=offset, **opt["con"]),
-            "pae":pae.mean()}
-  else:
-    # split pae/con into inter/intra    
-    def split_feats(v):
-      '''split pairwise features into intra and inter features'''
-      if v is None: 
-        return None,None
-      
-      (aa,bb) =   (v[:L,:L],v[L:,L:])
-      if H is None:
-        (ab,ba) = (v[:L,L:],v[L:,:L])
-      else:
-        (ab,ba) = (v[H, L:],v[L:, H])
-
-      abba = (ab + ba.swapaxes(0,1)) / 2
-      
-      # TODO (aa vs bb)
-      return bb, abba.swapaxes(0,1)
-
-    losses = {}
-    x_offset, ix_offset = split_feats(jnp.abs(offset))
-    for k,v in zip(["pae","con"], [pae,dgram]):
-      x, ix = split_feats(v)        
-      if k == "con":
-        losses["helix"] = _get_helix_loss(x, dgram_bins, x_offset)
-        x = _get_con_loss(x, dgram_bins, offset=x_offset, **opt["con"])
-        ix = _get_con_loss(ix, dgram_bins, offset=ix_offset, **opt["i_con"])
-        
-      losses.update({k:x.mean(),
-                     f"i_{k}":ix.mean()})
-    return losses
 
 def get_seq_ent_loss(inputs, outputs, opt):
   x = inputs["seq"]["logits"] / opt["temp"]

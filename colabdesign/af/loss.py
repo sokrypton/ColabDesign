@@ -85,23 +85,24 @@ class _af_loss:
     pos = opt["pos"]
     def sub(x, p, axis=0): return jnp.take(x,p,axis)
     
-    # UNSUPERVISED LOSSES
     unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
+    copies = self._args["copies"] if self._args["homooligomer"] else 1
+    aatype = sub(inputs["aatype"],pos,0)
+    dgram = {"distogram":{"logits":sub(sub(outputs["distogram"]["logits"],pos,0),pos,1),
+                          "bin_edges":outputs["distogram"]["bin_edges"]}}
+    atoms = sub(outputs["structure_module"]["final_atom_positions"],pos,0)
+    
+    I = {"aatype": aatype, "batch": inputs["batch"]}
+    O = {"distogram": dgram, "structure_module": {"final_atom_positions": atoms}}
+    aln = get_rmsd_loss(I, O, copies=copies)
+
     aux["losses"].update({
+      # unsupervised losses
       "plddt": get_plddt_loss(outputs, mask=unsup_id),
       "pae":   get_pae_loss(outputs, mask_a=unsup_id),
       "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id)
-    })
 
-    # SUPERVISED LOSSES
-    I = {"aatype":sub(inputs["aatype"], pos), "batch":inputs["batch"]}
-    O = {"distogram":{"logits":sub(sub(outputs["distogram"]["logits"],pos),pos,1),
-                      "bin_edges":outputs["distogram"]["bin_edges"]},
-         "structure_module":{"final_atom_positions":sub(outputs["structure_module"]["final_atom_positions"],pos)}}
-
-    copies = self._args["copies"] if self._args["homooligomer"] else 1
-    aln = get_rmsd_loss(I, O, copies=copies)
-    aux["losses"].update({
+      # supervised losses
       "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),
       "fape":      get_fape_loss(I, O, copies=copies, clamp=opt["fape_cutoff"]),
       "rmsd":      aln["rmsd"]
@@ -110,18 +111,17 @@ class _af_loss:
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
     
-      _config = self._cfg.model.heads.structure_module
       # sc_fape
       struct = outputs["structure_module"]
-      pred_pos = sub(struct["final_atom14_positions"],pos)
+      pred_pos = sub(struct["final_atom14_positions"], pos)
       
       if not self._args["use_multimer"]:
         sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                      "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
-        
-        batch_ = copy_dict(batch)
-        batch_.update(all_atom.atom37_to_frames(**batch_))
-        aux["losses"]["sc_fape"] = folding.sidechain_loss(batch_, sc_struct, _config)["loss"]
+        batch =     {**inputs["batch"],
+                     **all_atom.atom37_to_frames(**inputs["batch"])}
+        aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct,
+          self._cfg.model.heads.structure_module)["loss"]
 
       else:
         

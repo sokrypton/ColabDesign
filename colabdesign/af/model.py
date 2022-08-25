@@ -66,7 +66,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
     if recycle_mode == "average":num_recycles = 0
     cfg.model.num_recycle = num_recycles
-    cfg.model.global_config.use_remat = True    
+    cfg.model.global_config.use_remat = True
 
     # setup model
     self._cfg = cfg 

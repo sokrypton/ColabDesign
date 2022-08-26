@@ -100,7 +100,7 @@ class _af_loss:
       # unsupervised losses
       "plddt": get_plddt_loss(outputs, mask=unsup_id),
       "pae":   get_pae_loss(outputs, mask_a=unsup_id),
-      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id)
+      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id),
 
       # supervised losses
       "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),

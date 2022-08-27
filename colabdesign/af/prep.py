@@ -297,7 +297,7 @@ class _af_prep:
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})    
-    self._wt_aatype = self._inputs["batch"]["aatype"]
+    self._wt_aatype = pdb["batch"]["aatype"][self.opt["pos"]]
 
     # configure sidechains
     self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)

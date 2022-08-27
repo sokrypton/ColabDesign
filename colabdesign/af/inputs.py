@@ -39,7 +39,8 @@ class _af_inputs:
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
 
-    opt = opt["template"]
+    
+    o = opt["template"]
 
     # enable templates
     inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
@@ -50,10 +51,10 @@ class _af_inputs:
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      rm = jnp.logical_or(opt["rm_seq"],opt["rm_sc"])
-      rm_seq = jnp.full(L,opt["rm_seq"])
+      rm = jnp.logical_or(o["rm_seq"],o["rm_sc"])
+      rm_seq = jnp.full(L,o["rm_seq"])
       rm_sc  = jnp.full(L,rm)
-      if self.protocol in ["binder"]:
+      if self.protocol == "binder":
         rm_seq = rm_seq.at[:self._target_len].set(False)
         rm_sc  = rm_sc.at[:self._target_len].set(False)
 
@@ -73,21 +74,29 @@ class _af_inputs:
                         "template_pseudo_beta_mask": cb_mask}
 
       # inject template features
-      for k,v in template_feats.items():
+      if self.protocol == "partial":
+        pos = opt["pos"]
+        if self._args["repeat"] or self._args["homooligomer"]:
+          C,L = self._args["copies"], self._len
+          pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
 
+      for k,v in template_feats.items():
         if self.protocol == "partial":
-          inputs[k] = inputs[k].at[0,opt["pos"]].set(v)
+          inputs[k] = inputs[k].at[0,pos].set(v)
         else:
           inputs[k] = inputs[k].at[0].set(v)
         
         # remove sidechains (mask anything beyond CB)
         if k == "template_all_atom_mask":
-          inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
+          if self.protocol == "partial":
+            inputs[k] = inputs[k].at[:,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,pos,5:]))
+          else:
+            inputs[k] = inputs[k].at[:,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,:,5:]))
 
     # dropout template input features
     L = inputs["template_aatype"].shape[1]
     n = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt["dropout"],(L,))
+    pos_mask = jax.random.bernoulli(key, 1-o["dropout"],(L,))
     inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
     inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 

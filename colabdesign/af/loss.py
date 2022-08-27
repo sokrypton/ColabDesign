@@ -84,8 +84,8 @@ class _af_loss:
     '''get losses'''    
     pos = opt["pos"]
     if self._args["repeat"] or self._args["homooligomer"]:
-      pos = jnp.repeat(pos,self._copies).reshape(-1,self._copies)
-      pos = (pos + jnp.arange(self._copies) * self._len).T.flatten()
+      C,L = self._args["copies"], self._len
+      pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
       
     def sub(x, axis=0): return jnp.take(x,pos,axis)
     

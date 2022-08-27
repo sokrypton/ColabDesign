@@ -112,6 +112,11 @@ class _af_loss:
       "rmsd":      aln["rmsd"]
     })
 
+    # if self._args["copies"] > 1 and not self._args["repeat"]:
+    #   main_id = jnp.ones(sum(self._lengths)).at[self._len:].set(0)
+    #   aux["losses"]["i_pae"] = get_pae_loss(outputs, mask_a=main_id, mask_b=(1-main_id))
+    #   aux["losses"]["i_con"] = get_con_loss(inputs, outputs, opt["i_con"], mask_a=main_id, mask_b=(1-main_id))
+
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
     

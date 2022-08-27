@@ -285,6 +285,7 @@ class _af_prep:
         block_diag = not self._args["use_multimer"]
         num_seq = (self._num * copies + 1) if block_diag else self._num
         res_idx = repeat_idx(np.arange(self._len), copies)
+        # self.opt["weights"].update({"i_pae":0.01, "i_con":1.0})
 
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat

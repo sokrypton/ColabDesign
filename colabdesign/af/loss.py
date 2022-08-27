@@ -83,14 +83,18 @@ class _af_loss:
   def _loss_partial(self, inputs, outputs, opt, aux):
     '''get losses'''    
     pos = opt["pos"]
-    def sub(x, p, axis=0): return jnp.take(x,p,axis)
+    if self._args["repeat"] or self._args["homooligomer"]:
+      pos = jnp.repeat(pos,self._copies).reshape(-1,self._copies)
+      pos = (pos + jnp.arange(self._copies) * self._len).T.flatten()
+      
+    def sub(x, axis=0): return jnp.take(x,pos,axis)
     
     unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
     copies = self._args["copies"] if self._args["homooligomer"] else 1
-    aatype = sub(inputs["aatype"],pos,0)
-    dgram = {"distogram":{"logits":sub(sub(outputs["distogram"]["logits"],pos,0),pos,1),
-                          "bin_edges":outputs["distogram"]["bin_edges"]}}
-    atoms = sub(outputs["structure_module"]["final_atom_positions"],pos,0)
+    aatype = sub(inputs["aatype"])
+    dgram = {"logits":sub(sub(outputs["distogram"]["logits"]),1),
+             "bin_edges":outputs["distogram"]["bin_edges"]}
+    atoms = sub(outputs["structure_module"]["final_atom_positions"])
     
     I = {"aatype": aatype, "batch": inputs["batch"]}
     O = {"distogram": dgram, "structure_module": {"final_atom_positions": atoms}}
@@ -113,11 +117,11 @@ class _af_loss:
     
       # sc_fape
       struct = outputs["structure_module"]
-      pred_pos = sub(struct["final_atom14_positions"], pos)
+      pred_pos = sub(struct["final_atom14_positions"])
       
       if not self._args["use_multimer"]:
         sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
-                     "sidechains":{k: sub(struct["sidechains"][k],pos,1) for k in ["frames","atom_pos"]}}
+                     "sidechains":{k: sub(struct["sidechains"][k],1) for k in ["frames","atom_pos"]}}
         batch =     {**inputs["batch"],
                      **all_atom.atom37_to_frames(**inputs["batch"])}
         aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct,

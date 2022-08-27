@@ -63,7 +63,9 @@ class _af_prep:
     self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc, "rm_ic":rm_template_ic})
 
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain)
+    pdb = prep_pdb(pdb_filename, chain=chain,
+                   lengths=kwargs.pop("pdb_lengths",None),
+                   offsets=kwargs.pop("pdb_offsets",None))
 
     self._len = pdb["residue_index"].shape[0]
     self._lengths = [self._len]
@@ -113,7 +115,7 @@ class _af_prep:
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
   
     self._prep_model(**kwargs)
@@ -243,7 +245,10 @@ class _af_prep:
     self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc,"rm_ic":rm_template_ic})
 
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain)
+    pdb = prep_pdb(pdb_filename, chain=chain,
+                   lengths=kwargs.pop("pdb_lengths",None),
+                   offsets=kwargs.pop("pdb_offsets",None))
+
     pdb["len"] = sum(pdb["lengths"])
 
     self._len = pdb["len"] if length is None else length
@@ -285,7 +290,6 @@ class _af_prep:
         block_diag = not self._args["use_multimer"]
         num_seq = (self._num * copies + 1) if block_diag else self._num
         res_idx = repeat_idx(np.arange(self._len), copies)
-        # self.opt["weights"].update({"i_pae":0.01, "i_con":1.0})
 
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat
@@ -320,7 +324,7 @@ def repeat_idx(idx, copies=1, offset=50):
 def repeat_pos(pos, copies, length):
   return (np.repeat(pos,copies).reshape(-1,copies) + np.arange(copies) * length).T.flatten()
 
-def prep_pdb(pdb_filename, chain=None):
+def prep_pdb(pdb_filename, chain=None, offsets=None, lengths=None):
   '''extract features from pdb'''
 
   def add_cb(batch):
@@ -339,35 +343,49 @@ def prep_pdb(pdb_filename, chain=None):
   chains = [None] if chain is None else chain.split(",")
   o,last = [],0
   residue_idx, chain_idx = [],[]
-  lengths = []
-  for chain in chains:
+  full_lengths = []
+
+  for n,chain in enumerate(chains):
     protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
     batch = {'aatype': protein_obj.aatype,
              'all_atom_positions': protein_obj.atom_positions,
-             'all_atom_mask': protein_obj.atom_mask}
+             'all_atom_mask': protein_obj.atom_mask,
+             'residue_index': protein_obj.residue_index}
 
     cb_feat = add_cb(batch) # add in missing cb (in the case of glycine)
+    
+    # pad values
+    offset = 0 if offsets is None else (offsets[n] if isinstance(offsets,list) else offsets)
+    r = offset + (protein_obj.residue_index - protein_obj.residue_index.min())
+    length = (r.max()+1) if lengths is None else (lengths[n] if isinstance(lengths,list) else lengths)    
+    def scatter(x, value=0):
+      shape = (length,) + x.shape[1:]
+      y = np.full(shape, value, dtype=x.dtype)
+      y[r] = x
+      return y
 
-    has_ca = batch["all_atom_mask"][:,0] == 1
-    batch = jax.tree_map(lambda x:x[has_ca], batch)
-    seq = "".join([order_aa[a] for a in batch["aatype"]])
-    residue_index = protein_obj.residue_index[has_ca] + last      
+    batch = {"aatype":scatter(batch["aatype"],-1),
+             "all_atom_positions":scatter(batch["all_atom_positions"]),
+             "all_atom_mask":scatter(batch["all_atom_mask"]),
+             "residue_index":scatter(batch["residue_index"],-1)}
+    
+    residue_index = np.arange(length) + last
     last = residue_index[-1] + 50
     
     o.append({"batch":batch,
               "residue_index": residue_index,
               "cb_feat":cb_feat})
     
-    residue_idx.append(protein_obj.residue_index[has_ca])
+    residue_idx.append(batch.pop("residue_index"))
     chain_idx.append([chain] * len(residue_idx[-1]))
-    lengths.append(len(residue_index))
+    full_lengths.append(len(residue_index))
 
   # concatenate chains
   o = jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*o)
   
   # save original residue and chain index
   o["idx"] = {"residue":np.concatenate(residue_idx), "chain":np.concatenate(chain_idx)}
-  o["lengths"] = lengths
+  o["lengths"] = full_lengths
   return o
 
 def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):

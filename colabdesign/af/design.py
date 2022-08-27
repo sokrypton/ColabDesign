@@ -121,7 +121,11 @@ class _af_design:
         aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
       else:
         aatype = self.aux["seq"]["pseudo"].argmax(-1)
-      self.aux["log"]["seqid"] = (aatype == self._wt_aatype).mean()
+
+      mask = self._wt_aatype != -1
+      true = self._wt_aatype[mask]
+      pred = aatype[...,mask]
+      self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),

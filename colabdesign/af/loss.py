@@ -15,9 +15,9 @@ class _af_loss:
   # protocol specific loss functions
   def _loss_hallucination(self, inputs, outputs, opt, aux):
     aux["losses"].update({
-      "plddt": get_plddt_loss(outputs),
-      "pae":   get_pae_loss(outputs),
-      "con":   get_con_loss(inputs, outputs, opt["con"])})
+        "plddt": get_plddt_loss(outputs),
+        "pae":   get_pae_loss(outputs),
+        "con":   get_con_loss(inputs, outputs, opt["con"])})
   
   def _loss_fixbb(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -40,6 +40,9 @@ class _af_loss:
       "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
       "rmsd":      aln["rmsd"]
     })
+    
+    unsup_id = 1 - inputs["batch"]["all_atom_mask"][:,1]
+    _unsup_loss(inputs, outputs, opt, aux, unsup_id)
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -47,13 +50,17 @@ class _af_loss:
     binder_id = zeros.at[self._target_len:].set(1)
     target_id = zeros.at[opt["pos"]].set(1) if "pos" in opt else zeros.at[:self._target_len].set(1)
 
+    i_con_ab = get_con_loss(inputs, outputs, opt["i_con"], mask_a=target_id, mask_b=binder_id)
+    i_con_ba = get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id)
+    i_con = jnp.where(opt["i_con"]["target"], i_con_ab, i_con_ba)
+
     # UNSUPERVISED LOSSES
     aux["losses"].update({
       "plddt": get_plddt_loss(outputs, mask=binder_id),
       "pae":   get_pae_loss(outputs, mask_a=binder_id, mask_b=binder_id),
       "i_pae": get_pae_loss(outputs, mask_a=binder_id, mask_b=target_id),
       "con":   get_con_loss(inputs, outputs, opt["con"],   mask_a=binder_id, mask_b=binder_id),
-      "i_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id)
+      "i_con": i_con
     })
 
     # SUPERVISED LOSSES
@@ -89,7 +96,7 @@ class _af_loss:
       
     def sub(x, axis=0): return jnp.take(x,pos,axis)
     
-    unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
+    
     copies = self._args["copies"] if self._args["homooligomer"] else 1
     aatype = sub(inputs["aatype"])
     dgram = {"logits":sub(sub(outputs["distogram"]["logits"]),1),
@@ -102,9 +109,9 @@ class _af_loss:
 
     aux["losses"].update({
       # unsupervised losses
-      "plddt": get_plddt_loss(outputs, mask=unsup_id),
-      "pae":   get_pae_loss(outputs, mask_a=unsup_id),
-      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id),
+      "plddt": get_plddt_loss(outputs),
+      "pae":   get_pae_loss(outputs),
+      "con":   get_con_loss(inputs, outputs, opt["con"]),
 
       # supervised losses
       "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),
@@ -112,10 +119,9 @@ class _af_loss:
       "rmsd":      aln["rmsd"]
     })
 
-    # if self._args["copies"] > 1 and not self._args["repeat"]:
-    #   main_id = jnp.ones(sum(self._lengths)).at[self._len:].set(0)
-    #   aux["losses"]["i_pae"] = get_pae_loss(outputs, mask_a=main_id, mask_b=(1-main_id))
-    #   aux["losses"]["i_con"] = get_con_loss(inputs, outputs, opt["i_con"], mask_a=main_id, mask_b=(1-main_id))
+    unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
+    _unsup_loss(inputs, outputs, opt, aux, unsup_id)
+
 
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
@@ -145,6 +151,17 @@ class _af_loss:
 
     # align final atoms
     aux["atom_positions"] = aln["align"](aux["atom_positions"])
+
+
+def _unsup_loss(inputs, outputs, opt, aux, unsup_id):
+  '''only backprop loss for the unrestrained regions'''
+  tmp = {
+    "plddt": get_plddt_loss(outputs, mask=unsup_id),
+    "pae":   get_pae_loss(outputs, mask_a=unsup_id),
+    "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id)
+  }
+  for k,v in tmp.items():
+    aux["losses"][k] = jax.lax.stop_gradient(aux["losses"][k] - v) + v
 
 #####################################################################################
 

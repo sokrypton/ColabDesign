@@ -28,21 +28,18 @@ class _af_loss:
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
     aux["atom_positions"] = aln["align"](aux["atom_positions"])
     
+    unsup_id = 1 - inputs["batch"]["all_atom_mask"][:,1]
     aux["losses"].update({
-
-      # unsupervised losses
-      "plddt":     get_plddt_loss(outputs),
-      "pae":       get_pae_loss(outputs),
-      "con":       get_con_loss(inputs, outputs, opt["con"]),
-
       # supervised losses
       "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
       "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
       "rmsd":      aln["rmsd"]
+
+      # unsupervised losses
+      "plddt": get_plddt_loss(outputs, mask=unsup_id, mask_grad=True),
+      "pae":   get_pae_loss(outputs, mask_a=unsup_id, mask_grad=True),
+      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id, mask_grad=True)
     })
-    
-    unsup_id = 1 - inputs["batch"]["all_atom_mask"][:,1]
-    _unsup_loss(inputs, outputs, opt, aux, unsup_id)
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -50,20 +47,16 @@ class _af_loss:
     binder_id = zeros.at[self._target_len:].set(1)
     target_id = zeros.at[opt["pos"]].set(1) if "pos" in opt else zeros.at[:self._target_len].set(1)
 
-    i_con_ab = get_con_loss(inputs, outputs, opt["i_con"], mask_a=target_id, mask_b=binder_id)
-    i_con_ba = get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id)
-    i_con = jnp.where(opt["i_con"]["target"], i_con_ab, i_con_ba)
-
-    # UNSUPERVISED LOSSES
+    # unsupervised losses
     aux["losses"].update({
-      "plddt": get_plddt_loss(outputs, mask=binder_id),
-      "pae":   get_pae_loss(outputs, mask_a=binder_id, mask_b=binder_id),
-      "i_pae": get_pae_loss(outputs, mask_a=binder_id, mask_b=target_id),
-      "con":   get_con_loss(inputs, outputs, opt["con"],   mask_a=binder_id, mask_b=binder_id),
-      "i_con": i_con
+      "plddt": get_plddt_loss(outputs, mask=binder_id), # plddt over binder
+      "pae":   get_pae_loss(outputs, mask_a=binder_id), # pae over binder + interface
+      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=binder_id, mask_b=binder_id),
+      "tb_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=target_id, mask_b=binder_id),
+      "bt_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id),
     })
 
-    # SUPERVISED LOSSES
+    # supervised losses
     if self._args["redesign"]:      
   
       aln = get_rmsd_loss(inputs, outputs, L=self._target_len, include_L=False)
@@ -96,7 +89,6 @@ class _af_loss:
       
     def sub(x, axis=0): return jnp.take(x,pos,axis)
     
-    
     copies = self._args["copies"] if self._args["homooligomer"] else 1
     aatype = sub(inputs["aatype"])
     dgram = {"logits":sub(sub(outputs["distogram"]["logits"]),1),
@@ -107,29 +99,31 @@ class _af_loss:
     O = {"distogram": dgram, "structure_module": {"final_atom_positions": atoms}}
     aln = get_rmsd_loss(I, O, copies=copies)
 
+    unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
     aux["losses"].update({
-      # unsupervised losses
-      "plddt": get_plddt_loss(outputs),
-      "pae":   get_pae_loss(outputs),
-      "con":   get_con_loss(inputs, outputs, opt["con"]),
-
       # supervised losses
       "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),
       "fape":      get_fape_loss(I, O, copies=copies, clamp=opt["fape_cutoff"]),
       "rmsd":      aln["rmsd"]
+
+      # unsupervised losses
+      "plddt": get_plddt_loss(outputs, mask=unsup_id, mask_grad=True),
+      "pae":   get_pae_loss(outputs, mask_a=unsup_id, mask_grad=True),
+      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id, mask_grad=True)
     })
-
-    unsup_id = jnp.ones(sum(self._lengths)).at[pos].set(0)
-    _unsup_loss(inputs, outputs, opt, aux, unsup_id)
-
 
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
     
-      # sc_fape
       struct = outputs["structure_module"]
       pred_pos = sub(struct["final_atom14_positions"])
+      true_pos = all_atom.atom37_to_atom14(inputs["batch"]["all_atom_positions"], self._sc["batch"])
+
+      # sc_rmsd
+      aln = _get_sc_rmsd_loss(true_pos, pred_pos, self._sc["pos"])
+      aux["losses"]["sc_rmsd"] = aln["rmsd"]
       
+      # sc_fape
       if not self._args["use_multimer"]:
         sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
                      "sidechains":{k: sub(struct["sidechains"][k],1) for k in ["frames","atom_pos"]}}
@@ -138,52 +132,37 @@ class _af_loss:
         aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct,
           self._cfg.model.heads.structure_module)["loss"]
 
-      else:
-        
+      else:  
         # TODO
         print("ERROR: 'sc_fape' not currently supported for 'multimer' mode")
         aux["losses"]["sc_fape"] = 0.0
 
-      # sc_rmsd
-      true_pos = all_atom.atom37_to_atom14(batch["all_atom_positions"], self._sc["batch"])
-      aln = _get_sc_rmsd(true_pos, pred_pos, self._sc["pos"])
-      aux["losses"]["sc_rmsd"] = aln["rmsd"]
-
     # align final atoms
     aux["atom_positions"] = aln["align"](aux["atom_positions"])
 
-
-def _unsup_loss(inputs, outputs, opt, aux, unsup_id):
-  '''only backprop loss for the unrestrained regions'''
-  tmp = {
-    "plddt": get_plddt_loss(outputs, mask=unsup_id),
-    "pae":   get_pae_loss(outputs, mask_a=unsup_id),
-    "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id)
-  }
-  for k,v in tmp.items():
-    aux["losses"][k] = jax.lax.stop_gradient(aux["losses"][k] - v) + v
-
 #####################################################################################
 
-def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
-  '''dgram to contacts'''
-  if cutoff is None: cutoff = dgram_bins[-1]
-  bins = dgram_bins < cutoff  
-  px = jax.nn.softmax(dgram)
-  px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))        
-  # binary/cateogorical cross-entropy
-  con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
-  con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))
-  return jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
+def get_plddt(outputs):
+  logits = outputs["predicted_lddt"]["logits"]
+  num_bins = logits.shape[-1]
+  bin_width = 1.0 / num_bins
+  bin_centers = jnp.arange(start=0.5 * bin_width, stop=1.0, step=bin_width)
+  probs = jax.nn.softmax(logits, axis=-1)
+  return jnp.sum(probs * bin_centers[None, :], axis=-1)
 
-def _get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
-  '''helix bias loss'''
-  x = _get_con_loss(dgram, dgram_bins, cutoff=6.0, binary=True)
-  if offset is None:
-    return jnp.diagonal(x,3).mean()
-  else:
-    mask = offset == 3
-    return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
+def get_pae(outputs):
+  prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"],-1)
+  breaks = outputs["predicted_aligned_error"]["breaks"]
+  step = breaks[1]-breaks[0]
+  bin_centers = breaks + step/2
+  bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
+  return (prob*bin_centers).sum(-1)
+
+def get_ptm(inputs, outputs, interface=False):
+  pae = outputs["predicted_aligned_error"]
+  if "asym_id" not in pae:
+    pae["asym_id"] = inputs["asym_id"]
+  return confidence_jax.predicted_tm_score_jax(**pae, interface=interface)
 
 def get_contact_map(outputs, dist=8.0):
   '''get contact map from distogram'''
@@ -192,28 +171,41 @@ def get_contact_map(outputs, dist=8.0):
   dist_mtx = dist_bins[dist_logits.argmax(-1)]
   return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)
 
+
 ####################
 # confidence metrics
 ####################
-def get_plddt_loss(outputs, mask=None):
+def mask_loss(x, mask=None, mask_grad=False):
+  if mask is None:
+    return x.mean()
+  else:
+    x_masked = (x * mask).sum() / (1e-8 + mask.sum())
+    if mask_grad:
+      return jax.lax.stop_gradient(x.mean() - x_masked) + x_masked
+    else:
+      return x_masked
+
+def get_plddt_loss(outputs, mask=None, mask_grad=False):
   p = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
   p = (p * jnp.arange(p.shape[-1])[::-1]).mean(-1)
-  if mask is None: mask = jnp.ones(p.shape[0])
-  return (p * mask).sum() / (1e-8 + mask.sum())
+  return mask_loss(p, mask, mask_grad)
 
-def get_pae_loss(outputs, mask_a=None, mask_b=None):
+def get_pae_loss(outputs, mask_a=None, mask_b=None, mask_grad=False):
   p = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
   p = (p * jnp.arange(p.shape[-1])).mean(-1)
   p = (p + p.T)/2
   
-  L = p.shape[0]
-  if mask_a is None: mask_a = jnp.ones(L)
-  if mask_b is None: mask_b = jnp.ones(L)
+  if mask_a is None and mask_b is None:
+    mask_2d = None
+  else:
+    L = p.shape[0]
+    if mask_a is None: mask_a = jnp.ones(L)
+    if mask_b is None: mask_b = jnp.ones(L)
+    mask_2d = mask_a[:,None] * mask_b[None,:]
 
-  mask_2d = mask_a[:,None] * mask_b[None,:]
-  return (p * mask_2d).sum() / (1e-8 + mask_2d.sum())
+  return mask_loss(p, mask_2d, mask_grad)
 
-def get_con_loss(inputs, outputs, con_opt, mask_a=None, mask_b=None):
+def get_con_loss(inputs, outputs, con_opt, mask_a=None, mask_b=None, mask_grad=False):
 
   # contact [opt]ions
   c = con_opt
@@ -247,29 +239,27 @@ def get_con_loss(inputs, outputs, con_opt, mask_a=None, mask_b=None):
     return jnp.where(k_mask,y,0).sum(-1) / (k_mask.sum(-1) + 1e-8)
   
   p = top_k(p,c["num"],m)
-  return (p * mask_a).sum() / (mask_a.sum() + 1e-8)
+  return mask_loss(p, mask_a, mask_grad)
 
-def get_plddt(outputs):
-  logits = outputs["predicted_lddt"]["logits"]
-  num_bins = logits.shape[-1]
-  bin_width = 1.0 / num_bins
-  bin_centers = jnp.arange(start=0.5 * bin_width, stop=1.0, step=bin_width)
-  probs = jax.nn.softmax(logits, axis=-1)
-  return jnp.sum(probs * bin_centers[None, :], axis=-1)
+def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
+  '''dgram to contacts'''
+  if cutoff is None: cutoff = dgram_bins[-1]
+  bins = dgram_bins < cutoff  
+  px = jax.nn.softmax(dgram)
+  px_ = jax.nn.softmax(dgram - 1e7 * (1-bins))        
+  # binary/cateogorical cross-entropy
+  con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
+  con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))
+  return jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
 
-def get_pae(outputs):
-  prob = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"],-1)
-  breaks = outputs["predicted_aligned_error"]["breaks"]
-  step = breaks[1]-breaks[0]
-  bin_centers = breaks + step/2
-  bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
-  return (prob*bin_centers).sum(-1)
-
-def get_ptm(inputs, outputs, interface=False):
-  pae = outputs["predicted_aligned_error"]
-  if "asym_id" not in pae:
-    pae["asym_id"] = inputs["asym_id"]
-  return confidence_jax.predicted_tm_score_jax(**pae, interface=interface)
+def _get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
+  '''helix bias loss'''
+  x = _get_con_loss(dgram, dgram_bins, cutoff=6.0, binary=True)
+  if offset is None:
+    return jnp.diagonal(x,3).mean()
+  else:
+    mask = offset == 3
+    return jnp.where(mask,x,0.0).sum() / (mask.sum() + 1e-8)
 
 ####################
 # loss functions
@@ -428,7 +418,7 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
 
   return {"rmsd":rmsd, "align":align_fn}
 
-def _get_sc_rmsd(true, pred, sc):
+def _get_sc_rmsd_loss(true, pred, sc):
   '''get sidechain rmsd + alignment function'''
 
   # select atoms

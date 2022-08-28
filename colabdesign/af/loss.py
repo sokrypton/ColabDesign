@@ -33,7 +33,7 @@ class _af_loss:
       # supervised losses
       "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
       "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
-      "rmsd":      aln["rmsd"]
+      "rmsd":      aln["rmsd"],
 
       # unsupervised losses
       "plddt": get_plddt_loss(outputs, mask=unsup_id, mask_grad=True),
@@ -49,9 +49,9 @@ class _af_loss:
 
     # unsupervised losses
     aux["losses"].update({
-      "plddt": get_plddt_loss(outputs, mask=binder_id), # plddt over binder
-      "pae":   get_pae_loss(outputs, mask_a=binder_id), # pae over binder + interface
-      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=binder_id, mask_b=binder_id),
+      "plddt":  get_plddt_loss(outputs, mask=binder_id), # plddt over binder
+      "pae":    get_pae_loss(outputs, mask_a=binder_id), # pae over binder + interface
+      "con":    get_con_loss(inputs, outputs, opt["con"], mask_a=binder_id, mask_b=binder_id),
       "tb_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=target_id, mask_b=binder_id),
       "bt_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id),
     })
@@ -105,7 +105,7 @@ class _af_loss:
       # supervised losses
       "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),
       "fape":      get_fape_loss(I, O, copies=copies, clamp=opt["fape_cutoff"]),
-      "rmsd":      aln["rmsd"]
+      "rmsd":      aln["rmsd"],
 
       # unsupervised losses
       "plddt": get_plddt_loss(outputs, mask=unsup_id, mask_grad=True),

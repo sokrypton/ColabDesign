@@ -194,11 +194,14 @@ class _af_prep:
     res_idx = pdb["residue_index"]
 
     if redesign:
-      target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
-      binder_len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      self._target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
+      self._binder_len = self._len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
     else:
-      target_len = pdb["residue_index"].shape[0]
+      self._target_len = pdb["residue_index"].shape[0]
+      self._binder_len = self._len = binder_len
       res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
+    
+    self._lengths = [self._target_len, self._binder_len]
 
     # gather hotspot info
     hotspot = kwargs.pop("pos", hotspot)
@@ -215,12 +218,9 @@ class _af_prep:
       pdb["batch"] = make_fixed_size(pdb["batch"], num_res=sum(self._lengths))
       self.opt["weights"].update({"con":0.5, "i_con":0.5, "tb_con":0.0, "bt_con":0.0})
 
-    self._target_len = target_len
-    self._binder_len = self._len = binder_len
-    self._lengths = [self._target_len, self._binder_len]
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
     self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = pdb["batch"]
     self._inputs.update(get_multi_id(self._lengths))

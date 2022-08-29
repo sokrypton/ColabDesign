@@ -141,12 +141,6 @@ model.prep_inputs(..., hotspot="1-10,15,3")
 ```python
 model.prep_inputs(..., chain="A,B")
 ```
-#### Can I design homo-oligomers?
-```python
-model.prep_inputs(..., copies=2)
-# specify interface specific contact and/or pae loss
-model.set_weights(i_con=1, i_pae=0)
-```
 #### For fixed backbone design, how do I force the sequence to be the same for homo-dimer optimization?
 ```python
 model.prep_inputs(pdb_filename="6Q40.pdb", chain="A,B", copies=2, homooligomer=True)
@@ -187,10 +181,10 @@ To get around this problem, we propose optimizing in 2 or 3 stages.
 and maximizing *pae* results in a two helix bundle. To encourage compact structures we add a `con` term)
 
 - binder specific losses
-  - *i_pae* - minimize PAE interface of the proteins
-  - *pae* - minimize PAE within binder
-  - *i_con* - maximize number of contacts at the interface of the proteins
+  - *pae* - minimize PAE at interface and within binder
   - *con* - maximize number of contacts within binder
+  - *tb_con* - maximize number of contacts at the interface of the proteins
+  - *bt_con* - maximize number of contacts at the interface of the proteins
 
 - partial hallucination specific losses
   - *sc_fape* - sidechain-specific fape
@@ -223,7 +217,7 @@ model.design_2stage(100, 100, 10)
 ```
 - binder hallucination:
 ```python
-model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, i_con=0.5)
+model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, bt_con=0.0, tb_con=0.5)
 model.set_opt("con", binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0)
 model.set_opt("i_con", binary=True, cutoff=21.6875, num=model._binder_len)
 model.design_3stage(100, 100, 10)

@@ -55,7 +55,6 @@ class _af_loss:
       "tb_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=target_id, mask_b=binder_id),
       "bt_con": get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id),
     })
-    aux["losses"]["i_con"] = (aux["losses"]["tb_con"] + aux["losses"]["bt_con"]) / 2
 
     # supervised losses
     if self._args["redesign"]:      

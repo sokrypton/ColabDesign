@@ -42,7 +42,7 @@ class _af_prep:
     '''process features'''
     if num_seq is None: num_seq = self._num
     return prep_input_features(L=num_res, N=num_seq, T=num_templates)
-  
+
   def _prep_fixbb(self, pdb_filename, chain=None,
                   copies=1, repeat=False, homooligomer=False,
                   rm_template_seq=True, rm_template_sc=True, rm_template_ic=False,
@@ -216,7 +216,7 @@ class _af_prep:
     else:
       # binder hallucination
       pdb["batch"] = make_fixed_size(pdb["batch"], num_res=sum(self._lengths))
-      self.opt["weights"].update({"con":0.5, "tb_con":0.0, "bt_con":0.5})
+      self.opt["weights"].update({"con":0.0, "tb_con":0.0, "bt_con":1.0})
 
 
     # configure input features

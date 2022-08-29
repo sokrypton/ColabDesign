@@ -49,7 +49,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9},
-                "i_con":    {"num":1, "cutoff":20.0, "binary":False, "target":False},
+                "i_con":    {"num":1, "cutoff":21.6875, "binary":False},
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
                 "weights":  {"seq_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}

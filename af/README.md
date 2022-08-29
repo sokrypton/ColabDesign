@@ -124,15 +124,6 @@ model.set_opt(num_models=1)
 ```python
 model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
 ```
-#### How is contact defined? How do I change it?
-By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
-```python
-model.set_opt(con=dict(cutoff=8, seqsep=5, num=1))
-```
-For interface:
-```python
-model.set_opt(i_con=dict(...))
-```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python
 model.prep_inputs(..., hotspot="1-10,15,3")
@@ -164,11 +155,11 @@ model.restart(seed=0)
 To get around this problem, we propose optimizing in 2 or 3 stages.
   - `design_2stage()` - *soft* → *hard*
   - `design_3stage()` - *logits* → *soft* → *hard*
+
 #### What are all the different losses being optimized?
 - general losses
   - *pae*       - minimizes the predicted alignment error
   - *plddt*     - maximizes the predicted LDDT
-  - *msa_ent*   - minimize entropy for MSA design (see example at the end of notebook)
   - *pae* and *plddt* values are between 0 and 1 (where lower is better for both)
 
 - fixbb specific losses
@@ -177,17 +168,26 @@ To get around this problem, we propose optimizing in 2 or 3 stages.
   - we find *dgram_cce* loss to be more stable for design (compared to *fape*)
 
 - hallucination specific losses
-  - *con*       - maximize number of contacts. (We find just minimizing *plddt* results in single long helix, 
-and maximizing *pae* results in a two helix bundle. To encourage compact structures we add a `con` term)
+  - *con*       - maximize `1` contacts per position. `model.set_opt("con",num=1)`
 
 - binder specific losses
   - *pae* - minimize PAE at interface and within binder
-  - *con* - maximize number of contacts within binder
-  - *tb_con* - maximize number of contacts at the interface of the proteins
-  - *bt_con* - maximize number of contacts at the interface of the proteins
+  - *con* - - maximize `2` contacts per binder position, within binder. `model.set_opt("con",num=2)`
+  - *tb_con* - maximize `1` contacts per target position `model.set_opt("i_con",num=1)`
+  - *bt_con* - maximize `1` contacts per binder position `model.set_opt("i_con",num=1)`
 
 - partial hallucination specific losses
   - *sc_fape* - sidechain-specific fape
+
+#### How is contact defined? How do I change it?
+By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
+```python
+model.set_opt(con=dict(cutoff=8, seqsep=5, num=1))
+```
+For interface:
+```python
+model.set_opt(i_con=dict(...))
+```
 
 # Advanced FAQ
 #### loss during Gradient descent is too jumpy, can I do some kind of greedy search towards the end?

@@ -183,13 +183,8 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def step(self, lr_scale=1.0, backprop=True, repredict=False,
-           callback=None, stats_correct=False, save_best=False, verbose=1):
-    '''do one step of gradient descent'''
-    
-    # run
-    self.run(backprop=backprop, callback=callback)
-
+  def _apply_gradient(self, lr_scale=1.0, stats_correct=False):
+    '''apply gradient'''
     g = self.aux["grad"]["seq"]
     eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
     
@@ -205,12 +200,22 @@ class _af_design:
     lr = self.opt["lr"] * lr_scale
     self.aux["grad"] = jax.tree_map(lambda x:x*lr, self.aux["grad"])
 
-    # apply gradient
+    # update state/params
     self._state = self._update_fun(self._k, self.aux["grad"], self._state)
     self._params = self._get_params(self._state)
 
     # increment
     self._k += 1
+
+  def step(self, lr_scale=1.0, backprop=True, repredict=False,
+           callback=None, stats_correct=False, save_best=False, verbose=1):
+    '''do one step of gradient descent'''
+    
+    # run
+    self.run(backprop=backprop, callback=callback)
+
+    # apply gradient
+    self._apply_gradient(lr_scale=lr_scale, stats_correct=stats_correct)
 
     # save results
     if repredict: self.predict(models=None, verbose=False)

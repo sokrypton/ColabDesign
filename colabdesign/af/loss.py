@@ -28,7 +28,6 @@ class _af_loss:
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
     aux["atom_positions"] = aln["align"](aux["atom_positions"])
     
-    unsup_id = 1 - inputs["batch"]["all_atom_mask"][:,1]
     aux["losses"].update({
       # supervised losses
       "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
@@ -36,9 +35,9 @@ class _af_loss:
       "rmsd":      aln["rmsd"],
 
       # unsupervised losses
-      "plddt": get_plddt_loss(outputs, mask=unsup_id, mask_grad=True),
-      "pae":   get_pae_loss(outputs, mask_a=unsup_id, mask_grad=True),
-      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id, mask_grad=True)
+      "plddt": get_plddt_loss(outputs),
+      "pae":   get_pae_loss(outputs),
+      "con":   get_con_loss(inputs, outputs, opt["con"])
     })
 
   def _loss_binder(self, inputs, outputs, opt, aux):
@@ -171,7 +170,6 @@ def get_contact_map(outputs, dist=8.0):
   dist_mtx = dist_bins[dist_logits.argmax(-1)]
   return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)
 
-
 ####################
 # confidence metrics
 ####################
@@ -205,7 +203,14 @@ def get_pae_loss(outputs, mask_a=None, mask_b=None, mask_grad=False):
 
   return mask_loss(p, mask_2d, mask_grad)
 
-def get_con_loss(inputs, outputs, con_opt, mask_a=None, mask_b=None, mask_grad=False):
+def get_con_loss(inputs, outputs, con_opt,
+                 mask_a=None, mask_b=None, per_pos=False):
+
+  # get top k
+  def min_k(x, k=1, mask=None):
+    y = jnp.sort(x if mask is None else jnp.where(mask,x,jnp.nan))
+    k_mask = jnp.logical_and(jnp.arange(y.shape[-1]) < k, jnp.isnan(y) == False)
+    return jnp.where(k_mask,y,0).sum(-1) / (k_mask.sum(-1) + 1e-8)
 
   # contact [opt]ions
   c = con_opt
@@ -230,16 +235,10 @@ def get_con_loss(inputs, outputs, con_opt, mask_a=None, mask_b=None, mask_grad=F
     m = jnp.abs(offset) >= c["seqsep"]
   else:
     m = jnp.ones_like(offset)
-  m = jnp.logical_and(m, mask_b)
 
-  # get top k
-  def top_k(x, k=1, mask=None):
-    y = jnp.sort(x if mask is None else jnp.where(mask,x,jnp.nan))
-    k_mask = jnp.logical_and(jnp.arange(y.shape[1]) < k, jnp.isnan(y) == False)
-    return jnp.where(k_mask,y,0).sum(-1) / (k_mask.sum(-1) + 1e-8)
-  
-  p = top_k(p,c["num"],m)
-  return mask_loss(p, mask_a, mask_grad)
+  m = jnp.logical_and(m, mask_b)  
+  p = min_k(p,c["num"],m)
+  return min_k(p,c["num_tot"],mask_a)
 
 def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   '''dgram to contacts'''

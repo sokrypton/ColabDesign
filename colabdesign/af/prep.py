@@ -37,7 +37,6 @@ class _af_prep:
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
-
   def _prep_features(self, num_res, num_seq=None, num_templates=1):
     '''process features'''
     if num_seq is None: num_seq = self._num
@@ -98,9 +97,9 @@ class _af_prep:
 
       else:
         self._lengths = [self._len] * copies
-        res_idx = repeat_idx(res_idx[:self._len], copies)
-
         block_diag = not self._args["use_multimer"]
+
+        res_idx = repeat_idx(res_idx[:self._len], copies)
         num_seq = (self._num * copies + 1) if block_diag else self._num
 
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
@@ -115,7 +114,7 @@ class _af_prep:
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
   
     self._prep_model(**kwargs)
@@ -190,7 +189,7 @@ class _af_prep:
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
-    pdb = prep_pdb(pdb_filename, chain=chains)
+    pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=True)
     res_idx = pdb["residue_index"]
 
     if redesign:
@@ -288,6 +287,7 @@ class _af_prep:
       else:
         self._lengths = [self._len] * copies
         block_diag = not self._args["use_multimer"]
+
         num_seq = (self._num * copies + 1) if block_diag else self._num
         res_idx = repeat_idx(np.arange(self._len), copies)
 
@@ -324,7 +324,9 @@ def repeat_idx(idx, copies=1, offset=50):
 def repeat_pos(pos, copies, length):
   return (np.repeat(pos,copies).reshape(-1,copies) + np.arange(copies) * length).T.flatten()
 
-def prep_pdb(pdb_filename, chain=None, offsets=None, lengths=None):
+def prep_pdb(pdb_filename, chain=None,
+             offsets=None, lengths=None,
+             ignore_missing=False):
   '''extract features from pdb'''
 
   def add_cb(batch):
@@ -354,24 +356,30 @@ def prep_pdb(pdb_filename, chain=None, offsets=None, lengths=None):
 
     cb_feat = add_cb(batch) # add in missing cb (in the case of glycine)
     
-    # pad values
-    offset = 0 if offsets is None else (offsets[n] if isinstance(offsets,list) else offsets)
-    r = offset + (protein_obj.residue_index - protein_obj.residue_index.min())
-    length = (r.max()+1) if lengths is None else (lengths[n] if isinstance(lengths,list) else lengths)    
-    def scatter(x, value=0):
-      shape = (length,) + x.shape[1:]
-      y = np.full(shape, value, dtype=x.dtype)
-      y[r] = x
-      return y
+    if ignore_missing:
+      r = batch["all_atom_mask"][:,0] == 1
+      batch = jax.tree_map(lambda x:x[r], batch)
+      residue_index = batch["residue_index"] + last
 
-    batch = {"aatype":scatter(batch["aatype"],-1),
-             "all_atom_positions":scatter(batch["all_atom_positions"]),
-             "all_atom_mask":scatter(batch["all_atom_mask"]),
-             "residue_index":scatter(batch["residue_index"],-1)}
+    else:
+      # pad values
+      offset = 0 if offsets is None else (offsets[n] if isinstance(offsets,list) else offsets)
+      r = offset + (protein_obj.residue_index - protein_obj.residue_index.min())
+      length = (r.max()+1) if lengths is None else (lengths[n] if isinstance(lengths,list) else lengths)    
+      def scatter(x, value=0):
+        shape = (length,) + x.shape[1:]
+        y = np.full(shape, value, dtype=x.dtype)
+        y[r] = x
+        return y
+
+      batch = {"aatype":scatter(batch["aatype"],-1),
+               "all_atom_positions":scatter(batch["all_atom_positions"]),
+               "all_atom_mask":scatter(batch["all_atom_mask"]),
+               "residue_index":scatter(batch["residue_index"],-1)}
+      
+      residue_index = np.arange(length) + last
     
-    residue_index = np.arange(length) + last
     last = residue_index[-1] + 50
-    
     o.append({"batch":batch,
               "residue_index": residue_index,
               "cb_feat":cb_feat})

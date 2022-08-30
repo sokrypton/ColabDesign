@@ -238,7 +238,7 @@ def get_con_loss(inputs, outputs, con_opt,
 
   m = jnp.logical_and(m, mask_b)  
   p = min_k(p,c["num"],m)
-  return min_k(p,c["num_tot"],mask_a)
+  return min_k(p,c["num_pos"],mask_a)
 
 def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   '''dgram to contacts'''

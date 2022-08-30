@@ -48,8 +48,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
-                "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_tot":float("inf")},
-                "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_tot":float("inf")},
+                "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
+                "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
                 "weights":  {"seq_ent":0.0, "helix":0.0, "plddt":0.01, "pae":0.01},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}

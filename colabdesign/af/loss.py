@@ -108,7 +108,7 @@ class _af_loss:
       # unsupervised losses
       "plddt": get_plddt_loss(outputs, mask=unsup_id, mask_grad=True),
       "pae":   get_pae_loss(outputs, mask_a=unsup_id, mask_grad=True),
-      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id, mask_grad=True)
+      "con":   get_con_loss(inputs, outputs, opt["con"], mask_a=unsup_id)
     })
 
     # sidechain specific losses

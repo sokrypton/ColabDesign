@@ -118,16 +118,17 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # INPUTS
       #######################################################################
 
+      L = inputs["aatype"].shape[0]
+
       # get sequence
       seq = self._get_seq(inputs, params, opt, aux, key())
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
-      mlm = jax.random.bernoulli(key, opt["mlm_dropout"], (pssm.shape[1],))
+      mlm = jax.random.bernoulli(key(), opt["mlm_dropout"], (L,))
       update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       
       # update amino acid sidechain identity
-      L = inputs["aatype"].shape[0]
       aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
       update_aatype(jnp.broadcast_to(aatype,(L,21)), inputs)
       
@@ -195,7 +196,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
-      aux["losses"].update(get_mlm_loss(outputs))
+      aux["losses"].update(get_mlm_loss(outputs, mask=mlm))
   
       # weighted loss
       w = opt["weights"]

@@ -232,7 +232,7 @@ class _af_design:
 
   def _print_log(self, print_str=None):
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "seq_ent","plddt","pae","exp_res","con","i_con",
+            "seq_ent","mlm","plddt","pae","exp_res","con","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","ptm"]
     if sum(self._lengths) > 1: keys.append("i_ptm")
     keys.append("rmsd")
@@ -327,9 +327,8 @@ class _af_design:
     # set settings
     if seq is not None: self.set_seq(seq=seq, set_state=False)
     if models is not None: self.set_opt(num_models=len(models) if isinstance(models,list) else 1)    
-    self.set_opt(hard=True, dropout=False, crop=False, sample_models=False, models=models)
-    self.set_opt("msa",dropout=0.0)
-    
+    self.set_opt(hard=True, dropout=False, crop=False, sample_models=False,
+                 models=models, mlm_dropout=0.0)    
     # run
     self.run(backprop=False)
     if verbose: self._print_log("predict")

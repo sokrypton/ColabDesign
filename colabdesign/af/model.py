@@ -24,7 +24,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, use_openfold=False, use_alphafold=True,
-               use_multimer=False, crop_len=None, crop_mode="slide",               
+               use_multimer=False, use_mlm=False, crop_len=None, crop_mode="slide",
                debug=False, loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
@@ -38,7 +38,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._loss_callback = loss_callback
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
-                  "recycle_mode":recycle_mode,
+                  "recycle_mode":recycle_mode, "use_mlm": use_mlm,
                   "debug":debug,
                   "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
@@ -125,8 +125,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
-      mlm = jax.random.bernoulli(key(), opt["mlm_dropout"], (L,))
-      update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
+      if self._args["use_mlm"]:
+        mlm = jax.random.bernoulli(key(), opt["mlm_dropout"], (L,))
+        update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
+      else:
+        update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
       aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
@@ -196,7 +199,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
-      aux["losses"].update(get_mlm_loss(outputs, mask=mlm))
+      if self._args["use_mlm"]:
+        truth = jax.nn.one_hot(seq["pseudo"].argmax(-1),22)
+        aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=truth))
   
       # weighted loss
       w = opt["weights"]

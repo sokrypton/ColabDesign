@@ -490,8 +490,9 @@ def get_seq_ent_loss(inputs, outputs, opt):
   ent = (ent * mask).sum() / (mask.sum() + 1e-8)
   return {"seq_ent":ent.mean()}
 
-def get_mlm_loss(outputs, mask):
+def get_mlm_loss(outputs, mask, truth=None):
   x = outputs["masked_msa"]["logits"]
-  ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
+  if truth is None: truth = jax.nn.softmax(x)
+  ent = -(truth * jax.nn.log_softmax(x)).sum(-1)
   ent = (ent * mask).sum(-1) / (mask.sum() + 1e-8)
   return {"mlm":ent.mean()}

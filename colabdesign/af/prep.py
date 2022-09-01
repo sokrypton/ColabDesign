@@ -153,6 +153,7 @@ class _af_prep:
       res_idx = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]
+      res_idx = np.arange(length)
     
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)

@@ -101,7 +101,7 @@ class _af_inputs:
     inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
     inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 
-def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
+def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   '''update the sequence features'''
   
   if seq_1hot is None: seq_1hot = seq 
@@ -112,6 +112,14 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   
   msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
   target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
+
+  if mlm is not None:
+    X = jnp.append(0,jax.nn.one_hot(20,21))
+    target_feat = jnp.where(mlm[:,None],X,target_feat)
+    
+    X = jax.nn.one_hot(22,23)
+    X = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
+    msa_feat = jnp.where(mlm[None,:,None],X,msa_feat)
     
   inputs.update({"target_feat":target_feat,"msa_feat":msa_feat})
 

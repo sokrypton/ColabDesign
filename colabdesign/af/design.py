@@ -328,6 +328,7 @@ class _af_design:
     if seq is not None: self.set_seq(seq=seq, set_state=False)
     if models is not None: self.set_opt(num_models=len(models) if isinstance(models,list) else 1)    
     self.set_opt(hard=True, dropout=False, crop=False, sample_models=False, models=models)
+    self.set_opt("msa",dropout=0.0)
     
     # run
     self.run(backprop=False)
@@ -390,19 +391,23 @@ class _af_design:
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10,
                     num_models=1, **kwargs):
     '''two stage design (soft→hard)'''
+    self.set_opt("msa",dropout=0.15)
     self.set_opt(num_models=num_models, sample_models=True) # sample models
     self.design_soft(soft_iters, **kwargs)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     self.set_opt(num_models=len(self._model_params)) # use all models
+    self.set_opt("msa",dropout=0.0)
     self.design_hard(hard_iters, temp=1e-2, dropout=False, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
                     num_models=1, **kwargs):
     '''three stage design (logits→soft→hard)'''
+    self.set_opt("msa",dropout=0.15)
     self.set_opt(num_models=num_models, sample_models=True) # sample models
     self.design_logits(soft_iters, e_soft=1, **kwargs)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     self.set_opt(num_models=len(self._model_params)) # use all models
+    self.set_opt("msa",dropout=0.0)
     self.design_hard(hard_iters, temp=1e-2, dropout=False, save_best=True, **kwargs)
 
   def design_semigreedy(self, iters=100, tries=20, num_models=1,

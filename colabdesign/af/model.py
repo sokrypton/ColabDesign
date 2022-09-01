@@ -9,7 +9,7 @@ from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss, get_mlm_loss
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_feat
@@ -51,7 +51,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
-                "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
+                "msa": {"dropout":0.0},
+                "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "mlm":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
     
     self._params = {}
@@ -123,7 +124,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
-      update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
+      mlm = jax.random.bernoulli(key, opt["msa"]["dropout"], (pssm.shape[1],))
+      update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       
       # update amino acid sidechain identity
       L = inputs["aatype"].shape[0]
@@ -194,6 +196,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
+      aux["losses"].update(get_mlm_loss(outputs))
   
       # weighted loss
       w = opt["weights"]

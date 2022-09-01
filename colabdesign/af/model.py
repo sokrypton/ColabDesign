@@ -45,13 +45,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "crop":False, "crop_len":crop_len,"crop_mode":crop_mode,
                   "models":None}
 
-    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
+    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False, "mlm_dropout":0.0,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
-                "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},
-                "msa": {"dropout":0.0},
+                "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "mlm":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
     
@@ -124,7 +123,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
-      mlm = jax.random.bernoulli(key, opt["msa"]["dropout"], (pssm.shape[1],))
+      mlm = jax.random.bernoulli(key, opt["mlm_dropout"], (pssm.shape[1],))
       update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       
       # update amino acid sidechain identity

@@ -346,11 +346,12 @@ class _af_design:
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
              dropout=True, opt=None, weights=None,
+             mlm_dropout=0.15,
              repredict=False, backprop=True, callback=None,
              save_best=False, verbose=1):
 
     # update options/settings (if defined)
-    self.set_opt(opt, dropout=dropout)
+    self.set_opt(opt, dropout=dropout, mlm_dropout=mlm_dropout)
     self.set_weights(weights)
     
     m = {"soft":[soft,e_soft],"temp":[temp,e_temp],
@@ -391,24 +392,20 @@ class _af_design:
   def design_2stage(self, soft_iters=100, temp_iters=100, hard_iters=10,
                     num_models=1, **kwargs):
     '''two stage design (soft→hard)'''
-    self.set_opt("msa",dropout=0.15)
     self.set_opt(num_models=num_models, sample_models=True) # sample models
     self.design_soft(soft_iters, **kwargs)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     self.set_opt(num_models=len(self._model_params)) # use all models
-    self.set_opt("msa",dropout=0.0)
-    self.design_hard(hard_iters, temp=1e-2, dropout=False, save_best=True, **kwargs)
+    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True, **kwargs)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
                     num_models=1, **kwargs):
     '''three stage design (logits→soft→hard)'''
-    self.set_opt("msa",dropout=0.15)
     self.set_opt(num_models=num_models, sample_models=True) # sample models
     self.design_logits(soft_iters, e_soft=1, **kwargs)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     self.set_opt(num_models=len(self._model_params)) # use all models
-    self.set_opt("msa",dropout=0.0)
-    self.design_hard(hard_iters, temp=1e-2, dropout=False, save_best=True, **kwargs)
+    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True, **kwargs)
 
   def design_semigreedy(self, iters=100, tries=20, num_models=1,
                         use_plddt=True, save_best=True, verbose=1):

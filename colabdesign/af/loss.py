@@ -13,35 +13,6 @@ from colabdesign.af.alphafold.common import confidence_jax, residue_constants
 
 class _af_loss:
   # protocol specific loss functions
-  def _loss_hallucination(self, inputs, outputs, opt, aux):
-
-    # define masks
-    mask_1d = jnp.ones_like(inputs["asym_id"])
-    if "pos" in opt:
-      C,L = self._args["copies"], self._len
-      if C > 1: pos = (jnp.repeat(opt["pos"],C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
-      mask_1d = mask_1d.at[pos].set(0)
-    
-    mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
-    masks = {"mask_1d":mask_1d, "mask_2d":mask_2d}
-
-    # define losses
-    aux["losses"].update({
-      "plddt": get_plddt_loss(outputs, mask_1d=mask_1d),
-      "pae":   get_pae_loss(outputs, **masks),
-      "con":   get_con_loss(inputs, outputs, opt["con"], **masks)
-    })
-
-    # define losses at interface
-    if self._args["copies"] > 1 and not self._args["repeat"]:
-      masks["mask_2d"] = mask_2d == False
-      if not self._args["homooligomer"]:
-        masks["mask_1d"] = jnp.ones_like(mask_1d)
-      aux["losses"].update({
-        "i_pae": get_pae_loss(outputs, **masks),
-        "i_con": get_con_loss(inputs, outputs, opt["i_con"], **masks),
-      })
-  
   def _loss_fixbb(self, inputs, outputs, opt, aux):
     '''get losses'''
     copies = self._args["copies"] if self._args["homooligomer"] else 1    
@@ -57,7 +28,7 @@ class _af_loss:
     })
     
     # unsupervised losses
-    self._loss_hallucination(inputs, outputs, opt, aux)
+    self._loss_unsupervised(inputs, outputs, opt, aux)
 
   def _loss_binder(self, inputs, outputs, opt, aux):
     '''get losses'''
@@ -70,10 +41,11 @@ class _af_loss:
 
     # unsupervised losses
     aux["losses"].update({
-      "plddt":  get_plddt_loss(outputs, mask_1d=binder_id), # plddt over binder
-      "pae":    get_pae_loss(outputs, mask_1d=binder_id), # pae over binder + interface
-      "con":    get_con_loss(inputs, outputs, opt["con"], mask_1d=binder_id, mask_1b=binder_id),
-      "i_con":  get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id),
+      "plddt":   get_plddt_loss(outputs, mask_1d=binder_id), # plddt over binder
+      "exp_res": get_exp_res_loss(outputs, mask_1d=binder_id),
+      "pae":     get_pae_loss(outputs, mask_1d=binder_id), # pae over binder + interface
+      "con":     get_con_loss(inputs, outputs, opt["con"], mask_1d=binder_id, mask_1b=binder_id),
+      "i_con":   get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id),
     })
 
     # supervised losses
@@ -127,7 +99,7 @@ class _af_loss:
     })
     
     # unsupervised losses
-    self._loss_hallucination(inputs, outputs, opt, aux)
+    self._loss_unsupervised(inputs, outputs, opt, aux)
 
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
@@ -156,6 +128,42 @@ class _af_loss:
 
     # align final atoms
     aux["atom_positions"] = aln["align"](aux["atom_positions"])
+
+  def _loss_hallucination(self, inputs, outputs, opt, aux):
+    # unsupervised losses
+    self._loss_unsupervised(inputs, outputs, opt, aux)
+
+  def _loss_unsupervised(self, inputs, outputs, opt, aux):
+
+    # define masks
+    mask_1d = jnp.ones_like(inputs["asym_id"])
+    if "pos" in opt:
+      C,L = self._args["copies"], self._len
+      if C > 1: pos = (jnp.repeat(opt["pos"],C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
+      mask_1d = mask_1d.at[pos].set(0)
+    
+    mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
+    masks = {"mask_1d":mask_1d,
+             "mask_2d":mask_2d}
+
+    # define losses
+    losses = {
+      "exp_res": get_exp_res_loss(outputs, mask_1d=mask_1d),
+      "plddt":   get_plddt_loss(outputs, mask_1d=mask_1d),
+      "pae":     get_pae_loss(outputs, **masks),
+      "con":     get_con_loss(inputs, outputs, opt["con"], **masks)
+    }
+
+    # define losses at interface
+    if self._args["copies"] > 1 and not self._args["repeat"]:
+      masks = {"mask_1d": mask_1d if self._args["homoligomer"] else jnp.ones_like(mask_1d),
+               "mask_2d": mask_2d == False}
+      losses.update({
+        "i_pae": get_pae_loss(outputs, **masks),
+        "i_con": get_con_loss(inputs, outputs, opt["i_con"], **masks),
+      })
+
+    aux["losses"].update(losses)
 
 #####################################################################################
 
@@ -200,6 +208,11 @@ def mask_loss(x, mask=None, mask_grad=False):
       return jax.lax.stop_gradient(x.mean() - x_masked) + x_masked
     else:
       return x_masked
+
+def get_exp_res_loss(outputs, mask_1d=None):
+  p = jax.nn.sigmoid(outputs["experimentally_resolved"]["logits"])
+  p = 1 - p[...,residue_constants.atom_order["CA"]]
+  return mask_loss(p, mask_1d)
 
 def get_plddt_loss(outputs, mask_1d=None):
   p = jax.nn.softmax(outputs["predicted_lddt"]["logits"])

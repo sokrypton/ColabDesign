@@ -17,21 +17,26 @@ class _af_loss:
 
     # define masks
     mask_1d = jnp.ones_like(inputs["asym_id"])
-    if self.protocol == "partial": mask_1d = mask_1d.at[opt["pos"]].set(0)
+    if "pos" in opt:
+      C,L = self._args["copies"], self._len
+      if C > 1: pos = (jnp.repeat(opt["pos"],C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
+      mask_1d = mask_1d.at[pos].set(0)
+    
     mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
-    masks = {"mask_a":mask_1d,"mask_2d":mask_2d}
+    masks = {"mask_1d":mask_1d, "mask_2d":mask_2d}
 
     # define losses
     aux["losses"].update({
-      "plddt": get_plddt_loss(outputs, mask=mask_1d),
+      "plddt": get_plddt_loss(outputs, mask_1d=mask_1d),
       "pae":   get_pae_loss(outputs, **masks),
       "con":   get_con_loss(inputs, outputs, opt["con"], **masks)
     })
 
     # define losses at interface
-    copies = self._args["copies"] if self._args["homooligomer"] else 1
-    if copies > 1:
-      masks["mask_2d"] = not mask_2d
+    if self._args["copies"] > 1 and not self._args["repeat"]:
+      masks["mask_2d"] = mask_2d == False
+      if not self._args["homooligomer"]:
+        masks["mask_1d"] = jnp.ones_like(mask_1d)
       aux["losses"].update({
         "i_pae": get_pae_loss(outputs, **masks),
         "i_con": get_con_loss(inputs, outputs, opt["i_con"], **masks),
@@ -65,10 +70,10 @@ class _af_loss:
 
     # unsupervised losses
     aux["losses"].update({
-      "plddt":  get_plddt_loss(outputs, mask=binder_id), # plddt over binder
-      "pae":    get_pae_loss(outputs, mask_a=binder_id), # pae over binder + interface
-      "con":    get_con_loss(inputs, outputs, opt["con"], mask_a=binder_id, mask_b=binder_id),
-      "i_con":  get_con_loss(inputs, outputs, opt["i_con"], mask_a=binder_id, mask_b=target_id),
+      "plddt":  get_plddt_loss(outputs, mask_1d=binder_id), # plddt over binder
+      "pae":    get_pae_loss(outputs, mask_1d=binder_id), # pae over binder + interface
+      "con":    get_con_loss(inputs, outputs, opt["con"], mask_1d=binder_id, mask_1b=binder_id),
+      "i_con":  get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id),
     })
 
     # supervised losses
@@ -196,24 +201,24 @@ def mask_loss(x, mask=None, mask_grad=False):
     else:
       return x_masked
 
-def get_plddt_loss(outputs, mask=None):
+def get_plddt_loss(outputs, mask_1d=None):
   p = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
   p = (p * jnp.arange(p.shape[-1])[::-1]).mean(-1)
-  return mask_loss(p, mask)
+  return mask_loss(p, mask_1d)
 
-def get_pae_loss(outputs, mask_a=None, mask_b=None, mask_2d=None):
+def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   p = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
   p = (p * jnp.arange(p.shape[-1])).mean(-1)
   p = (p + p.T)/2
   L = p.shape[0]
-  if mask_a is None: mask_a = jnp.ones(L)
-  if mask_b is None: mask_b = jnp.ones(L)
+  if mask_1d is None: mask_1d = jnp.ones(L)
+  if mask_1b is None: mask_1b = jnp.ones(L)
   if mask_2d is None: mask_2d = jnp.ones((L,L))
-  mask_2d = mask_2d * mask_a[:,None] * mask_b[None,:]
+  mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
   return mask_loss(p, mask_2d)
 
 def get_con_loss(inputs, outputs, opt,
-                 mask_a=None, mask_b=None, mask_2d=None):
+                 mask_1d=None, mask_1b=None, mask_2d=None):
 
   # get top k
   def min_k(x, k=1, mask=None):
@@ -239,16 +244,16 @@ def get_con_loss(inputs, outputs, opt,
     m = jnp.ones_like(offset)
 
   # mask results
-  if mask_a is None: mask_a = jnp.ones(m.shape[0])
-  if mask_b is None: mask_b = jnp.ones(m.shape[0])
+  if mask_1d is None: mask_1d = jnp.ones(m.shape[0])
+  if mask_1b is None: mask_1b = jnp.ones(m.shape[0])
   
   if mask_2d is None:
-    m = jnp.logical_and(m, mask_b)  
+    m = jnp.logical_and(m, mask_1b)
   else:
     m = jnp.logical_and(m, mask_2d)  
 
   p = min_k(p, opt["num"], m)
-  return min_k(p, opt["num_pos"], mask_a)
+  return min_k(p, opt["num_pos"], mask_1d)
 
 def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   '''dgram to contacts'''

@@ -14,14 +14,15 @@ class _af_inputs:
   def _get_seq(self, inputs, params, opt, aux, key):
     '''get sequence features'''
     seq = soft_seq(params["seq"], opt, key)
-    if "pos" in opt and "fix_seq" in opt:
+    if "fix_pos" in opt:
       seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      p = opt["pos"]
-      if self.protocol == "partial":
-        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
+      if "pos" in self.opt:
+        p = (opt["fix_pos"][:,None] == opt["pos"][None,:]).argmax(0)
+        fix_seq = lambda x:x.at[...,p,:].set(seq_ref)
       else:
-        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
-      seq = jax.tree_map(fix_seq,seq)
+        p = opt["fix_pos"]
+        fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
+      seq = jax.tree_map(fix_seq, seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     # protocol specific modifications to seq features

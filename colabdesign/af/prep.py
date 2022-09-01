@@ -45,7 +45,7 @@ class _af_prep:
   def _prep_fixbb(self, pdb_filename, chain=None,
                   copies=1, repeat=False, homooligomer=False,
                   rm_template_seq=True, rm_template_sc=True, rm_template_ic=False,
-                  pos=None, fix_seq=True, **kwargs):
+                  fix_pos=None, **kwargs):
     '''
     prep inputs for fixed backbone design
     ---------------------------------------------------
@@ -53,8 +53,7 @@ class _af_prep:
       -homooligomer=True - input pdb chains are parsed as homo-oligomeric units
       -repeat=True       - tie the repeating sequence within single chain
     -rm_template_seq - if template is defined, remove information about template sequence
-    if fix_seq:
-      -pos="1,2-10" - specify which positions to keep fixed in the sequence
+    -fix_pos="1,2-10" - specify which positions to keep fixed in the sequence
                       note: supervised loss is applied to all positions, use "partial" 
                       protocol to apply supervised loss to only subset of positions
     ---------------------------------------------------
@@ -73,14 +72,10 @@ class _af_prep:
     num_seq = self._num
     res_idx = pdb["residue_index"]
     
-    # get [pos]itions of interests
-    if pos is None:
-      self.opt["fix_seq"] = False
-    
-    else:
-      self._pos_info = prep_pos(pos, **pdb["idx"])
-      self.opt["pos"] = self._pos_info["pos"]
-      self.opt["fix_seq"] = fix_seq
+    # get [pos]itions of interests    
+    if fix_pos is not None:
+      self._pos_info = prep_pos(fix_pos, **pdb["idx"])
+      self.opt["fix_pos"] = self._pos_info["pos"]
 
     # repeat/homo-oligomeric support
     if chain is not None and copies == 1: copies = len(chain.split(","))
@@ -88,8 +83,8 @@ class _af_prep:
 
       if repeat or homooligomer:
         self._len = self._len // copies
-        if "pos" in self.opt:
-          self.opt["pos"] = self.opt["pos"][self.opt["pos"] < self._len]
+        if "fix_pos" in self.opt:
+          self.opt["fix_pos"] = self.opt["fix_pos"][self.opt["fix_pos"] < self._len]
 
       if repeat:
         self._lengths = [self._len * copies]
@@ -101,6 +96,7 @@ class _af_prep:
 
         res_idx = repeat_idx(res_idx[:self._len], copies)
         num_seq = (self._num * copies + 1) if block_diag else self._num
+        self.opt["weights"].update({"i_pae":0.0, "i_con":0.0})
 
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat
@@ -153,6 +149,7 @@ class _af_prep:
       else:
         offset = 50
         self._lengths = [self._len] * copies
+        self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
       res_idx = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]
@@ -203,20 +200,18 @@ class _af_prep:
     self._lengths = [self._target_len, self._binder_len]
 
     # gather hotspot info
-    hotspot = kwargs.pop("pos", hotspot)
     if hotspot is not None:
-      self.opt["pos"] = prep_pos(hotspot, **pdb["idx"])["pos"]
+      self.opt["hotspot"] = prep_pos(hotspot, **pdb["idx"])["pos"]
 
     if redesign:
       # binder redesign
       self._wt_aatype = pdb["batch"]["aatype"][target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
-                                  "con":0.0, "tb_con":0.0, "bt_con":0.0})
+                                  "con":0.0, "i_con":0.0})
     else:
       # binder hallucination
       pdb["batch"] = make_fixed_size(pdb["batch"], num_res=sum(self._lengths))
-      self.opt["weights"].update({"con":0.0, "tb_con":0.0, "bt_con":1.0})
-
+      self.opt["weights"].update({"con":0.0, "i_con":1.0})
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
@@ -228,14 +223,13 @@ class _af_prep:
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     copies=1, repeat=False, homooligomer=False,
-                    pos=None, fix_seq=True, use_sidechains=False, atoms_to_exclude=None,
+                    pos=None, fix_pos=None, use_sidechains=False, atoms_to_exclude=None,
                     rm_template_seq=False, rm_template_sc=False, rm_template_ic=False, **kwargs):
     '''
     prep input for partial hallucination
     ---------------------------------------------------
     -length=100 - total length of protein (if different from input PDB)
     -pos="1,2-10" - specify which positions to apply supervised loss to
-    -fix_seq=True - keep sequence fixed in the specified positions
     -use_sidechains=True - add a sidechain supervised loss to the specified positions
       -atoms_to_exclude=["N","C","O"] (for sc_rmsd loss, specify which atoms to exclude)
     -rm_template_seq - if template is defined, remove information about template sequence
@@ -260,13 +254,10 @@ class _af_prep:
     # get [pos]itions of interests
     if pos is None:
       self.opt["pos"] = pdb["pos"] = np.arange(pdb["len"])
-      self._pos_info = {"length":np.array([pdb["len"]]), "pos":pdb["pos"]}
-      self.opt["fix_seq"] = False
-    
+      self._pos_info = {"length":np.array([pdb["len"]]), "pos":pdb["pos"]}    
     else:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = pdb["pos"] = self._pos_info["pos"]
-      self.opt["fix_seq"] = fix_seq
 
     # repeat/homo-oligomeric support
     if chain is not None and copies == 1: copies = len(chain.split(","))
@@ -291,6 +282,8 @@ class _af_prep:
         num_seq = (self._num * copies + 1) if block_diag else self._num
         res_idx = repeat_idx(np.arange(self._len), copies)
 
+        self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
+
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat
 
@@ -301,16 +294,27 @@ class _af_prep:
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})    
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0}) 
     self._wt_aatype = pdb["batch"]["aatype"][self.opt["pos"]]
 
+    if kwargs.pop("fix_seq",False):
+      self.opt["fix_pos"] = self.opt["pos"]
+    
+    if fix_pos is not None:
+      fix_pos = []
+      pos = self.opt["pos"].tolist()
+      for i in prep_pos(fix_pos, **pdb["idx"])["pos"]:
+        if i in pos: fix_pos.append(i)
+      self.opt["fix_pos"] = np.array(fix_pos)
+      self._wt_aatype = pdb["batch"]["aatype"][self.opt["fix_pos"]]
+
     # configure sidechains
-    self._args["use_sidechains"] = kwargs.pop("sidechain", use_sidechains)
-    if self._args["use_sidechains"]:
+    self._args["use_sidechains"] = use_sidechains
+    if use_sidechains:
       self._sc = {"batch":prep_inputs.make_atom14_positions(self._inputs["batch"]),
                   "pos":get_sc_pos(self._wt_aatype, atoms_to_exclude)}
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
-      self.opt["fix_seq"] = True
+      self.opt["fix_pos"] = self.opt["pos"]
   
     self._prep_model(**kwargs)
 

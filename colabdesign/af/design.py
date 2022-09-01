@@ -117,7 +117,7 @@ class _af_design:
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self.protocol == "partial" and "pos" in self.opt:
+      if self.protocol == "partial":
         aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
       else:
         aatype = self.aux["seq"]["pseudo"].argmax(-1)
@@ -232,7 +232,7 @@ class _af_design:
 
   def _print_log(self, print_str=None):
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "seq_ent","plddt","pae","helix","con","tb_con","bt_con",
+            "seq_ent","plddt","pae","helix","con","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","ptm"]
     if sum(self._lengths) > 1: keys.append("i_ptm")
     keys.append("rmsd")

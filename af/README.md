@@ -173,8 +173,7 @@ To get around this problem, we propose optimizing in 2 or 3 stages.
 - binder specific losses
   - *pae* - minimize PAE at interface and within binder
   - *con* - - maximize `2` contacts per binder position, within binder. `model.set_opt("con",num=2)`
-  - *tb_con* - maximize `1` contacts per target position `model.set_opt("i_con",num=1)`
-  - *bt_con* - maximize `1` contacts per binder position `model.set_opt("i_con",num=1)`
+  - *i_con* - maximize `1` contacts per binder position `model.set_opt("i_con",num=1)`
 
 - partial hallucination specific losses
   - *sc_fape* - sidechain-specific fape
@@ -217,7 +216,7 @@ model.design_2stage(100, 100, 10)
 ```
 - binder hallucination:
 ```python
-model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, bt_con=0.0, tb_con=0.5)
+model.set_weights(plddt=0.1, pae=0.1, i_pae=1.0, con=0.1, i_con=0.5)
 model.set_opt("con", binary=True, cutoff=21.6875, num=model._binder_len, seqsep=0)
 model.set_opt("i_con", binary=True, cutoff=21.6875, num=model._binder_len)
 model.design_3stage(100, 100, 10)

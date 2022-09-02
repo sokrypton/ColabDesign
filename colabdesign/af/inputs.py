@@ -154,7 +154,7 @@ def expand_copies(x, copies, block_diag=True):
   else:
     return x
 
-def crop_feat(feat, pos, add_batch=True):  
+def crop_feat(feat, pos):  
   '''
   crop features to specified [pos]itions
   '''
@@ -172,8 +172,8 @@ def crop_feat(feat, pos, add_batch=True):
   new_feat = copy_dict(feat)
   for k in new_feat.keys():
     if k == "batch":
-      new_feat[k] = crop_feat(feat[k], pos, add_batch=False)
+      new_feat[k] = crop_feat(feat[k], pos)
     if k in idx:
-      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
+      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i)
   
   return new_feat

@@ -39,7 +39,7 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","crop_mode","crop_len","models"]:
+    for k in ["best_metric","use_crop","crop_mode","crop_len","models"]:
       if k in kwargs:
         self._args[k] = kwargs.pop(k)
             

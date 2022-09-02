@@ -330,8 +330,8 @@ class _af_design:
     # set settings
     if seq is not None: self.set_seq(seq=seq, set_state=False)
     if models is not None: self.set_opt(num_models=len(models) if isinstance(models,list) else 1)    
-    self.set_opt(hard=True, dropout=False, crop=False, sample_models=False,
-                 models=models, mlm_dropout=0.0)    
+    self.set_opt(hard=True, dropout=False, sample_models=False,
+                 models=models, mlm_dropout=0.0, use_crop=False)
     # run
     self.run(backprop=False)
     if verbose: self._print_log("predict")

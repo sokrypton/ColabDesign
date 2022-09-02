@@ -23,8 +23,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="average", num_recycles=0,
                use_templates=False, best_metric="loss",
-               model_names=None, use_openfold=False, use_alphafold=True,
-               use_multimer=False, use_mlm=False, crop_len=None, crop_mode="slide",
+               model_names=None,
+               use_openfold=False, use_alphafold=True,
+               use_multimer=False,
+               use_mlm=False,
+               use_crop=False, crop_len=None, crop_mode="slide",
                debug=False, loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
@@ -42,7 +45,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "debug":debug,
                   "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
-                  "crop":False, "crop_len":crop_len,"crop_mode":crop_mode,
+                  "use_crop":use_crop, "crop_len":crop_len,"crop_mode":crop_mode,
                   "models":None}
 
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False, "mlm_dropout":0.0,
@@ -104,9 +107,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
   def _get_model(self, cfg, callback=None):
 
+    a = self._args
     runner = model.RunModel(cfg, is_training=True,
-                            recycle_mode=self._args["recycle_mode"],
-                            use_multimer=self._args["use_multimer"])
+                            recycle_mode=a["recycle_mode"],
+                            use_multimer=a["use_multimer"])
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key, opt):
@@ -125,7 +129,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
-      if self._args["use_mlm"]:
+      if a["use_mlm"]:
         mlm = jax.random.bernoulli(key(), opt["mlm_dropout"], (L,))
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       else:
@@ -136,7 +140,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       update_aatype(jnp.broadcast_to(aatype,(L,21)), inputs)
       
       # update template features
-      if self._args["use_templates"]:
+      if a["use_templates"]:
         self._update_template(inputs, opt, key())
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       
@@ -144,12 +148,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
       
       # decide number of recycles to do
-      if self._args["recycle_mode"] in ["last","sample"]:
+      if a["recycle_mode"] in ["last","sample"]:
         inputs["num_iter_recycling"] = opt["num_recycles"]
 
       # experimental - crop inputs
-      if opt["crop_pos"].shape[0] < L:
-        inputs = crop_feat(inputs, opt["crop_pos"])    
+      if a["use_crop"] and opt["crop_pos"].shape[0] < L:
+          inputs = crop_feat(inputs, opt["crop_pos"])    
 
       if "batch" not in inputs:
         inputs["batch"] = None
@@ -172,12 +176,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "cmap":  get_contact_map(outputs, opt["cmap_cutoff"])})
 
       # experimental - uncrop outputs
-      if opt["crop_pos"].shape[0] < L:
+      if a["use_crop"] and opt["crop_pos"].shape[0] < L:
         p = opt["crop_pos"]
         aux["cmap"] = jnp.zeros((L,L)).at[p[:,None],p[None,:]].set(aux["cmap"])
         aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
 
-      if self._args["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
+      if a["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
             
       #######################################################################
       # LOSS
@@ -194,14 +198,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         for loss_fn in loss_fns:
           aux["losses"].update(loss_fn(inputs, outputs, opt))
 
-      if self._args["debug"]:
+      if a["debug"]:
         aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
-      if self._args["use_mlm"]:
-        truth = jax.nn.one_hot(seq["pseudo"].argmax(-1),20)
-        aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=truth))
+      
+      # experimental masked-language-modeling
+      if a["use_mlm"]:
+        aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
   
       # weighted loss
       w = opt["weights"]

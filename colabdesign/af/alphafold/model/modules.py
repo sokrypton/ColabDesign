@@ -1431,8 +1431,8 @@ class EmbeddingsAndEvoformer(hk.Module):
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 5
     # Jumper et al. (2021) Suppl. Alg. 3 "InputEmbedder"
 
-
-    target_feat = jnp.pad(batch["msa_feat"][0,:,:21],[[0,0],[1,0]])
+    target_feat = batch["msa_feat"][0,:,:21]
+    target_feat = jnp.pad(target_feat,[[0,0],[1,0]])
     preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
     preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(batch['msa_feat'])
     msa_activations = preprocess_1d[None] + preprocess_msa

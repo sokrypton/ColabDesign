@@ -70,7 +70,8 @@ class _af_design:
   def run(self, backprop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
-    callbacks = [self._crop(), callback]
+    callbacks = [callback]
+    if self._args["use_crop"]: callbacks.append(self._crop())
     
     # decide which model params to use
     ns_name = self._model_names.copy()

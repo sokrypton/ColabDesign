@@ -39,11 +39,9 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","crop","crop_mode","crop_len","models"]:
+    for k in ["best_metric","crop_mode","crop_len","models"]:
       if k in kwargs:
         self._args[k] = kwargs.pop(k)
-        if k == "crop" and not self._args[k]:
-          self._args["crop_len"] = None
             
     if "recycle_mode" in kwargs:
       if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:

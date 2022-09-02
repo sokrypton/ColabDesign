@@ -116,9 +116,10 @@ class _af_prep:
     self._prep_model(**kwargs)
 
     # undocumented: dist cropping (for Shihao)
-    cb_atoms = pdb["cb_feat"]["atoms"]
-    cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
-    self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
+    if self._args["use_crop"]:
+      cb_atoms = pdb["cb_feat"]["atoms"]
+      cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
+      self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
     
   def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
     '''

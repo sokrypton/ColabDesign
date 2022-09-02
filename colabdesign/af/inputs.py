@@ -111,14 +111,13 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   seq_pssm = jnp.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
   
   msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
-  target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
 
   if mlm is not None:    
     X = jax.nn.one_hot(22,23)
     X = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
     msa_feat = jnp.where(mlm[None,:,None],X,msa_feat)
     
-  inputs.update({"target_feat":target_feat,"msa_feat":msa_feat})
+  inputs.update({"msa_feat":msa_feat})
 
 def update_aatype(aatype, inputs):
   if jnp.issubdtype(aatype.dtype, jnp.integer):

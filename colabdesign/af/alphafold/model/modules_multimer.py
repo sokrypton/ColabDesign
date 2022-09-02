@@ -299,25 +299,14 @@ class EmbeddingsAndEvoformer(hk.Module):
 
     output = {}
 
-    #safe_key, sample_key, mask_key = safe_key.split(3)
-    
-    target_feat = batch['target_feat'][:,1:] # reusing from monomer
+    target_feat = batch['msa_feat'][0,:,:21]
     msa_feat = batch['msa_feat']
+    preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
+    preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(msa_feat)
+    msa_activations = preprocess_1d[None] + preprocess_msa
 
-    preprocess_1d = common_modules.Linear(
-        c.msa_channel, name='preprocess_1d')(target_feat)
-
-    preprocess_msa = common_modules.Linear(
-        c.msa_channel, name='preprocess_msa')(msa_feat)
-
-    msa_activations = jnp.expand_dims(preprocess_1d, axis=0) + preprocess_msa
-
-    left_single = common_modules.Linear(
-        c.pair_channel, name='left_single')(
-            target_feat)
-    right_single = common_modules.Linear(
-        c.pair_channel, name='right_single')(
-            target_feat)
+    left_single = common_modules.Linear(c.pair_channel, name='left_single')(target_feat)
+    right_single = common_modules.Linear(c.pair_channel, name='right_single')(target_feat)
     pair_activations = left_single[:, None] + right_single[None]
     mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
     mask_2d = mask_2d.astype(jnp.float32)

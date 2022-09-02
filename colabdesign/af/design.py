@@ -395,7 +395,7 @@ class _af_design:
     self.design_soft(soft_iters, **kwargs)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     self.set_opt(num_models=len(self._model_params)) # use all models
-    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True, **kwargs)
+    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True)
 
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
                     num_models=1, **kwargs):
@@ -404,7 +404,7 @@ class _af_design:
     self.design_logits(soft_iters, e_soft=1, **kwargs)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     self.set_opt(num_models=len(self._model_params)) # use all models
-    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True, **kwargs)
+    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True)
 
   def design_semigreedy(self, iters=100, tries=20, num_models=1,
                         use_plddt=True, save_best=True, verbose=1):

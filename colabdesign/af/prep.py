@@ -469,8 +469,13 @@ def prep_input_features(L, N=1, T=1, eN=1):
   return dictionary of blank features
   '''
   inputs = {'aatype': np.zeros(L,int),
-            'target_feat': np.zeros((L,22)),
             'msa_feat': np.zeros((N,L,49)),
+            # 23 = one_hot -> (20, UNK, GAP, MASK)
+            # 1  = has deletion
+            # 1  = deletion_value
+            # 23 = profile
+            # 1  = deletion_mean_value
+  
             'seq_mask': np.ones(L),
             'msa_mask': np.ones((N,L)),
             'msa_row_mask': np.ones(N),

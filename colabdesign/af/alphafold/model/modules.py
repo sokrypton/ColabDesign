@@ -1430,22 +1430,15 @@ class EmbeddingsAndEvoformer(hk.Module):
     # Embed clustered MSA.
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 5
     # Jumper et al. (2021) Suppl. Alg. 3 "InputEmbedder"
-    preprocess_1d = common_modules.Linear(
-        c.msa_channel, name='preprocess_1d')(
-            batch['target_feat'])
 
-    preprocess_msa = common_modules.Linear(
-        c.msa_channel, name='preprocess_msa')(
-            batch['msa_feat'])
 
-    msa_activations = jnp.expand_dims(preprocess_1d, axis=0) + preprocess_msa
+    target_feat = jnp.pad(batch["msa_feat"][0,:,:21],[[0,0],[1,0]])
+    preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
+    preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(batch['msa_feat'])
+    msa_activations = preprocess_1d[None] + preprocess_msa
 
-    left_single = common_modules.Linear(
-        c.pair_channel, name='left_single')(
-            batch['target_feat'])
-    right_single = common_modules.Linear(
-        c.pair_channel, name='right_single')(
-            batch['target_feat'])
+    left_single = common_modules.Linear(c.pair_channel, name='left_single')(target_feat)
+    right_single = common_modules.Linear(c.pair_channel, name='right_single')(target_feat)
     pair_activations = left_single[:, None] + right_single[None]
     mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
 

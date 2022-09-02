@@ -200,7 +200,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
       if self._args["use_mlm"]:
-        truth = jax.nn.one_hot(seq["pseudo"].argmax(-1),22)
+        truth = jax.nn.one_hot(seq["pseudo"].argmax(-1),20)
         aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=truth))
   
       # weighted loss

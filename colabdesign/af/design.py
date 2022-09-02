@@ -159,8 +159,10 @@ class _af_design:
       num_recycles = self.opt["num_recycles"]
       if mode == "average":
         # run recycles manually, average gradients
-        if "crop_pos" in self.opt: L = self.opt["crop_pos"].shape[0]
-        else: L = self._inputs["residue_index"].shape[0]
+        if self._args["use_crop"]:
+          L = self.opt["crop_pos"].shape[0]
+        else:
+          L = self._inputs["residue_index"].shape[0]
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                                 'prev_pair': np.zeros([L,L,128]),
                                 'prev_pos': np.zeros([L,37,3])}

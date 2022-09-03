@@ -47,7 +47,7 @@ class _af_loss:
       "con":     get_con_loss(inputs, outputs, opt["con"], mask_1d=binder_id, mask_1b=binder_id),
       # interface
       "i_con":   get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id),
-      "i_pae":   get_pae_loss(inputs, outputs, mask_1d=binder_id, mask_1b=target_id),
+      "i_pae":   get_pae_loss(outputs, mask_1d=binder_id, mask_1b=target_id),
     })
 
     # supervised losses

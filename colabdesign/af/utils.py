@@ -53,7 +53,6 @@ class _af_utils:
     if len(ks) > 0:
       print(f"ERROR: the following args were not set: {ks}")
 
-  
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''
     return np.array([float(loss[x]) for loss in self._traj["log"]])
@@ -106,11 +105,10 @@ class _af_utils:
     if self.protocol == "hallucination":
       return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, dpi=dpi)
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi)  
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi) 
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
-               color="pLDDT", color_HP=False, size=(800,480),
-               animate=False, get_best=True):
+    color="pLDDT", color_HP=False, size=(800,480), animate=False, get_best=True):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
@@ -163,3 +161,18 @@ class _af_utils:
     else:
       print("TODO")
     plt.show()
+
+  def clear_best(self):
+    self._best = {}
+
+  def save_current_pdb(self, filename=None):
+    '''save pdb coordinates (if filename provided, otherwise return as string)'''
+    self.save_pdb(filename=filename, get_best=False)
+
+  def plot_current_pdb(self, show_sidechains=False, show_mainchains=False,
+    color="pLDDT", color_HP=False, size=(800,480), animate=False):
+    '''use py3Dmol to plot pdb coordinates
+    - color=["pLDDT","chain","rainbow"]
+    '''
+    self.plot_pdb(show_sidechains=show_sidechains, show_mainchains=show_mainchains, color=color,
+      color_HP=color_HP, size=size, animate=animate, get_best=False)

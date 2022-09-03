@@ -247,9 +247,6 @@ class _af_design:
     if "metric" not in self._best or metric < self._best["metric"]:
       self._best.update({"metric":metric, "aux":self.aux})
 
-  def clear_best(self):
-    self._best = {}
-
   def _save_results(self, save_best=False, verbose=True):    
     self._update_traj()
     if save_best: self._save_best()

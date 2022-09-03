@@ -39,7 +39,6 @@ class _af_inputs:
 
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
-
     
     o = opt["template"]
 

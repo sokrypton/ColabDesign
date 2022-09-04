@@ -341,7 +341,7 @@ class _af_design:
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
              dropout=True, opt=None, weights=None,
-             mlm_dropout=0.15,
+             mlm_dropout=0.05,
              repredict=False, backprop=True, callback=None,
              save_best=False, verbose=1):
 

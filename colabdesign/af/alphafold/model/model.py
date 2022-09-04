@@ -68,6 +68,7 @@ class RunModel:
           prev['prev_pos'] = np.zeros([L,37,3])
         else:
           prev['prev_dgram'] = np.zeros([L,L,64])
+        feat["prev"] = prev
 
       ################################
       # decide how to run recycles
@@ -75,18 +76,35 @@ class RunModel:
       if "num_iter_recycling" in feat:
         # use while_loop()
         num_recycles = feat.pop("num_iter_recycling")
-        def body(x):
-          i,prev,key = x
+        if self.mode == "first":
+          # backprop through first recycle (idea from Andrew White @andrewwhite01)
+          def body(x):
+            i,results,key = x
+            key, sub_key = jax.random.split(key)
+            feat["prev"] = results["prev"]
+            results = self.apply_fn(params, sub_key, feat)
+            return (i+1, results, key)
+          
           key, sub_key = jax.random.split(key)
-          feat["prev"] = prev
-          prev = self.apply_fn(params, sub_key, feat)["prev"]
-          prev = jax.lax.stop_gradient(prev)
-          return (i+1, prev, key)
+          results_first = self.apply_fn(params, sub_key, feat)
+          init = (0,results_first,key)
+          _, results_last, key = jax.lax.while_loop(lambda x: x[0] < num_recycles, body, init)
+          results = jax.tree_map(lambda x,y: jax.lax.stop_gradient(x - y) + y, results_last, results_first)
 
-        init = (0,prev,key)
-        _, feat["prev"], key = jax.lax.while_loop(lambda x: x[0] < num_recycles, body, init)        
-        key, sub_key = jax.random.split(key)
-        results = self.apply_fn(params, sub_key, feat)
+        else:
+          # backprop through last recycle
+          def body(x):
+            i,prev,key = x
+            key, sub_key = jax.random.split(key)
+            feat["prev"] = prev
+            prev = self.apply_fn(params, sub_key, feat)["prev"]
+            prev = jax.lax.stop_gradient(prev)
+            return (i+1, prev, key)
+
+          init = (0,prev,key)
+          _, feat["prev"], key = jax.lax.while_loop(lambda x: x[0] < num_recycles, body, init)        
+          key, sub_key = jax.random.split(key)
+          results = self.apply_fn(params, sub_key, feat)
 
       elif self.config.model.num_recycle:
         # use scan()

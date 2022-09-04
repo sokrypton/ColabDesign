@@ -31,7 +31,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                debug=False, loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
-    assert recycle_mode in ["average","add_prev","backprop","last","sample"]
+    assert recycle_mode in ["average","add_prev","backprop","last","sample","first"]
     assert crop_mode in ["slide","roll","pair","dist"]
     
     # decide if templates should be used
@@ -54,7 +54,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
-                "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
+                "weights":  {"seq_ent":0.1, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
@@ -151,7 +151,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
       
       # decide number of recycles to do
-      if a["recycle_mode"] in ["last","sample"]:
+      if a["recycle_mode"] in ["last","sample","first"]:
         inputs["num_iter_recycling"] = opt["num_recycles"]
 
       # experimental - crop inputs

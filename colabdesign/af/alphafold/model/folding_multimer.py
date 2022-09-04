@@ -466,7 +466,7 @@ class FoldIteration(hk.Module):
 
     outputs = {'rigid': rigid, 'sc': sc}
 
-    rotation = jax.tree_map(jax.lax.stop_gradient, rigid.rotation)
+    rotation = rigid.rotation #jax.tree_map(jax.lax.stop_gradient, rigid.rotation)
     rigid = geometry.Rigid3Array(rotation, rigid.translation)
 
     new_activations = {

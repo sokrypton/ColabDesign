@@ -33,7 +33,6 @@ import jax.numpy as jnp
 
 from colabdesign.af.alphafold.model.r3 import Rigids, Rots, Vecs
 
-
 def apply_dropout(*, tensor, safe_key, rate, is_training, broadcast_dim=None):
   """Applies dropout to a tensor."""
   if is_training: # and rate != 0.0:
@@ -244,7 +243,6 @@ class AlphaFold(hk.Module):
         new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
       else:
         new_prev['prev_dgram'] = ret["distogram"]["logits"]
-
       return new_prev
     
     emb_config = self.config.embeddings_and_evoformer
@@ -260,12 +258,7 @@ class AlphaFold(hk.Module):
     #  copy previous from input batch (if defined)
     if "prev" in batch:
       prev.update(batch.pop("prev"))
-    
-    # backward compatibility
-    for k in ["pos","msa_first_row","pair","dgram"]:
-      if f"init_{k}" in batch:
-        prev[f"prev_{k}"] = batch.pop(f"init_{k}")
-                  
+                      
     ret = impl(batch={**batch, **prev},
                is_training=is_training)
 

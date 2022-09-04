@@ -186,7 +186,7 @@ class AlphaFold(hk.Module):
           'prev_msa_first_row': ret['representations']['msa_first_row'],
           'prev_pair': ret['representations']['pair'],
       }
-      return jax.tree_map(jax.lax.stop_gradient, new_prev)
+      return new_prev
 
     def apply_network(prev, safe_key):
       recycled_batch = {**batch, **prev}

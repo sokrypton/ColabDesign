@@ -588,5 +588,6 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
             }
         },
         'num_recycle': 3,
+        'use_struct': True,
     }
 })

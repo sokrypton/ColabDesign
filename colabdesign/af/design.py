@@ -383,7 +383,7 @@ class _af_design:
   # ---------------------------------------------------------------------------------
   # experimental
   # ---------------------------------------------------------------------------------
-  def design_3stage(self, soft_iters=200, temp_iters=100, hard_iters=100, final_iters=10,
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, final_iters=10,
                     num_recycles=0, num_models=1, ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 

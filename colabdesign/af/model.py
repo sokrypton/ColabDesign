@@ -54,7 +54,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
-                "weights":  {"seq_ent":0.1, "plddt":0.0, "pae":0.0, "exp_res":0.0},
+                "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:

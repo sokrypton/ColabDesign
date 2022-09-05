@@ -383,7 +383,7 @@ class _af_design:
   # ---------------------------------------------------------------------------------
   # experimental
   # ---------------------------------------------------------------------------------
-  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=50, final_iters=10,
+  def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
                     num_recycles=0, num_models=1, ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
@@ -407,11 +407,8 @@ class _af_design:
     # softmax(logits/1.0) -> softmax(logits/0.01)
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
 
-    # softmax(logits/0.01) -> logits.argmax()
-    self.design_soft(hard_iters, temp=1e-2, hard=0, e_hard=1.0, **kwargs)
-
     self.set_opt(num_models=len(self._model_params)) # use all models
-    self.design_hard(final_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True)
+    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True)
 
   def design_semigreedy(self, iters=100, tries=20, num_models=1,
                         use_plddt=True, save_best=True, verbose=1):

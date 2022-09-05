@@ -160,10 +160,9 @@ def soft_seq(x, opt, key=None):
 
   # create pseudo sequence
   seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-  if key is not None:
-    key, sub_key = jax.random.split(key)
-    hard_mask = jax.random.bernoulli(sub_key, opt["hard"], seq["hard"].shape[:-1] + (1,))
-  else:
-    hard_mask = opt["hard"]
+  
+  # key, sub_key = jax.random.split(key)
+  # hard_mask = jax.random.bernoulli(sub_key, opt["hard"], seq["hard"].shape[:-1] + (1,))
+  hard_mask = opt["hard"]
   seq["pseudo"] = hard_mask * seq["hard"] + (1-hard_mask) * seq["pseudo"]
   return seq

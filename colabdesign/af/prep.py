@@ -213,7 +213,7 @@ class _af_prep:
     else:
       # binder hallucination
       pdb["batch"] = make_fixed_size(pdb["batch"], num_res=sum(self._lengths))
-      self.opt["weights"].update({"con":0.0, "i_con":1.0, "i_pae":0.0})
+      self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)

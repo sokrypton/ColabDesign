@@ -408,13 +408,14 @@ class _af_design:
     self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
 
     self.set_opt(num_models=len(self._model_params)) # use all models
-    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True)
+    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
+                     verbose=kwargs.pop("verbose",1))
 
   def design_semigreedy(self, iters=100, tries=20, num_models=1,
                         use_plddt=True, save_best=True, verbose=1):
     
     '''semigreedy search'''    
-    self.set_opt(hard=True, dropout=False, crop=False,
+    self.set_opt(hard=True, dropout=False, use_crop=False,
                  num_models=num_models, sample_models=False)
     
     if self._k == 0:

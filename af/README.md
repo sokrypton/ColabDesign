@@ -98,14 +98,15 @@ model.opt["weights"]["pae"] = 0.0
 #### How do I control number of recycles used during design?
 ```python 
 model = mk_afdesign_model(num_recycles=1, recycle_mode="average")
-# if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
+# if recycle_mode in ["average",last","sample","first"] the number of recycles can change during optimization
 model.set_opt(num_recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
-  - *last* - use loss from last recycle. (Not recommended, unless you increase number optimization)
-  - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
-  - *average* - compute loss at each recycle and average gradients. (Default; Recommended).
+  - *last* - use loss from last recycle. (Default)
+  - *average* - compute loss at each recycle and average gradients. (Previous default from v.1.0.5)
+  - *sample* - Same as *last* but each iteration a different number of recycles are used.
+  - *first* - use loss from first recycle.
   - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
   - *backprop* - use loss from last recycle, but backprop through all recycles.
 
@@ -152,8 +153,7 @@ model.restart(seed=0)
   - `design_hard()` - optimize *one_hot(logits)* inputs (discrete)
 
 - For complex topologies, we find directly optimizing one_hot encoded sequence `design_hard()` to be very challenging. 
-To get around this problem, we propose optimizing in 2 or 3 stages.
-  - `design_2stage()` - *soft* → *hard*
+To get around this problem, we propose optimizing in 3 stages.
   - `design_3stage()` - *logits* → *soft* → *hard*
 
 #### What are all the different losses being optimized?

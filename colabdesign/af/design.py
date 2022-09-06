@@ -67,7 +67,7 @@ class _af_design:
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best, self._tmp = {}, {}
       
-  def run(self, backprop=True, callback=None):
+  def run(self, num_recycles=None, backprop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
     callbacks = [callback]
@@ -95,7 +95,7 @@ class _af_design:
     aux = []
     for n in model_num:
       p = self._model_params[n]
-      aux.append(self._recycle(p, backprop=backprop))
+      aux.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
     aux = jax.tree_map(lambda *x: jnp.stack(x), *aux)
 
     # update aux
@@ -143,20 +143,15 @@ class _af_design:
     aux.update({"loss":loss,"grad":grad})
     return aux
 
-  def _recycle(self, model_params, backprop=True):   
+  def _recycle(self, model_params, num_recycles=None, backprop=True):   
     '''multiple passes through the model (aka recycle)'''
-
     mode = self._args["recycle_mode"]
-    if "backprop" in mode or "add_prev" in mode:
-      
-      # recycles compiled into model, only need single-pass
-      num_recycles = self.opt["num_recycles"] = self._cfg.model.num_recycle
+    if num_recycles is None: num_recycles = self.opt["num_recycles"]
+
+    if "backprop" in mode or "add_prev" in mode:      
       aux = self._single(model_params, backprop)
     
     else:
-      # configure number of recycle to run
-      num_recycles = self.opt["num_recycles"]
-
       # configure prev
       if self._args["use_crop"]:
         L = self.opt["crop_pos"].shape[0]
@@ -198,12 +193,12 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def step(self, lr_scale=1.0, backprop=True, repredict=False,
+  def step(self, lr_scale=1.0, num_recycles=None, backprop=True, repredict=False,
            callback=None, stats_correct=False, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(backprop=backprop, callback=callback)
+    self.run(num_recycles=num_recycles, backprop=backprop, callback=callback)
 
     # apply gradient
     g = self.aux["grad"]["seq"]
@@ -229,7 +224,7 @@ class _af_design:
     self._k += 1
 
     # save results
-    if repredict: self.predict(models=None, verbose=False)
+    if repredict: self.predict(num_recycles=num_recycles, models=None, verbose=False)
     self._save_results(save_best=save_best, verbose=verbose)
 
   def _update_traj(self):
@@ -328,7 +323,7 @@ class _af_design:
     self.opt["crop_pos"] = p
     return callback
 
-  def predict(self, seq=None, models=None, verbose=True):
+  def predict(self, seq=None, num_recycles=None, models=None, verbose=True):
     # save settings
     (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])    
 
@@ -338,7 +333,7 @@ class _af_design:
     self.set_opt(hard=True, dropout=False, sample_models=False,
                  models=models, mlm_dropout=0.0, use_crop=False)
     # run
-    self.run(backprop=False)
+    self.run(num_recycles=num_recycles, backprop=False)
     if verbose: self._print_log("predict")
 
     # reset settings
@@ -353,7 +348,7 @@ class _af_design:
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
              dropout=True, opt=None, weights=None,
-             mlm_dropout=0.05,
+             mlm_dropout=0.05, num_recycles=None,
              repredict=False, backprop=True, callback=None,
              save_best=False, verbose=1):
 
@@ -377,8 +372,8 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = step * ((1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"]))
       
-      self.step(lr_scale=lr_scale, backprop=backprop, repredict=repredict,
-                callback=callback, save_best=save_best, verbose=verbose)
+      self.step(lr_scale=lr_scale, num_recycles=num_recycles, backprop=backprop,
+                repredict=repredict, callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
     ''' optimize logits '''
@@ -396,23 +391,21 @@ class _af_design:
   # experimental
   # ---------------------------------------------------------------------------------
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
-                    num_recycles=0, num_models=1, ramp_recycles=True, **kwargs):
+                    ramp_recycles=True, num_recycles=None, num_models=1, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
-    self.set_opt(num_models=num_models, sample_models=True) # sample models
+    # set starting options
+    kwargs["num_recycles"] = num_recycles
+    self.set_opt(num_models=num_models, sample_models=True)
 
     # logits -> softmax(logits/1.0)
-    if self._args["recycle_mode"] in ["first","last","average"]:
-      if ramp_recycles:
-        R = num_recycles
-        p = 1.0 / (R + 1)
-        iters = soft_iters // (R + 1)
-        for r in range(R + 1):
-          self.set_opt(num_recycles=r)
-          self.design_logits(iters, soft=r*p, e_soft=(r+1)*p, **kwargs)    
-      else:
-        self.set_opt(num_recycles=num_recycles)
-        self.design_logits(soft_iters, e_soft=1, **kwargs)
+    if ramp_recycles and self._args["recycle_mode"] in ["first","last","average"]:
+      R = self.opt["num_recycles"] if num_recycles is None else num_recycles
+      p = 1.0 / (R + 1)
+      iters = soft_iters // (R + 1)
+      for r in range(R + 1):
+        kwargs["num_recycles"] = r
+        self.design_logits(iters, soft=r*p, e_soft=(r+1)*p, **kwargs)    
     else:
       self.design_logits(soft_iters, e_soft=1, **kwargs)
     
@@ -421,9 +414,9 @@ class _af_design:
 
     self.set_opt(num_models=len(self._model_params)) # use all models
     self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
-                     verbose=kwargs.pop("verbose",1))
+                     num_recycles=kwargs["num_recycles"], verbose=kwargs.get("verbose",1))
 
-  def design_semigreedy(self, iters=100, tries=20, num_models=1,
+  def design_semigreedy(self, iters=100, tries=20, num_recycles=None, num_models=1,
                         use_plddt=True, save_best=True, verbose=1):
     
     '''semigreedy search'''    
@@ -431,7 +424,7 @@ class _af_design:
                  num_models=num_models, sample_models=False)
     
     if self._k == 0:
-      self.run(backprop=False)
+      self.run(num_recycles=num_recycles, backprop=False)
 
     def mut(seq, plddt=None):
       '''mutate random position'''
@@ -466,7 +459,7 @@ class _af_design:
       buff = []
       for _ in range(tries):
         self.set_seq(seq=mut(seq, plddt), set_state=False)
-        self.run(backprop=False)
+        self.run(num_recycles=num_recycles, backprop=False)
         buff.append({"aux":self.aux, "seq":self._params["seq"]})
       
       # accept best      

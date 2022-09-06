@@ -21,7 +21,7 @@ from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_fe
 class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
-               recycle_mode="average", num_recycles=0,
+               recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None,
                use_openfold=False, use_alphafold=True,

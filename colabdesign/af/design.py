@@ -183,14 +183,14 @@ class _af_design:
         # backprop through first cycle (idea from Andrew White @whitead)
         aux = self._single(model_params, backprop)
         grad = aux["grad"]
-        for _ in range(r):
+        for _ in range(num_recycles):
           self._inputs["prev"] = aux["prev"]
           aux = self._single(model_params, backprop=False)
         aux["grad"] = grad
 
       else:
         # backprop through last cycle
-        for _ in range(r):
+        for _ in range(num_recycles):
           aux = self._single(model_params, backprop=False)
           self._inputs["prev"] = aux["prev"]
         aux = self._single(model_params, backprop)

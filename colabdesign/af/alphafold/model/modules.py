@@ -246,19 +246,7 @@ class AlphaFold(hk.Module):
       return new_prev
     
     emb_config = self.config.embeddings_and_evoformer
-    prev = {
-      'prev_msa_first_row': jnp.zeros([num_res, emb_config.msa_channel]),
-      'prev_pair': jnp.zeros([num_res, num_res, emb_config.pair_channel])
-    }
-    if self.config.use_struct:
-      prev['prev_pos'] = jnp.zeros([num_res, residue_constants.atom_type_num, 3])
-    else:
-      prev['prev_dgram'] = jnp.zeros([num_res, num_res, 64])
-      
-    #  copy previous from input batch (if defined)
-    if "prev" in batch:
-      prev.update(batch.pop("prev"))
-                      
+    prev = batch.pop("prev")                      
     ret = impl(batch={**batch, **prev},
                is_training=is_training)
 

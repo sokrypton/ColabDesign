@@ -44,7 +44,7 @@ class _af_utils:
         self._args[k] = kwargs.pop(k)
             
     if "recycle_mode" in kwargs:
-      if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
+      if kwargs["recycle_mode"] in ["sample","first","last"] and self._args["recycle_mode"] in ["sample","first","last"]:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")
       else:
         print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")

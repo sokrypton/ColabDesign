@@ -147,40 +147,52 @@ class _af_design:
     '''multiple passes through the model (aka recycle)'''
 
     mode = self._args["recycle_mode"]
-    if mode in ["backprop","add_prev"]:
+    if "backprop" in mode or "add_prev" in mode:
       
       # recycles compiled into model, only need single-pass
       num_recycles = self.opt["num_recycles"] = self._cfg.model.num_recycle
       aux = self._single(model_params, backprop)
     
     else:
-
       # configure number of recycle to run
       num_recycles = self.opt["num_recycles"]
-      if mode == "average":
-        # run recycles manually, average gradients
-        if self._args["use_crop"]:
-          L = self.opt["crop_pos"].shape[0]
-        else:
-          L = self._inputs["residue_index"].shape[0]
-        self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                                'prev_pair': np.zeros([L,L,128]),
-                                'prev_pos': np.zeros([L,37,3])}
+
+      # configure prev
+      if self._args["use_crop"]:
+        L = self.opt["crop_pos"].shape[0]
+      else:
+        L = self._inputs["residue_index"].shape[0]
+      self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
+                              'prev_pair': np.zeros([L,L,128]),
+                              'prev_pos': np.zeros([L,37,3])}
+      
+      if "sample" in mode:
+        num_recycles = jax.random.randint(self.key(),[],0,num_recycles+1)
+      
+      if "average" in mode:
+        # average gradients across all recycles
         grad = []
         for _ in range(num_recycles+1):
           aux = self._single(model_params, backprop)
           grad.append(aux["grad"])
           self._inputs["prev"] = aux["prev"]
-        # average gradients across
+        # average gradients
         aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
-      
-      elif mode == "sample":
-        # randomly select number of recycles to run
-        self.set_opt(num_recycles=jax.random.randint(self.key(),[],0,num_recycles+1))
+            
+      elif "first" in mode:
+        # backprop through first cycle (idea from Andrew White @whitead)
         aux = self._single(model_params, backprop)
-        (self.opt["num_recycles"],num_recycles) = (num_recycles,self.opt["num_recycles"])
-      
+        grad = aux["grad"]
+        for _ in range(r):
+          self._inputs["prev"] = aux["prev"]
+          aux = self._single(model_params, backprop=False)
+        aux["grad"] = grad
+
       else:
+        # backprop through last cycle
+        for _ in range(r):
+          aux = self._single(model_params, backprop=False)
+          self._inputs["prev"] = aux["prev"]
         aux = self._single(model_params, backprop)
     
     aux["num_recycles"] = num_recycles

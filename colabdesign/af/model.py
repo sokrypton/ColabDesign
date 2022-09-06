@@ -31,7 +31,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                debug=False, loss_callback=None, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
-    assert recycle_mode in ["average","add_prev","backprop","last","sample","first"]
+    assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
     assert crop_mode in ["slide","roll","pair","dist"]
     
     # decide if templates should be used
@@ -70,7 +70,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       cfg = config.model_config("model_1_multimer")
     else:
       cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
-    if recycle_mode == "average":num_recycles = 0
+    if recycle_mode in ["average","first","last","sample"]: num_recycles = 0
     cfg.model.num_recycle = num_recycles
     cfg.model.global_config.use_remat = True
 
@@ -150,10 +150,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
       
-      # decide number of recycles to do
-      if a["recycle_mode"] in ["last","sample","first"]:
-        inputs["num_iter_recycling"] = opt["num_recycles"]
-
       # experimental - crop inputs
       if a["use_crop"] and opt["crop_pos"].shape[0] < L:
           inputs = crop_feat(inputs, opt["crop_pos"])    
@@ -176,15 +172,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "pae":   get_pae(outputs), 
                   "ptm":   get_ptm(inputs, outputs),
                   "i_ptm": get_ptm(inputs, outputs, interface=True), 
-                  "cmap":  get_contact_map(outputs, opt["cmap_cutoff"])})
+                  "cmap":  get_contact_map(outputs, opt["cmap_cutoff"]),
+                  "prev": outputs["prev"]})
 
       # experimental - uncrop outputs
       if a["use_crop"] and opt["crop_pos"].shape[0] < L:
         p = opt["crop_pos"]
         aux["cmap"] = jnp.zeros((L,L)).at[p[:,None],p[None,:]].set(aux["cmap"])
         aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
-
-      if a["recycle_mode"] == "average": aux["prev"] = outputs["prev"]
             
       #######################################################################
       # LOSS

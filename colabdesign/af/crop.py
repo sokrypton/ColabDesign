@@ -2,6 +2,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
+from colabdesign.shared.utils import copy_dict
+from colabdesign.af.alphafold.model import config
+
 class _af_crop:
   def _crop(self):
     ''' determine positions to crop '''
@@ -69,7 +72,7 @@ class _af_crop:
 
     self.opt["crop_pos"] = p
     return callback	
-    
+
 def crop_feat(feat, pos):  
   '''
   crop features to specified [pos]itions

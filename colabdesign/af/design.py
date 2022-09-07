@@ -184,7 +184,7 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def step(self, lr_scale=1.0, num_recycles=None, backprop=True, repredict=False,
+  def step(self, lr_scale=1.0, num_recycles=None, backprop=True,
            callback=None, stats_correct=False, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
@@ -215,7 +215,6 @@ class _af_design:
     self._k += 1
 
     # save results
-    if repredict: self.predict(num_recycles=num_recycles, models=None, verbose=False)
     self._save_results(save_best=save_best, verbose=verbose)
 
   def _update_traj(self):
@@ -247,15 +246,21 @@ class _af_design:
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}")
 
-  def predict(self, seq=None, num_recycles=None, models=None, verbose=True):
+  def predict(self, seq=None, num_recycles=None, num_models=None, models=None, verbose=True):
+    '''predict structure for input sequence (if provided)'''
+    
     # save settings
     (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])    
 
     # set settings
     if seq is not None: self.set_seq(seq=seq, set_state=False)
-    if models is not None: self.set_opt(num_models=len(models) if isinstance(models,list) else 1)    
+    if models is None:
+      models = self._model_names if num_models is None else self._model_names[:num_models]
+    num_models = len(models) if isinstance(models,list) else 1
+    
     self.set_opt(hard=True, dropout=False, sample_models=False,
-                 models=models, mlm_dropout=0.0, use_crop=False)
+                 models=models, num_models=num_models,
+                 mlm_dropout=0.0, use_crop=False)
     # run
     self.run(num_recycles=num_recycles, backprop=False)
     if verbose: self._print_log("predict")
@@ -273,7 +278,7 @@ class _af_design:
              step=1.0, e_step=None,
              dropout=True, opt=None, weights=None,
              mlm_dropout=0.05, num_recycles=None,
-             repredict=False, backprop=True, callback=None,
+             backprop=True, callback=None,
              save_best=False, verbose=1):
 
     # update options/settings (if defined)
@@ -297,7 +302,7 @@ class _af_design:
       lr_scale = step * ((1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"]))
       
       self.step(lr_scale=lr_scale, num_recycles=num_recycles, backprop=backprop,
-                repredict=repredict, callback=callback, save_best=save_best, verbose=verbose)
+                callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
     ''' optimize logits '''

@@ -146,49 +146,40 @@ class _af_design:
   def _recycle(self, model_params, num_recycles=None, backprop=True):   
     '''multiple passes through the model (aka recycle)'''
     mode = self._args["recycle_mode"]
-    if num_recycles is None: num_recycles = self.opt["num_recycles"]
+    if num_recycles is None:
+      num_recycles = self.opt["num_recycles"]
 
-    if "backprop" in mode or "add_prev" in mode:      
+    if mode in ["backprop","add_prev"]:
       aux = self._single(model_params, backprop)
     
     else:
-      # configure prev
-      if self._args["use_crop"]:
-        L = self.opt["crop_pos"].shape[0]
-      else:
-        L = self._inputs["residue_index"].shape[0]
+      L = self._inputs["residue_index"].shape[0]
+      if self._args["use_crop"]: L = self.opt["crop_pos"].shape[0]
+      
+      # intialize previous
       self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                               'prev_pair': np.zeros([L,L,128]),
                               'prev_pos': np.zeros([L,37,3])}
-      
-      if "sample" in mode:
-        num_recycles = jax.random.randint(self.key(),[],0,num_recycles+1)
-      
-      if "average" in mode:
-        # average gradients across all recycles
-        grad = []
-        for _ in range(num_recycles+1):
-          aux = self._single(model_params, backprop)
-          grad.append(aux["grad"])
-          self._inputs["prev"] = aux["prev"]
-        # average gradients
-        aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).mean(0), *grad)
-            
-      elif "first" in mode:
-        # backprop through first cycle (idea from Andrew White @whitead)
-        aux = self._single(model_params, backprop)
-        grad = aux["grad"]
-        for _ in range(num_recycles):
-          self._inputs["prev"] = aux["prev"]
-          aux = self._single(model_params, backprop=False)
-        aux["grad"] = grad
 
-      else:
-        # backprop through last cycle
-        for _ in range(num_recycles):
+      # decide which layers to compute gradients for
+      cycles = (num_recycles + 1)
+      mask = [0] * cycles
+      if mode == "sample":  mask[jax.random.randint(self.key(),[],0,cycles)] = 1
+      if mode == "average": mask = [1/cycles] * cycles
+      if mode == "last":    mask[-1] = 1
+      if mode == "first":   mask[0] = 1
+      
+      # gather gradients across recycles 
+      grad = []
+      for m in mask:
+        if m == 0:
           aux = self._single(model_params, backprop=False)
-          self._inputs["prev"] = aux["prev"]
-        aux = self._single(model_params, backprop)
+        else:
+          aux = self._single(model_params, backprop)
+          grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
+        self._inputs["prev"] = aux["prev"]
+
+      aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).sum(0), *grad)
     
     aux["num_recycles"] = num_recycles
     return aux
@@ -255,73 +246,6 @@ class _af_design:
     if save_best: self._save_best()
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}")
-
-  def _crop(self):
-    ''' determine positions to crop '''
-    (L, max_L, mode) = (sum(self._lengths), self._args["crop_len"], self._args["crop_mode"])
-    
-    if max_L is None or max_L >= L: crop = False
-    elif self._args["copies"] > 1 and not self._args["repeat"]: crop = False
-    elif self.protocol in ["partial","binder"]: crop = False
-    elif mode == "dist" and not hasattr(self,"_dist"): crop = False
-    else: crop = True
-    
-    if crop:
-      if self.protocol == "fixbb":
-        self._tmp["cmap"] = self._dist < self.opt["cmap_cutoff"]
-    
-      if mode == "slide":
-        i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
-        p = np.arange(i,i+max_L)      
-
-      if mode == "roll":
-        i = jax.random.randint(self.key(),[],0,L)
-        p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
-
-      if mode == "dist":
-        i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
-        p = np.sort(self._dist[i].argsort()[1:][:max_L])
-
-      if mode == "pair":
-        # pick random pair of interactig crops
-        max_L = max_L // 2
-
-        # pick first crop
-        i_range = np.append(np.arange(0,(L-2*max_L)+1),np.arange(max_L,(L-max_L)+1))
-        i = jax.random.choice(self.key(),i_range,[])
-        
-        # pick second crop
-        j_range = np.append(np.arange(0,(i-max_L)+1),np.arange(i+max_L,(L-max_L)+1))
-        if "cmap" in self._tmp:
-          # if contact map defined, bias to interacting pairs
-          w = np.array([self._tmp["cmap"][i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
-          j = jax.random.choice(self.key(), j_range, [], p=w/w.sum())
-        else:
-          j = jax.random.choice(self.key(), j_range, [])
-             
-        p = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))
-
-      def callback(self):
-        # function to apply after run
-        cmap, pae = (np.array(self.aux[k]) for k in ["cmap","pae"])
-        mask = np.isnan(pae)
-
-        b = 0.9        
-        _pae = self._tmp.get("pae",np.full_like(pae, 31.0))
-        self._tmp["pae"] = np.where(mask, _pae, (1-b)*pae + b*_pae)
-
-        if self.protocol == "hallucination":
-          _cmap = self._tmp.get("cmap",np.zeros_like(cmap))
-          self._tmp["cmap"] = np.where(mask, _cmap, (1-b)*cmap + b*_cmap)
-
-        self.aux.update(self._tmp)
-    
-    else:
-      callback = None
-      p = np.arange(sum(self._lengths))
-
-    self.opt["crop_pos"] = p
-    return callback
 
   def predict(self, seq=None, num_recycles=None, models=None, verbose=True):
     # save settings
@@ -399,7 +323,7 @@ class _af_design:
     self.set_opt(num_models=num_models, sample_models=True)
 
     # logits -> softmax(logits/1.0)
-    if ramp_recycles and self._args["recycle_mode"] in ["first","last","average"]:
+    if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
       R = self.opt["num_recycles"] if num_recycles is None else num_recycles
       p = 1.0 / (R + 1)
       iters = soft_iters // (R + 1)

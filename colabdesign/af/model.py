@@ -12,13 +12,14 @@ from colabdesign.af.prep   import _af_prep
 from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss, get_mlm_loss
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
-from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype, crop_feat
+from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
+from colabdesign.af.crop   import _af_crop, crop_feat
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
+class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils, _af_crop):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="last", num_recycles=0,

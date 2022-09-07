@@ -4,3 +4,4 @@
 - prep.py   - prep features
 - design.py - gradient update loop
 - utils.py  - various tools for saving/plotting
+- crop.py   - functions specific to cropping

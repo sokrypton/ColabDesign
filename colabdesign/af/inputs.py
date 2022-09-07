@@ -152,27 +152,3 @@ def expand_copies(x, copies, block_diag=True):
     return jnp.concatenate([x[:1],y],0)
   else:
     return x
-
-def crop_feat(feat, pos):  
-  '''
-  crop features to specified [pos]itions
-  '''
-  if feat is None: return None
-
-  def find(x,k):
-    i = []
-    for j,y in enumerate(x):
-      if y == k: i.append(j)
-    return i
-
-  shapes = config.CONFIG.data.eval.feat
-  NUM_RES = "num residues placeholder"
-  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
-  new_feat = copy_dict(feat)
-  for k in new_feat.keys():
-    if k == "batch":
-      new_feat[k] = crop_feat(feat[k], pos)
-    if k in idx:
-      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i)
-  
-  return new_feat

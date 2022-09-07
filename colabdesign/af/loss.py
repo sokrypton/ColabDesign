@@ -141,7 +141,8 @@ class _af_loss:
     mask_1d = jnp.ones_like(inputs["asym_id"])
     if "pos" in opt:
       C,L = self._args["copies"], self._len
-      if C > 1: pos = (jnp.repeat(opt["pos"],C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
+      pos = opt["pos"]
+      if C > 1: pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
       mask_1d = mask_1d.at[pos].set(0)
     
     mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]

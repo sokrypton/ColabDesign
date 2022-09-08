@@ -52,7 +52,7 @@ class _af_prep:
     if copies > 1:
       -homooligomer=True - input pdb chains are parsed as homo-oligomeric units
       -repeat=True       - tie the repeating sequence within single chain
-    -rm_template_seq - if template is defined, remove information about template sequence
+    -rm_template_seq  - if template is defined, remove information about template sequence
     -fix_pos="1,2-10" - specify which positions to keep fixed in the sequence
                       note: supervised loss is applied to all positions, use "partial" 
                       protocol to apply supervised loss to only subset of positions
@@ -299,17 +299,6 @@ class _af_prep:
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0}) 
     self._wt_aatype = pdb["batch"]["aatype"][self.opt["pos"]]
 
-    if kwargs.pop("fix_seq",False):
-      self.opt["fix_pos"] = self.opt["pos"]
-    
-    if fix_pos is not None:
-      fix_pos = []
-      pos = self.opt["pos"].tolist()
-      for i in prep_pos(fix_pos, **pdb["idx"])["pos"]:
-        if i in pos: fix_pos.append(i)
-      self.opt["fix_pos"] = np.array(fix_pos)
-      self._wt_aatype = pdb["batch"]["aatype"][self.opt["fix_pos"]]
-
     # configure sidechains
     self._args["use_sidechains"] = use_sidechains
     if use_sidechains:
@@ -317,6 +306,19 @@ class _af_prep:
                   "pos":get_sc_pos(self._wt_aatype, atoms_to_exclude)}
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_pos"] = self.opt["pos"]
+      self._wt_aatype_sub = self._wt_aatype
+      
+    elif fix_pos is not None:
+      sub_fix_pos = []
+      pos = self.opt["pos"].tolist()
+      for i in prep_pos(fix_pos, **pdb["idx"])["pos"]:
+        if i in pos: sub_fix_pos.append(i)
+      self.opt["fix_pos"] = np.array(sub_fix_pos)
+      self._wt_aatype_sub = pdb["batch"]["aatype"][self.opt["fix_pos"]]
+      
+    elif kwargs.pop("fix_seq",False):
+      self.opt["fix_pos"] = self.opt["pos"]
+      self._wt_aatype_sub = self._wt_aatype
   
     self._prep_model(**kwargs)
 

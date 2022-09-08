@@ -17,11 +17,11 @@ class _af_inputs:
     if "fix_pos" in opt:
       if "pos" in self.opt:
         seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
-        p = (opt["fix_pos"][:,None] == opt["pos"][None,:]).argmax(-1)
+        p = opt["pos"][opt["fix_pos"]]
         fix_seq = lambda x:x.at[...,p,:].set(seq_ref)
       else:
         seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-        p = opt["fix_pos"]
+        p = opt["pos"][opt["fix_pos"]]
         fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
       seq = jax.tree_map(fix_seq, seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})

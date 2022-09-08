@@ -486,7 +486,7 @@ def get_seq_ent_loss(inputs, outputs, opt):
   mask = jnp.ones(ent.shape[-1])
   if "fix_pos" in opt:
     if "pos" in opt:
-      p = (opt["fix_pos"][:,None] == opt["pos"][None,:]).argmax(0)
+      p = opt["pos"][opt["fix_pos"]]
     else:
       p = opt["fix_pos"]
     mask = mask.at[p].set(0)

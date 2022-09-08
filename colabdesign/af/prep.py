@@ -306,6 +306,7 @@ class _af_prep:
                   "pos":get_sc_pos(self._wt_aatype, atoms_to_exclude)}
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
       self.opt["fix_pos"] = self.opt["pos"]
+      
       self._wt_aatype_sub = self._wt_aatype
       
     elif fix_pos is not None:

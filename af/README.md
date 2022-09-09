@@ -5,17 +5,7 @@
 </a>
 
 # Updates
-- **24Feb2022** - "Beta" branch started. Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
-Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
-- **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default. The definition of contact has changed to minimize entropy within distance cutoff.
-- **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
-- **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
-- **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
-- **28June2022** - v1.0.1 - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`).
-- **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
-- **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
-- **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
-- **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
+- Jump to [Previous Updates](#previous-updates)
 - **09Sept2022** - v1.0.6
   - support for alphafold-multimer `model = mk_afdesign_model(..., use_multimer=True)`
   - support for experimentally resolved loss `model.set_weights(exp_res=1)`
@@ -248,3 +238,15 @@ def design_custom(self):
 model = mk_afdesign_model()
 design_custom(model)
 ```
+# Previous Updates
+- **24Feb2022** - "Beta" branch started. Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
+Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.
+- **28Feb2022** - We find backprop through structure module to be unstable, all functions have been updated to only use distogram by default. The definition of contact has changed to minimize entropy within distance cutoff.
+- **02May2022** - The `design.py` code has been split up into multiple python files under `src/`
+- **14May2022** - Adding support for partial hallucination (if you want to constrain one part and generate structure/sequence for rest).
+- **19June2022** - "Beta" branch is now the "Main" branch. WARNING: Lots of default settings and weights were changed. [Click here](#i-was-getting-better-results-before-the-major-update-19june2022-how-do-i-revert-back-to-the-old-settings) for info on how to revert back to old settings. 
+- **28June2022** - v1.0.1 - Major code reorganization/refactoring to add support for callbacks (to allow integration w/ other tools during design) and to avoid clashes with existing trrosetta/alphafold installations. (eg. `af → colabdesign`, `af.src → colabdesign.af` and `alphafold → colabdesign.af.alphafold`).
+- **05July2022** - v1.0.2 - Major code cleanup, removing duplicate code. Adding support for custom loss functions.
+- **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
+- **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
+- **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!

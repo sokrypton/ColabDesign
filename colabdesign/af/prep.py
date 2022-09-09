@@ -77,8 +77,10 @@ class _af_prep:
       self._pos_info = prep_pos(fix_pos, **pdb["idx"])
       self.opt["fix_pos"] = self._pos_info["pos"]
 
+    if homooligomer and chain is not None and copies == 1:
+      copies = len(chain.split(","))
+      
     # repeat/homo-oligomeric support
-    if chain is not None and copies == 1: copies = len(chain.split(","))
     if copies > 1:
 
       if repeat or homooligomer:
@@ -261,8 +263,10 @@ class _af_prep:
       self._pos_info = prep_pos(pos, **pdb["idx"])
       self.opt["pos"] = pdb["pos"] = self._pos_info["pos"]
 
+    if homooligomer and chain is not None and copies == 1:
+      copies = len(chain.split(","))
+
     # repeat/homo-oligomeric support
-    if chain is not None and copies == 1: copies = len(chain.split(","))
     if copies > 1:
       
       if repeat or homooligomer:

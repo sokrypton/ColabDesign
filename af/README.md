@@ -16,8 +16,13 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
 - **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
 - **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
-- **19Aug2022** - v1.0.6 - Adding support for alphafold-multimer. To enable set `mk_afdesign_model(..., use_multimer=True)`. For multimer mode, multiple recycles maybe needed!
-
+- **09Sept2022** - v1.0.6
+  - support for alphafold-multimer `model = mk_afdesign_model(..., use_multimer=True)`
+  - support for experimentally resolved loss `model.set_weights(exp_res=1)`
+  - support for multichain design/hallucination for fixbb, hallucination and partial protocols: `model.prep_inputs(..., copies=2)`
+  - support to fix the sequence for certain positions `model.prep_inputs(..., fix_pos="1-10")` (supported in protocols "fixbb" and "partial")
+  - binder protocol improved, prior protocol would try to optimize number of contacts per target, new default is to optimize number of contacts per binder position. Number of contacts per binder position can be controlled with `model.set_opt("i_con",num=1)` and number of positions that should be contact with `model.set_opt("i_con",num_pos=5)`
+  - implementing David Jones'-like protocol for semi-greedy optimization, where positions are selected based on plddt, and after 20 tries, the mutation that decreasing loss the most is accepted. `model.design_semigreedy()`
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git

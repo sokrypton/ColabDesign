@@ -305,20 +305,22 @@ class _af_prep:
       self._sc = {"batch":prep_inputs.make_atom14_positions(self._inputs["batch"]),
                   "pos":get_sc_pos(self._wt_aatype, atoms_to_exclude)}
       self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
-      self.opt["fix_pos"] = self.opt["pos"]
-      
+      self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])      
       self._wt_aatype_sub = self._wt_aatype
       
     elif fix_pos is not None:
       sub_fix_pos = []
+      sub_i = []
       pos = self.opt["pos"].tolist()
       for i in prep_pos(fix_pos, **pdb["idx"])["pos"]:
-        if i in pos: sub_fix_pos.append(i)
+        if i in pos:
+          sub_i.append(i)
+          sub_fix_pos.append(pos.index(i))
       self.opt["fix_pos"] = np.array(sub_fix_pos)
-      self._wt_aatype_sub = pdb["batch"]["aatype"][self.opt["fix_pos"]]
+      self._wt_aatype_sub = pdb["batch"]["aatype"][sub_i]
       
     elif kwargs.pop("fix_seq",False):
-      self.opt["fix_pos"] = self.opt["pos"]
+      self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])
       self._wt_aatype_sub = self._wt_aatype
   
     self._prep_model(**kwargs)

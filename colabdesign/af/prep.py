@@ -190,7 +190,8 @@ class _af_prep:
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
-    pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=ignore_missing)
+    im = [True] * len(chain.split(",")) + [ignore_missing] * len(binder_chain.split(","))
+    pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=im)
     res_idx = pdb["residue_index"]
 
     if redesign:
@@ -371,7 +372,8 @@ def prep_pdb(pdb_filename, chain=None,
 
     cb_feat = add_cb(batch) # add in missing cb (in the case of glycine)
     
-    if ignore_missing:
+    im = ignore_missing[n] if isinstance(ignore_missing,list) else ignore_missing
+    if im:
       r = batch["all_atom_mask"][:,0] == 1
       batch = jax.tree_map(lambda x:x[r], batch)
       residue_index = batch["residue_index"] + last

@@ -113,8 +113,9 @@ class _af_design:
 
     # update log
     self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
-    self.aux["log"].update({k:aux[k].mean() for k in ["plddt","ptm","i_ptm"]})
+    self.aux["log"].update({k:aux[k].mean() for k in ["ptm","i_ptm"]})
     self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+    self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):

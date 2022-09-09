@@ -50,7 +50,7 @@ def dict_to_str(x, filt=None, keys=None, ok=None, print_str=None, f=2):
   if keys is None: keys = []
   if filt is None: filt = {}
   if print_str is None: print_str = ""
-  if ok is None: ok = ""
+  if ok is None: ok = []
 
   # gather keys
   for k in x.keys():
@@ -58,7 +58,7 @@ def dict_to_str(x, filt=None, keys=None, ok=None, print_str=None, f=2):
       keys.append(k)
 
   for k in keys:
-    if k in x and (filt.get(k,True) or ok in k):
+    if k in x and (filt.get(k,True) or k in ok):
       v = x[k]
       if isinstance(v,float):
         if int(v) == v:

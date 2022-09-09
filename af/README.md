@@ -1,4 +1,4 @@
-# AfDesign (v1.0.5)
+# AfDesign (v1.0.6)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -16,6 +16,7 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
 - **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
 - **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
+- **19Aug2022** - v1.0.6 - Adding support for alphafold-multimer. To enable set `mk_afdesign_model(..., use_multimer=True)`. For multimer mode, multiple recycles maybe needed!
 
 ### setup
 ```bash
@@ -23,7 +24,7 @@ pip install git+https://github.com/sokrypton/ColabDesign.git
 
 # download alphafold weights
 mkdir params
-curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2021-07-14.tar | tar x -C params
+curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2022-03-02.tar | tar x -C params
 
 # download openfold weights (optional)
 for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
@@ -97,14 +98,15 @@ model.opt["weights"]["pae"] = 0.0
 #### How do I control number of recycles used during design?
 ```python 
 model = mk_afdesign_model(num_recycles=1, recycle_mode="average")
-# if recycle_mode in ["average","last","sample"] the number of recycles can change during optimization
+# if recycle_mode in ["average",last","sample","first"] the number of recycles can change during optimization
 model.set_opt(num_recycles=1)
 ```
 - `num_recycles` - number of recycles to use during design (for denovo proteins we find 0 is often enough)
 - `recycle_mode` - optimizing across all recycles can be tricky, we experiment with a couple of ways:
-  - *last* - use loss from last recycle. (Not recommended, unless you increase number optimization)
-  - *sample* - Same as *last* but each iteration a different number of recycles are used. (Previous default).
-  - *average* - compute loss at each recycle and average gradients. (Default; Recommended).
+  - *last* - use loss from last recycle. (Default)
+  - *average* - compute loss at each recycle and average gradients. (Previous default from v.1.0.5)
+  - *sample* - Same as *last* but each iteration a different number of recycles are used.
+  - *first* - use loss from first recycle.
   - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
   - *backprop* - use loss from last recycle, but backprop through all recycles.
 
@@ -122,17 +124,6 @@ model.set_opt(num_models=1)
 #### Can I use OpenFold model params for design instead of AlphaFold?
 ```python
 model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
-# OR
-model.set_opt(use_openfold=True, use_alphafold=False)
-```
-#### How is contact defined? How do I change it?
-By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
-```python
-model.set_opt(con=dict(cutoff=8, seqsep=5, num=1))
-```
-For interface:
-```python
-model.set_opt(i_con=dict(...))
 ```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python
@@ -141,12 +132,6 @@ model.prep_inputs(..., hotspot="1-10,15,3")
 #### Can I input more than one chain?
 ```python
 model.prep_inputs(..., chain="A,B")
-```
-#### Can I design homo-oligomers?
-```python
-model.prep_inputs(..., copies=2)
-# specify interface specific contact and/or pae loss
-model.set_weights(i_con=1, i_pae=0)
 ```
 #### For fixed backbone design, how do I force the sequence to be the same for homo-dimer optimization?
 ```python
@@ -168,14 +153,13 @@ model.restart(seed=0)
   - `design_hard()` - optimize *one_hot(logits)* inputs (discrete)
 
 - For complex topologies, we find directly optimizing one_hot encoded sequence `design_hard()` to be very challenging. 
-To get around this problem, we propose optimizing in 2 or 3 stages.
-  - `design_2stage()` - *soft* → *hard*
+To get around this problem, we propose optimizing in 3 stages.
   - `design_3stage()` - *logits* → *soft* → *hard*
+
 #### What are all the different losses being optimized?
 - general losses
   - *pae*       - minimizes the predicted alignment error
   - *plddt*     - maximizes the predicted LDDT
-  - *msa_ent*   - minimize entropy for MSA design (see example at the end of notebook)
   - *pae* and *plddt* values are between 0 and 1 (where lower is better for both)
 
 - fixbb specific losses
@@ -184,17 +168,25 @@ To get around this problem, we propose optimizing in 2 or 3 stages.
   - we find *dgram_cce* loss to be more stable for design (compared to *fape*)
 
 - hallucination specific losses
-  - *con*       - maximize number of contacts. (We find just minimizing *plddt* results in single long helix, 
-and maximizing *pae* results in a two helix bundle. To encourage compact structures we add a `con` term)
+  - *con*       - maximize `1` contacts per position. `model.set_opt("con",num=1)`
 
 - binder specific losses
-  - *i_pae* - minimize PAE interface of the proteins
-  - *pae* - minimize PAE within binder
-  - *i_con* - maximize number of contacts at the interface of the proteins
-  - *con* - maximize number of contacts within binder
+  - *pae* - minimize PAE at interface and within binder
+  - *con* - - maximize `2` contacts per binder position, within binder. `model.set_opt("con",num=2)`
+  - *i_con* - maximize `1` contacts per binder position `model.set_opt("i_con",num=1)`
 
 - partial hallucination specific losses
   - *sc_fape* - sidechain-specific fape
+
+#### How is contact defined? How do I change it?
+By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:
+```python
+model.set_opt(con=dict(cutoff=8, seqsep=5, num=1))
+```
+For interface:
+```python
+model.set_opt(i_con=dict(...))
+```
 
 # Advanced FAQ
 #### loss during Gradient descent is too jumpy, can I do some kind of greedy search towards the end?

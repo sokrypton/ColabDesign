@@ -22,17 +22,17 @@ class mk_af_tr_model:
       self.tr = mk_tr_model(protocol=protocol)
 
     if protocol == "fixbb":
-      def _prep_inputs(pdb_filename, chain, pos=None, fix_seq=False, **kwargs):
-        flags = dict(pdb_filename=pdb_filename, chain=chain, pos=pos, fix_seq=fix_seq)
+      def _prep_inputs(pdb_filename, chain, fix_pos=None, **kwargs):
+        flags = dict(pdb_filename=pdb_filename, chain=chain, fix_pos=fix_pos)
         self.af.prep_inputs(**flags, **kwargs)
         self.tr.prep_inputs(**flags, chain=chain)
 
     if protocol == "partial":
       def _prep_inputs(pdb_filename, chain, pos=None, length=None,
-                       fix_seq=True, use_sidechains=False, atoms_to_exclude=None, **kwargs):
+                       fix_pos=None, use_sidechains=False, atoms_to_exclude=None, **kwargs):
         if use_sidechains: fix_seq = True
         flags = dict(pdb_filename=pdb_filename, chain=chain, 
-                     length=length, pos=pos, fix_seq=fix_seq)
+                     length=length, pos=pos, fix_pos=fix_pos)
         af_a2e = kwargs.pop("af_atoms_to_exclude",atoms_to_exclude)
         tr_a2e = kwargs.pop("tr_atoms_to_exclude",atoms_to_exclude)
         self.af.prep_inputs(**flags, use_sidechains=use_sidechains, atoms_to_exclude=af_a2e, **kwargs)

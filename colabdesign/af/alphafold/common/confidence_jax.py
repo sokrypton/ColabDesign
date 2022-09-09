@@ -20,8 +20,6 @@ converted by @konstin
 import jax
 from jax import jit
 
-
-@jit
 def compute_plddt_jax(logits):
     """Port of confidence.compute_plddt to jax
 
@@ -40,7 +38,6 @@ def compute_plddt_jax(logits):
     predicted_lddt_ca = jax.numpy.sum(probs * bin_centers[None, :], axis=-1)
     return predicted_lddt_ca * 100
 
-@jit
 def _calculate_bin_centers(breaks):
     """Gets the bin centers from the bin edges.
 
@@ -59,13 +56,12 @@ def _calculate_bin_centers(breaks):
                                         axis=0)
     return bin_centers
 
-@jit
 def predicted_tm_score_jax(
     logits,
     breaks,
     residue_weights=None,
     asym_id=None,
-    interface: bool = False):
+    interface=False):
     """Computes predicted TM alignment or predicted interface TM alignment score.
 
     Args:
@@ -114,11 +110,9 @@ def predicted_tm_score_jax(
 
     pair_residue_weights = pair_mask * (
         residue_weights[None, :] * residue_weights[:, None])
-    normed_residue_mask = pair_residue_weights / (1e-8 + jax.numpy.sum(
-        pair_residue_weights, axis=-1, keepdims=True))
+    normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1,keepdims=True))
     per_alignment = jax.numpy.sum(predicted_tm_term * normed_residue_mask, axis=-1)
     return jax.numpy.asarray(per_alignment[(per_alignment * residue_weights).argmax()])
-
 
 def get_confidence_metrics(
     prediction_result,
@@ -152,8 +146,6 @@ def get_confidence_metrics(
 
     return confidence_metrics
 
-
-@jit
 def _calculate_expected_aligned_error(
     alignment_confidence_breaks,
     aligned_distance_error_probs):
@@ -175,8 +167,6 @@ def _calculate_expected_aligned_error(
   return (jax.numpy.sum(aligned_distance_error_probs * bin_centers, axis=-1),
           jax.numpy.asarray(bin_centers[-1]))
 
-
-@jit
 def compute_predicted_aligned_error(
     logits,
     breaks):

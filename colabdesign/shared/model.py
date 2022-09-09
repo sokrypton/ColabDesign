@@ -139,14 +139,16 @@ class design_model:
     '''
     self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
                              offset=offset, loops=loops)
-    if hasattr(self,"_opt"):
-      self._opt["pos"] = self.opt["pos"]
+
+    # make default
+    if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
 def soft_seq(x, opt, key=None):
   seq = {"input":x}
   # shuffle msa (randomly pick which sequence is query)
   if x.ndim == 3 and x.shape[0] > 1 and key is not None:
-    n = jax.random.randint(key,[],0,x.shape[0])
+    key, sub_key = jax.random.split(key)
+    n = jax.random.randint(sub_key,[],0,x.shape[0])
     seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
   # straight-through/reparameterization
@@ -158,5 +160,9 @@ def soft_seq(x, opt, key=None):
 
   # create pseudo sequence
   seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-  seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
+  
+  # key, sub_key = jax.random.split(key)
+  # hard_mask = jax.random.bernoulli(sub_key, opt["hard"], seq["hard"].shape[:-1] + (1,))
+  hard_mask = opt["hard"]
+  seq["pseudo"] = hard_mask * seq["hard"] + (1-hard_mask) * seq["pseudo"]
   return seq

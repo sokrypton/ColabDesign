@@ -1086,9 +1086,9 @@ def frame_aligned_point_error(
   normed_error *= jnp.expand_dims(frames_mask, axis=-1)
   normed_error *= jnp.expand_dims(positions_mask, axis=-2)
 
-  normalization_factor = (
-      jnp.sum(frames_mask, axis=-1) *
-      jnp.sum(positions_mask, axis=-1))
+  mask = (jnp.expand_dims(frames_mask, axis=-1) *
+          jnp.expand_dims(positions_mask, axis=-2))
+  normalization_factor = jnp.sum(mask, axis=(-1, -2))
   return (jnp.sum(normed_error, axis=(-2, -1)) /
           (epsilon + normalization_factor))
 

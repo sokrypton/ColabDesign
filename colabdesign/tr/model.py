@@ -63,7 +63,7 @@ class mk_tr_model(design_model):
 
       # cce loss
       if self.protocol in ["fixbb","partial"]:
-        if self.protocol in ["partial"] and "pos" in opt:
+        if "pos" in opt:
           pos = opt["pos"]
           log_p = jax.tree_map(lambda x:x[:,pos][pos,:], log_p)
 
@@ -84,14 +84,17 @@ class mk_tr_model(design_model):
 
     def _model(params, model_params, opt, inputs, key):
       seq = soft_seq(params["seq"], opt)
-      if "pos" in opt:
-        seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
-        p = opt["pos"]
-        if self.protocol == "partial":
-          fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
+      if "fix_pos" in opt:
+        if "pos" in self.opt:
+          seq_ref = jax.nn.one_hot(inputs["batch"]["aatype_sub"],20)
+          p = opt["pos"][opt["fix_pos"]]
+          fix_seq = lambda x:x.at[...,p,:].set(seq_ref)
         else:
-          fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
-        seq = jax.tree_map(fix_seq,seq)
+          seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
+          p = opt["fix_pos"]
+          fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
+        seq = jax.tree_map(fix_seq, seq)
+
       inputs.update({"seq":seq["pseudo"][0],
                      "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]})
       rate = jnp.where(opt["dropout"],0.15,0.0)
@@ -104,23 +107,33 @@ class mk_tr_model(design_model):
             "fn":jax.jit(_model)}
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None,
-                  pos=None, fix_seq=True, atoms_to_exclude=None, **kwargs):
+                  pos=None, fix_pos=None, atoms_to_exclude=None, **kwargs):
     '''
     prep inputs for TrDesign
     '''    
     if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
-      pdb = prep_pdb(pdb_filename, chain, for_alphafold=False)
+      pdb = prep_pdb(pdb_filename, chain)
       self._inputs["batch"] = pdb["batch"]
 
-      if pos is not None:
+      if fix_pos is not None:
+        self.opt["fix_pos"] = prep_pos(fix_pos, **pdb["idx"])["pos"]
+      
+      if self.protocol == "partial" and pos is not None:
         self._pos_info = prep_pos(pos, **pdb["idx"])
         p = self._pos_info["pos"]
-        if self.protocol == "partial":
-          self._inputs["batch"] = jax.tree_map(lambda x:x[p], self._inputs["batch"])
-
+        aatype = self._inputs["batch"]["aatype"]
+        self._inputs["batch"] = jax.tree_map(lambda x:x[p], self._inputs["batch"])
         self.opt["pos"] = p
-        self.opt["fix_seq"] = fix_seq
+        if "fix_pos" in self.opt:
+          sub_i,sub_p = [],[]
+          p = p.tolist()
+          for i in self.opt["fix_pos"].tolist():
+            if i in p:
+              sub_i.append(i)
+              sub_p.append(p.index(i))
+          self.opt["fix_pos"] = np.array(sub_p)
+          self._inputs["batch"]["aatype_sub"] = aatype[sub_i]
 
       self._inputs["6D"] = _np_get_6D_binned(self._inputs["batch"]["all_atom_positions"],
                                              self._inputs["batch"]["all_atom_mask"])
@@ -236,9 +249,9 @@ class mk_tr_model(design_model):
     g = self.aux["grad"]["seq"]
     gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
 
-    if "pos" in self.opt and self.opt.get("fix_seq",False):
+    if "fix_pos" in self.opt:
       # note: gradients only exist in unconstrained positions
-      eff_len = self._len - self.opt["pos"].shape[0]
+      eff_len = self._len - self.opt["fix_pos"].shape[0]
     else:
       eff_len = self._len
     self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)

@@ -39,15 +39,13 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","crop","crop_mode","crop_len",
-              "use_openfold","use_alphafold","models"]:
+    for k in ["best_metric","use_crop","crop_mode","crop_len","models"]:
       if k in kwargs:
         self._args[k] = kwargs.pop(k)
-        if k == "crop" and not self._args[k]:
-          self._args["crop_len"] = None
             
     if "recycle_mode" in kwargs:
-      if kwargs["recycle_mode"] in ["sample","last"] and self._args["recycle_mode"] in ["sample","last"]:
+      ok_recycle_mode_swap = ["average","sample","first","last"]
+      if kwargs["recycle_mode"] in ok_recycle_mode_swap and self._args["recycle_mode"] in ok_recycle_mode_swap:
         self._args["recycle_mode"] = kwargs.pop("recycle_mode")
       else:
         print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
@@ -56,7 +54,6 @@ class _af_utils:
     if len(ks) > 0:
       print(f"ERROR: the following args were not set: {ks}")
 
-  
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''
     return np.array([float(loss[x]) for loss in self._traj["log"]])
@@ -109,11 +106,10 @@ class _af_utils:
     if self.protocol == "hallucination":
       return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, dpi=dpi)
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi)  
+      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi) 
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
-               color="pLDDT", color_HP=False, size=(800,480),
-               animate=False, get_best=True):
+    color="pLDDT", color_HP=False, size=(800,480), animate=False, get_best=True):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
@@ -166,3 +162,18 @@ class _af_utils:
     else:
       print("TODO")
     plt.show()
+
+  def clear_best(self):
+    self._best = {}
+
+  def save_current_pdb(self, filename=None):
+    '''save pdb coordinates (if filename provided, otherwise return as string)'''
+    self.save_pdb(filename=filename, get_best=False)
+
+  def plot_current_pdb(self, show_sidechains=False, show_mainchains=False,
+    color="pLDDT", color_HP=False, size=(800,480), animate=False):
+    '''use py3Dmol to plot pdb coordinates
+    - color=["pLDDT","chain","rainbow"]
+    '''
+    self.plot_pdb(show_sidechains=show_sidechains, show_mainchains=show_mainchains, color=color,
+      color_HP=color_HP, size=size, animate=animate, get_best=False)

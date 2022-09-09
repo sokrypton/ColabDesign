@@ -5,7 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.af.alphafold.model import model
+from colabdesign.af.alphafold.model import model, config
 
 ############################################################################
 # AF_INPUTS - functions for modifying inputs before passing to alphafold
@@ -14,14 +14,16 @@ class _af_inputs:
   def _get_seq(self, inputs, params, opt, aux, key):
     '''get sequence features'''
     seq = soft_seq(params["seq"], opt, key)
-    if "pos" in opt and "fix_seq" in opt:
-      seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-      p = opt["pos"]
-      if self.protocol == "partial":
-        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref),x)
+    if "fix_pos" in opt:
+      if "pos" in self.opt:
+        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
+        p = opt["pos"][opt["fix_pos"]]
+        fix_seq = lambda x:x.at[...,p,:].set(seq_ref)
       else:
-        fix_seq = lambda x:jnp.where(opt["fix_seq"],x.at[...,p,:].set(seq_ref[...,p,:]),x)
-      seq = jax.tree_map(fix_seq,seq)
+        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
+        p = opt["fix_pos"]
+        fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
+      seq = jax.tree_map(fix_seq, seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     # protocol specific modifications to seq features
@@ -38,66 +40,68 @@ class _af_inputs:
 
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''
+    
+    o = opt["template"]
 
-    # aatype = is used to define template's CB coordinates (CA in case of glycine)
-    # template_aatype = is used as template's sequence
+    # enable templates
+    inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
 
     batch = inputs["batch"]
-    if self.protocol in ["partial","fixbb","binder"]:      
-      L = batch["aatype"].shape[0]      
-      if self.protocol in ["partial","fixbb"]:
-        rt = opt["rm_template_seq"]
-        aatype          = jnp.where(rt,0,batch["aatype"])
-        template_aatype = jnp.where(rt,opt["template"]["aatype"],batch["aatype"])
+    if self.protocol in ["partial","fixbb","binder"]:
+
+      L = batch["aatype"].shape[0]
       
+      # decide which position to remove sequence and/or sidechains
+      rm = jnp.logical_or(o["rm_seq"],o["rm_sc"])
+      rm_seq = jnp.full(L,o["rm_seq"])
+      rm_sc  = jnp.full(L,rm)
       if self.protocol == "binder":
-        if self._args["redesign"]:
-          rt = opt["rm_template_seq"]
-          aatype          = jnp.where(rt,batch["aatype"].at[self._target_len:].set(0),batch["aatype"])
-          template_aatype = jnp.where(rt,batch["aatype"].at[self._target_len:].set(opt["template"]["aatype"]),batch["aatype"])
-        else:
-          aatype = template_aatype = batch["aatype"]
-              
+        rm_seq = rm_seq.at[:self._target_len].set(False)
+        rm_sc  = rm_sc.at[:self._target_len].set(False)
+
+      # aatype = is used to define template's CB coordinates (CA in case of glycine)
+      # template_aatype = is used as template's sequence
+      aatype = jnp.where(rm_seq,0,batch["aatype"])
+      template_aatype = jnp.where(rm_seq,21,batch["aatype"])
+                    
       # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-      pb, pb_mask = model.modules.pseudo_beta_fn(aatype,
-                                                 batch["all_atom_positions"],
-                                                 batch["all_atom_mask"])
+      cb, cb_mask = model.modules.pseudo_beta_fn(aatype, batch["all_atom_positions"], batch["all_atom_mask"])
       
       # define template features
       template_feats = {"template_aatype": template_aatype,
                         "template_all_atom_positions": batch["all_atom_positions"],
-                        "template_all_atom_masks": batch["all_atom_mask"],
-                        "template_pseudo_beta": pb,
-                        "template_pseudo_beta_mask": pb_mask}
+                        "template_all_atom_mask": batch["all_atom_mask"],
+                        "template_pseudo_beta": cb,
+                        "template_pseudo_beta_mask": cb_mask}
 
-      # protocol specific template injection
+      # inject template features
+      if self.protocol == "partial":
+        pos = opt["pos"]
+        if self._args["repeat"] or self._args["homooligomer"]:
+          C,L = self._args["copies"], self._len
+          pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
+
       for k,v in template_feats.items():
-        if self.protocol == "binder":
-          n = self._target_len
-          inputs[k] = inputs[k].at[:,0,:n].set(v[:n])
-          inputs[k] = inputs[k].at[:,-1,n:].set(v[n:])
-        
-        if self.protocol == "fixbb":
-          inputs[k] = inputs[k].at[:,0].set(v)
-
         if self.protocol == "partial":
-          inputs[k] = inputs[k].at[:,0,opt["pos"]].set(v)
+          inputs[k] = inputs[k].at[0,pos].set(v)
+        else:
+          inputs[k] = inputs[k].at[0].set(v)
         
-        if k == "template_all_atom_masks":
-          rt = jnp.logical_or(opt["rm_template_seq"],opt["rm_template_sc"])
-          if self.protocol == "binder":
-            inputs[k] = jnp.where(rt,inputs[k].at[:,-1,n:,5:].set(0),inputs[k])
+        # remove sidechains (mask anything beyond CB)
+        if k == "template_all_atom_mask":
+          if self.protocol == "partial":
+            inputs[k] = inputs[k].at[:,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,pos,5:]))
           else:
-            inputs[k] = jnp.where(rt,inputs[k].at[:,0,:,5:].set(0),inputs[k])
+            inputs[k] = inputs[k].at[:,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,:,5:]))
 
     # dropout template input features
-    L = inputs["template_aatype"].shape[2]
+    L = inputs["template_aatype"].shape[1]
     n = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
-    inputs["template_all_atom_masks"] = inputs["template_all_atom_masks"].at[:,:,n:].multiply(pos_mask[n:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,:,n:].multiply(pos_mask[n:])
+    pos_mask = jax.random.bernoulli(key, 1-o["dropout"],(L,))
+    inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
+    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 
-def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
+def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   '''update the sequence features'''
   
   if seq_1hot is None: seq_1hot = seq 
@@ -107,12 +111,13 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, msa_input=None):
   seq_pssm = jnp.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
   
   msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
-  if seq.ndim == 3:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[0,...,:20])
-  else:
-    target_feat = jnp.zeros_like(inputs["target_feat"]).at[...,1:21].set(seq[...,:20])
+
+  if mlm is not None:    
+    X = jax.nn.one_hot(22,23)
+    X = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
+    msa_feat = jnp.where(mlm[None,:,None],X,msa_feat)
     
-  inputs.update({"target_feat":target_feat,"msa_feat":msa_feat})
+  inputs.update({"msa_feat":msa_feat})
 
 def update_aatype(aatype, inputs):
   if jnp.issubdtype(aatype.dtype, jnp.integer):
@@ -148,27 +153,3 @@ def expand_copies(x, copies, block_diag=True):
     return jnp.concatenate([x[:1],y],0)
   else:
     return x
-
-def crop_feat(feat, pos, cfg, add_batch=True):  
-  '''
-  crop features to specified [pos]itions
-  '''
-  if feat is None: return None
-
-  def find(x,k):
-    i = []
-    for j,y in enumerate(x):
-      if y == k: i.append(j)
-    return i
-
-  shapes = cfg.data.eval.feat
-  NUM_RES = "num residues placeholder"
-  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
-  new_feat = copy_dict(feat)
-  for k in new_feat.keys():
-    if k == "batch":
-      new_feat[k] = crop_feat(feat[k], pos, cfg, add_batch=False)
-    if k in idx:
-      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i + add_batch)
-  
-  return new_feat

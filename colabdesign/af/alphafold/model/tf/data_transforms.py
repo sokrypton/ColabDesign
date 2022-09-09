@@ -119,7 +119,7 @@ def squeeze_features(protein):
   for k in [
       'domain_name', 'msa', 'num_alignments', 'seq_length', 'sequence',
       'superfamily', 'deletion_matrix', 'resolution',
-      'between_segment_residues', 'residue_index', 'template_all_atom_masks']:
+      'between_segment_residues', 'residue_index', 'template_all_atom_mask']:
     if k in protein:
       final_dim = shape_helpers.shape_list(protein[k])[-1]
       if isinstance(final_dim, int) and final_dim == 1:
@@ -318,7 +318,7 @@ def make_msa_mask(protein):
   return protein
 
 
-def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
+def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
   """Create pseudo beta features."""
   is_gly = tf.equal(aatype, residue_constants.restype_order['G'])
   ca_idx = residue_constants.atom_order['CA']
@@ -328,9 +328,9 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_masks):
       all_atom_positions[..., ca_idx, :],
       all_atom_positions[..., cb_idx, :])
 
-  if all_atom_masks is not None:
+  if all_atom_mask is not None:
     pseudo_beta_mask = tf.where(
-        is_gly, all_atom_masks[..., ca_idx], all_atom_masks[..., cb_idx])
+        is_gly, all_atom_mask[..., ca_idx], all_atom_mask[..., cb_idx])
     pseudo_beta_mask = tf.cast(pseudo_beta_mask, tf.float32)
     return pseudo_beta, pseudo_beta_mask
   else:
@@ -345,7 +345,7 @@ def make_pseudo_beta(protein, prefix=''):
       pseudo_beta_fn(
           protein['template_aatype' if prefix else 'all_atom_aatype'],
           protein[prefix + 'all_atom_positions'],
-          protein['template_all_atom_masks' if prefix else 'all_atom_mask']))
+          protein['template_all_atom_mask' if prefix else 'all_atom_mask']))
   return protein
 
 

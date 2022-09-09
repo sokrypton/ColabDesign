@@ -463,7 +463,7 @@ def generate_affines(representations, batch, config, global_config,
 
 
 class dummy(hk.Module):
-  def __init__(self, config, global_config, compute_loss=True):
+  def __init__(self, config, global_config):
     super().__init__(name="dummy")
   def __call__(self, representations, batch, is_training, safe_key=None):
     if safe_key is None:
@@ -476,12 +476,11 @@ class StructureModule(hk.Module):
   Jumper et al. (2021) Suppl. Alg. 20 "StructureModule"
   """
 
-  def __init__(self, config, global_config, compute_loss=True,
+  def __init__(self, config, global_config,
                name='structure_module'):
     super().__init__(name=name)
     self.config = config
     self.global_config = global_config
-    self.compute_loss = compute_loss
 
   def __call__(self, representations, batch, is_training,
                safe_key=None):
@@ -512,46 +511,6 @@ class StructureModule(hk.Module):
     ret['final_atom_positions'] = atom37_pred_positions  # (N, 37, 3)
     ret['final_atom_mask'] = batch['atom37_atom_exists']  # (N, 37)
     ret['final_affines'] = ret['traj'][-1]
-
-    return ret
-
-  def loss(self, value, batch):
-    ret = {'loss': 0.}
-
-    ret['metrics'] = {}
-    # If requested, compute in-graph metrics.
-    if self.config.compute_in_graph_metrics:
-      atom14_pred_positions = value['final_atom14_positions']
-      # Compute renaming and violations.
-      value.update(compute_renamed_ground_truth(batch, atom14_pred_positions))
-      value['violations'] = find_structural_violations(
-          batch, atom14_pred_positions, self.config)
-
-      # Several violation metrics:
-      violation_metrics = compute_violation_metrics(
-          batch=batch,
-          atom14_pred_positions=atom14_pred_positions,
-          violations=value['violations'])
-      ret['metrics'].update(violation_metrics)
-
-    backbone_loss(ret, batch, value, self.config)
-
-    if 'renamed_atom14_gt_positions' not in value:
-      value.update(compute_renamed_ground_truth(
-          batch, value['final_atom14_positions']))
-    sc_loss = sidechain_loss(batch, value, self.config)
-
-    ret['loss'] = ((1 - self.config.sidechain.weight_frac) * ret['loss'] +
-                   self.config.sidechain.weight_frac * sc_loss['loss'])
-    ret['sidechain_fape'] = sc_loss['fape']
-
-    supervised_chi_loss(ret, batch, value, self.config)
-
-    if self.config.structural_violation_loss_weight:
-      if 'violations' not in value:
-        value['violations'] = find_structural_violations(
-            batch, value['final_atom14_positions'], self.config)
-      structural_violation_loss(ret, batch, value, self.config)
 
     return ret
 
@@ -613,7 +572,7 @@ def compute_renamed_ground_truth(
   }
 
 
-def backbone_loss(ret, batch, value, config):
+def backbone_loss(batch, value, config):
   """Backbone FAPE Loss.
 
   Jumper et al. (2021) Suppl. Alg. 20 "StructureModule" line 17
@@ -672,9 +631,8 @@ def backbone_loss(ret, batch, value, config):
                                                  backbone_mask)
 
     fape_loss = (fape_loss * use_clamped_fape + fape_loss_unclamped * (1 - use_clamped_fape))
-
-  ret['fape'] = fape_loss[-1]
-  ret['loss'] += jnp.mean(fape_loss)
+  
+  return jnp.mean(fape_loss), fape_loss[-1]
 
 
 def sidechain_loss(batch, value, config):

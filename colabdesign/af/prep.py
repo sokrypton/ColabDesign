@@ -45,25 +45,24 @@ class _af_prep:
   def _prep_fixbb(self, pdb_filename, chain=None,
                   copies=1, repeat=False, homooligomer=False,
                   rm_template_seq=True, rm_template_sc=True, rm_template_ic=False,
-                  fix_pos=None, **kwargs):
+                  fix_pos=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for fixed backbone design
     ---------------------------------------------------
     if copies > 1:
       -homooligomer=True - input pdb chains are parsed as homo-oligomeric units
       -repeat=True       - tie the repeating sequence within single chain
-    -rm_template_seq  - if template is defined, remove information about template sequence
-    -fix_pos="1,2-10" - specify which positions to keep fixed in the sequence
-                      note: supervised loss is applied to all positions, use "partial" 
-                      protocol to apply supervised loss to only subset of positions
+    -rm_template_seq     - if template is defined, remove information about template sequence
+    -fix_pos="1,2-10"    - specify which positions to keep fixed in the sequence
+                           note: supervised loss is applied to all positions, use "partial" 
+                           protocol to apply supervised loss to only subset of positions
+    -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
     self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc, "rm_ic":rm_template_ic})
 
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain,
-                   lengths=kwargs.pop("pdb_lengths",None),
-                   offsets=kwargs.pop("pdb_offsets",None))
+    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
 
     self._len = pdb["residue_index"].shape[0]
     self._lengths = [self._len]
@@ -169,7 +168,7 @@ class _af_prep:
                    binder_len=50, binder_chain=None,
                    use_binder_template=False, 
                    rm_template_ic=False,rm_template_seq=True, rm_template_sc=True,
-                   hotspot=None, **kwargs):
+                   hotspot=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for binder design
     ---------------------------------------------------
@@ -179,6 +178,7 @@ class _af_prep:
     -rm_template_ic = use target and binder coordinates as seperate template inputs
     -hotspot = define position/hotspots on target
     -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
+    -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''
     
@@ -190,7 +190,7 @@ class _af_prep:
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
-    pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=True)
+    pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=ignore_missing)
     res_idx = pdb["residue_index"]
 
     if redesign:
@@ -228,7 +228,8 @@ class _af_prep:
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     copies=1, repeat=False, homooligomer=False,
                     pos=None, fix_pos=None, use_sidechains=False, atoms_to_exclude=None,
-                    rm_template_seq=False, rm_template_sc=False, rm_template_ic=False, **kwargs):
+                    rm_template_seq=False, rm_template_sc=False, rm_template_ic=False, 
+                    ignore_missing=True, **kwargs):
     '''
     prep input for partial hallucination
     ---------------------------------------------------
@@ -237,14 +238,13 @@ class _af_prep:
     -use_sidechains=True - add a sidechain supervised loss to the specified positions
       -atoms_to_exclude=["N","C","O"] (for sc_rmsd loss, specify which atoms to exclude)
     -rm_template_seq - if template is defined, remove information about template sequence
+    -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------    
     '''    
     self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc,"rm_ic":rm_template_ic})
 
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain,
-                   lengths=kwargs.pop("pdb_lengths",None),
-                   offsets=kwargs.pop("pdb_offsets",None))
+    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
 
     pdb["len"] = sum(pdb["lengths"])
 

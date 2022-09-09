@@ -150,6 +150,8 @@ class _af_design:
       num_recycles = self.opt["num_recycles"]
 
     if mode in ["backprop","add_prev"]:
+      # recycles compiled into model, only need single-pass
+      num_recycles = self.opt["num_recycles"] = self._cfg.model.num_recycle
       aux = self._single(model_params, backprop)
     
     else:

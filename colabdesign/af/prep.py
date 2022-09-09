@@ -209,7 +209,7 @@ class _af_prep:
 
     if redesign:
       # binder redesign
-      self._wt_aatype = pdb["batch"]["aatype"][target_len:]
+      self._wt_aatype = pdb["batch"]["aatype"][self._target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
                                   "con":0.0, "i_con":0.0, "i_pae":0.0})
     else:

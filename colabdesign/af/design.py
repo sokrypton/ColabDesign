@@ -112,8 +112,8 @@ class _af_design:
       if callback is not None: callback(self)
 
     # update log
-    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"],
-                       "ptm":self.aux["ptm"], "i_ptm":self.aux["i_ptm"]}
+    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
+    self.aux["log"].update({k:aux[k].mean() for k in ["plddt","ptm","i_ptm"]})
     self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
 
     # compute sequence recovery

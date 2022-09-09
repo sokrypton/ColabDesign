@@ -190,7 +190,9 @@ class _af_prep:
 
     # get pdb info
     chains = f"{chain},{binder_chain}" if redesign else chain
-    im = [True] * len(chain.split(",")) + [ignore_missing] * len(binder_chain.split(","))
+    im = [True] * len(chain.split(",")) 
+    if redesign: im += [ignore_missing] * len(binder_chain.split(","))
+
     pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=im)
     res_idx = pdb["residue_index"]
 

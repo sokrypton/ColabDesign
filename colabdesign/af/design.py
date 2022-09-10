@@ -231,9 +231,11 @@ class _af_design:
   def _print_log(self, print_str=None):
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "seq_ent","mlm","pae","exp_res","con","i_con",
-            "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]
-    
-    if len(self._lengths) > 1: keys.append("i_ptm")
+            "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]    
+    if len(self._lengths) > 1:
+      keys.append("i_ptm")
+    else:
+      del self.aux["log"]["i_ptm"]
     keys.append("rmsd")
     print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
                       print_str=print_str, keys=keys, ok=["plddt","rmsd"]))

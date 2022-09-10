@@ -159,7 +159,7 @@ class _af_loss:
 
     # define losses at interface
     if self._args["copies"] > 1 and not self._args["repeat"]:
-      masks = {"mask_1d": mask_1d if self._args["homoligomer"] else jnp.ones_like(mask_1d),
+      masks = {"mask_1d": mask_1d if self._args["homooligomer"] else jnp.ones_like(mask_1d),
                "mask_2d": mask_2d == False}
       losses.update({
         "i_pae": get_pae_loss(outputs, **masks),

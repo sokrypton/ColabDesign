@@ -16,7 +16,6 @@
 from typing import Any, Mapping, Optional, Union
 
 from absl import logging
-from colabdesign.af.alphafold.model import features
 from colabdesign.af.alphafold.model import modules
 from colabdesign.af.alphafold.model import modules_multimer
 

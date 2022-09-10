@@ -6,5 +6,5 @@ setup(
     install_requires=['py3Dmol','absl-py','biopython',
                       'chex','dm-haiku','dm-tree',
                       'immutabledict','jax','ml-collections',
-                      'numpy','pandas','scipy','tensorflow'],
+                      'numpy','pandas','scipy'],
 )

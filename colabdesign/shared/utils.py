@@ -2,11 +2,25 @@ import random
 import jax
 import numpy as np
 import jax.numpy as jnp
+import sys, gc
 
 def clear_mem():
+
+  # clear vram (GPU)
   backend = jax.lib.xla_bridge.get_backend()
   if hasattr(backend,'live_buffers'):
-    for buf in backend.live_buffers(): buf.delete()
+    for buf in backend.live_buffers():
+      buf.delete()
+
+  # clear ram (CPU)
+  # https://github.com/google/jax/issues/10828
+  for module_name, module in sys.modules.items():
+    if module_name.startswith("jax"):
+      for obj_name in dir(module):
+        obj = getattr(module, obj_name)
+        if hasattr(obj, "cache_clear"):
+          obj.cache_clear()
+  gc.collect()
 
 def update_dict(D, *args, **kwargs):
   '''robust function for updating dictionary'''

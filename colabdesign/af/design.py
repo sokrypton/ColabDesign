@@ -360,21 +360,31 @@ class _af_design:
     if self._k == 0:
       self.run(num_recycles=num_recycles, backprop=False)
 
-    def mut(seq, plddt=None):
+    def mut(seq, plddt=None, bias=None):
       '''mutate random position'''
+      # bias mutations towards positions with low pLDDT
+      # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
       L,A = seq.shape[-2:]
-      while True:
-        if plddt is None:
-          i = jax.random.randint(self.key(),[],0,L)
-        else:
-          p = (1-plddt)/(1-plddt).sum(-1,keepdims=True)
-          # bias mutations towards positions with low pLDDT
-          # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-          i = jax.random.choice(self.key(),jnp.arange(L),[],p=p)
 
-        a = jax.random.randint(self.key(),[],0,A)
-        if seq[0,i,a] == 0: break      
-      return seq.at[:,i,:].set(jnp.eye(A)[a])
+      # sample position
+      pi = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
+      if "fix_pos" in self.opt: pi = pi.at[self.opt["fix_pos"]].set(0)
+
+      assert sum(pi) > 0
+      i = jax.random.choice(self.key(),jnp.arange(L),[],p=pi/pi.sum())
+
+      # sample amino acid
+      if isinstance(bias,float):
+        pa = jax.nn.relu(1-seq[0,i])
+      else:
+        if bias.ndim == 2: bias = bias[i]
+        pa = jax.nn.softmax(bias - seq[0,i] * 1e8)
+
+      assert sum(pa) > 0
+      a = jax.random.choice(self.key(),jnp.arange(A),[],p=pa/pa.sum())
+
+      # return mutant
+      return seq.at[0,i,:].set(jax.nn.one_hot(a,A))
 
     def get_seq():
       return jax.nn.one_hot(self._params["seq"].argmax(-1),20)
@@ -392,7 +402,7 @@ class _af_design:
       
       buff = []
       for _ in range(tries):
-        self.set_seq(seq=mut(seq, plddt), set_state=False)
+        self.set_seq(seq=mut(seq, plddt, bias=self.opt["bias"]), set_state=False)
         self.run(num_recycles=num_recycles, backprop=False)
         buff.append({"aux":self.aux, "seq":self._params["seq"]})
       

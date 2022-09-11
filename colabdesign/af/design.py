@@ -66,38 +66,35 @@ class _af_design:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best, self._tmp = {}, {}
-      
-  def run(self, num_models=None, num_recycles=None,
-          sample_models=None, backprop=True, callback=None):
+
+  def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
+          backprop=True, callback=None):
     '''run model to get outputs, losses and gradients'''
 
     callbacks = [callback]
     if self._args["use_crop"]: callbacks.append(self._crop())
     
     # decide which model params to use
-    ns_name = self._model_names.copy()
-    ns = list(range(len(ns_name)))
-
-    # sub select number of model params
     if num_models is None: num_models = self.opt["num_models"]
     if sample_models is None: sample_models = self.opt["sample_models"]
 
-    if self._args["models"] is not None:
-      models = self._args["models"]
-      models = [models] if isinstance(models,(int,str)) else models
+    ns_name = self._model_names
+    ns = list(range(len(ns_name)))
+    if models is not None:
+      models = models if isinstance(models,list) else [models]
       ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
     
-    ns = jnp.array(ns)
     m = min(num_models,len(ns))
     if sample_models and m != len(ns):
-      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+      ns = jnp.array(ns)
+      model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
+      model_nums = np.array(model_nums).tolist()
     else:
-      model_num = ns[:m]      
-    model_num = np.array(model_num).tolist()
+      model_nums = ns[:m]
 
     # loop through model params
     aux = []
-    for n in model_num:
+    for n in model_nums:
       p = self._model_params[n]
       aux.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
     aux = jax.tree_map(lambda *x: jnp.stack(x), *aux)
@@ -135,7 +132,7 @@ class _af_design:
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
-                            "models":model_num})
+                            "models":model_nums})
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
@@ -190,14 +187,14 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def step(self, lr_scale=1.0,
-           num_models=None, num_recycles=None, sample_models=None, backprop=True,
+  def step(self, lr_scale=1.0, num_recycles=None,
+           num_models=None, sample_models=None, models=None, backprop=True,
            callback=None, stats_correct=False, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(num_models=num_models, num_recycles=num_recycles,
-             sample_models=sample_models, backprop=backprop, callback=callback)
+    self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
+             models=models, backprop=backprop, callback=callback)
 
     # apply gradient
     g = self.aux["grad"]["seq"]
@@ -257,27 +254,20 @@ class _af_design:
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}")
 
-  def predict(self, seq=None, num_models=None, num_recycles=None, models=None, verbose=True):  
+
+  def predict(self, seq=None, num_models=None, num_recycles=None,
+              models=None, verbose=True):  
     '''predict structure for input sequence (if provided)'''
     
     # save settings
     (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])    
 
-    # set settings
-    if seq is not None: self.set_seq(seq=seq, set_state=False)
-    
-    # decide what models to use
-    if num_models is None: num_models = self.opt["num_models"]
-    if models is None:
-      models = self._model_names[:num_models]
-    else:
-      models = models if isinstance(models,list) else [models]
-      num_models = len(models)
-    
-    self.set_opt(hard=True, dropout=False, models=models, mlm_dropout=0.0, use_crop=False)
+    # set [seq]uence/[opt]ions
+    if seq is not None: self.set_seq(seq=seq, set_state=False)    
+    self.set_opt(hard=True, dropout=False, mlm_dropout=0.0, use_crop=False)
+        
     # run
-    self.run(num_models=num_models, num_recycles=num_recycles,
-             backprop=False, sample_models=False)
+    self.run(num_models=num_models, sample_models=False, models=models, backprop=False)
     if verbose: self._print_log("predict")
 
     # reset settings
@@ -292,8 +282,8 @@ class _af_design:
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
              dropout=True, opt=None, weights=None, mlm_dropout=0.05, 
-             num_models=None, num_recycles=None, sample_models=None,  backprop=True,
-             callback=None, save_best=False, verbose=1):
+             num_recycles=None, num_models=None, sample_models=None, models=None,
+             backprop=True, callback=None, save_best=False, verbose=1):
 
     # update options/settings (if defined)
     self.set_opt(opt, dropout=dropout, mlm_dropout=mlm_dropout)
@@ -315,9 +305,9 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = step * ((1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"]))
       
-      self.step(lr_scale=lr_scale, num_models=num_models, num_recycles=num_recycles,
-                backprop=backprop, sample_models=sample_models, callback=callback,
-                save_best=save_best, verbose=verbose)
+      self.step(lr_scale=lr_scale, num_recycles=num_recycles,
+                num_models=num_models, sample_models=sample_models, models=models,
+                backprop=backprop, callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
     ''' optimize logits '''
@@ -335,41 +325,35 @@ class _af_design:
   # experimental
   # ---------------------------------------------------------------------------------
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
-                    num_models=1, ramp_recycles=True, num_recycles=None, **kwargs):
+                    ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
     # logits -> softmax(logits/1.0)
     if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
-      if num_recycles is None: num_recycles = self.opt["num_recycles"]
+      num_recycles = kwargs.get("num_recycles",self.opt["num_recycles"])
       num_cycles = num_recycles + 1
       p = 1.0 / num_cycles
       iters = soft_iters // num_cycles
       for c in range(num_cycles):
-        self.design_logits(iters, soft=c*p, e_soft=(c+1)*p,
-                           num_models=num_models, num_recycles=c, **kwargs)    
+        self.design_logits(iters, soft=c*p, e_soft=(c+1)*p, num_recycles=c, **kwargs)    
     
     else:
-      self.design_logits(soft_iters, e_soft=1,
-                         num_models=num_models, num_recycles=num_recycles, **kwargs)
+      self.design_logits(soft_iters, e_soft=1, **kwargs)
     
     # softmax(logits/1.0) -> softmax(logits/0.01)
-    self.design_soft(temp_iters, e_temp=1e-2, 
-                     num_models=num_models, **kwargs)
+    self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     
     self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
                      num_models=len(self._model_names),
-                     num_recycles=num_recycles,
+                     num_recycles=kwargs.get("num_recycles",None),
                      verbose=kwargs.get("verbose",1))
 
-  def design_semigreedy(self, iters=100, tries=20,
-                        num_models=None, num_recycles=None,
-                        use_plddt=True, save_best=True, verbose=1):
+  def design_semigreedy(self, iters=100, tries=20, use_plddt=True,
+                        save_best=True, verbose=1, **kwargs):
     
     '''semigreedy search'''    
     self.set_opt(hard=True, dropout=False, use_crop=False)    
-    if self._k == 0:
-      self.run(num_models=num_models, num_recycles=num_recycles,
-               sample_models=False, backprop=False)
+    if self._k == 0: self.run(backprop=False, **kwargs)
 
     def mut(seq, plddt=None, bias=None):
       '''mutate random position'''
@@ -412,10 +396,9 @@ class _af_design:
           plddt = plddt[:self._len]
       
       buff = []
-      for _ in range(tries):
+      for t in range(tries):
         self.set_seq(seq=mut(seq, plddt, bias=self.opt["bias"]), set_state=False)
-        self.run(num_models=num_models, num_recycles=num_recycles,
-                 sample_models=False, backprop=False)
+        self.run(backprop=False, **kwargs)
         buff.append({"aux":self.aux, "seq":self._params["seq"]})
       
       # accept best      
@@ -426,9 +409,7 @@ class _af_design:
       self._k += 1
       self._save_results(save_best=save_best, verbose=verbose)
 
-  # ---------------------------------------------------------------------------------
-
-  def design_logits_semigreedy(self, logit_iters=100, greedy_iters=20, tries=10,
+  def design_logits_semigreedy(self, logit_iters=200, greedy_iters=20, tries=10,
                                ramp_recycles=True, num_recycles=None,
                                ramp_models=True,   num_models=None,
                                use_plddt=True,     verbose=1):
@@ -441,20 +422,26 @@ class _af_design:
       num_cycles = num_recycles + 1
       for c in range(num_cycles):
         self.design_logits(logit_iters//num_cycles,
-                           num_models=1, num_recycles=c,
+                           num_models=num_models, num_recycles=c,
                            verbose=verbose)
     else:
       self.design_logits(logit_iters,
-                         num_models=1, num_recycles=num_recycles,
+                         num_models=num_models, num_recycles=num_recycles,
                          verbose=verbose)
 
     self.opt["bias"] = np.asarray(self.aux["seq"]["logits"]).mean(0)
+
+    # use all models for the semigreedy stage
+    num_models = len(self._model_names)
     if ramp_models:
       if num_models is None: num_models = self.opt["num_models"]
       for n in range(num_models):
         s = greedy_iters if n == 0 else greedy_iters//num_models
+        save_best = (n+1) == num_models
         self.design_semigreedy(s, tries=tries, num_models=n+1, num_recycles=num_recycles,
-                               save_best=((n+1) == num_models), use_plddt=use_plddt, verbose=verbose)
+                               save_best=save_best, use_plddt=use_plddt, verbose=verbose)
     else:
       self.design_semigreedy(greedy_iters, tries=tries, num_models=num_models, num_recycles=num_recycles,
                              save_best=True, use_plddt=use_plddt, verbose=verbose)      
+
+  # ---------------------------------------------------------------------------------

@@ -46,8 +46,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "debug":debug,
                   "repeat":False, "homooligomer":False, "copies":1,
                   "best_metric":best_metric,
-                  "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode,
-                  "models":None}
+                  "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
 
     self.opt = {"dropout":True, "lr":1.0, "use_pssm":False, "mlm_dropout":0.05,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,

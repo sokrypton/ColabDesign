@@ -438,7 +438,7 @@ class _af_design:
           kwargs["num_models"] = m + 1
           kwargs["save_best"] = (m + 1) == num_models
           self.design_semigreedy(iters, tries=tries, **kwargs)
-          iters = iters // 2
+          if m < 2: iters = iters // 2
       else:
         self.design_semigreedy(hard_iters, tries=tries, **kwargs)
 

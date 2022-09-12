@@ -107,17 +107,29 @@ model.set_opt(num_recycles=1)
   - *backprop* - use loss from last recycle, but backprop through all recycles.
 
 #### How do I control which model params are used during design?
-By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
-and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
+By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
 ```python
 model = mk_afdesign_model(num_models=1, sample_models=True)
-model.set_opt(num_models=1)
+# or
+model.set_opt(num_models=1, sample_models=True)
 ```
 - `num_models` - number of model params to use at each iteration.
 - `sample_models`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
+You can also specify exactly which models are used during any of the design protocols:
+```python
+model.design_(num_models=1, sample_models=True, models=[0,2,3])
+# or
+model.design_(num_models=2, sample_models=False, models=["model_1_ptm","model_3_ptm"])
+```
 #### Can I use OpenFold model params for design instead of AlphaFold?
+You may need to download them:
+```bash
+  for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
+  do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -P params; done
+```
+Once downloaded:
 ```python
 model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
 ```

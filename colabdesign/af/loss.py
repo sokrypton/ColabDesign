@@ -36,8 +36,10 @@ class _af_loss:
     binder_id = zeros.at[self._target_len:].set(1)
     if "hotspot" in opt:
       target_id = zeros.at[opt["hotspot"]].set(1)
+      i_con_loss = get_con_loss(inputs, outputs, opt["i_con"], mask_1d=target_id, mask_1b=binder_id)
     else:
       target_id = zeros.at[:self._target_len].set(1)
+      i_con_loss = get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id)
 
     # unsupervised losses
     aux["losses"].update({
@@ -46,7 +48,7 @@ class _af_loss:
       "pae":     get_pae_loss(outputs, mask_1d=binder_id), # pae over binder + interface
       "con":     get_con_loss(inputs, outputs, opt["con"], mask_1d=binder_id, mask_1b=binder_id),
       # interface
-      "i_con":   get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id),
+      "i_con":   i_con_loss,
       "i_pae":   get_pae_loss(outputs, mask_1d=binder_id, mask_1b=target_id),
     })
 

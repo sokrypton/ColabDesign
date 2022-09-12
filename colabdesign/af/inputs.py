@@ -52,12 +52,11 @@ class _af_inputs:
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      rm = jnp.logical_or(o["rm_seq"],o["rm_sc"])
       rm_seq = jnp.full(L,o["rm_seq"])
-      rm_sc  = jnp.full(L,rm)
+      rm_sc  = jnp.full(L,o["rm_sc"])      
       if self.protocol == "binder":
-        rm_seq = rm_seq.at[:self._target_len].set(False)
-        rm_sc  = rm_sc.at[:self._target_len].set(False)
+        rm_seq = rm_seq.at[:self._target_len].set(o["rm_target_seq"])
+        rm_sc  = rm_sc.at[:self._target_len].set(o["rm_target_sc"])
 
       # aatype = is used to define template's CB coordinates (CA in case of glycine)
       # template_aatype = is used as template's sequence

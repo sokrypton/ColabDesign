@@ -163,8 +163,10 @@ class _af_prep:
 
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
+                   rm_template_ic=False,
                    use_binder_template=False, 
-                   rm_template_ic=False,rm_template_seq=True, rm_template_sc=True,
+                   rm_binder_seq=True, rm_binder_sc=True,
+                   rm_target_seq=False,rm_target_sc=False,
                    hotspot=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for binder design
@@ -174,15 +176,21 @@ class _af_prep:
     -use_binder_template = use binder coordinates as template input
     -rm_template_ic = use target and binder coordinates as seperate template inputs
     -hotspot = define position/hotspots on target
-    -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
+    -rm_[binder/target]_seq = remove sequence info from template
+    -rm_[binder/target]_sc  = remove sidechain info from template
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''
     
     redesign = binder_chain is not None
-
-    self.opt["template"].update({"rm_seq":rm_template_seq, "rm_sc":rm_template_sc, "rm_ic":rm_template_ic,
+    if rm_binder_seq: rm_binder_sc = True
+    if rm_target_seq: rm_target_sc = True
+    
+    self.opt["template"].update({"rm_ic":rm_template_ic,
+                                 "rm_seq":rm_binder_seq, "rm_sc":rm_binder_sc,
+                                 "rm_target_seq":rm_target_seq, "rm_target_sc":rm_target_sc,                                 
                                  "dropout":(0.0 if use_binder_template else 1.0)})
+    
     self._args.update({"redesign":redesign})
 
     # get pdb info

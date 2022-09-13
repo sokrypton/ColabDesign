@@ -274,10 +274,12 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
-    self.set_opt(hard=True, dropout=dropout, mlm_dropout=0.0, use_crop=False, use_pssm=False)
+    self.set_opt(hard=True, soft=False, temp=1,
+                 dropout=dropout, mlm_dropout=0.0,
+                 use_crop=False, use_pssm=False)
         
     # run
-    self.run(num_models=num_models, sample_models=False, models=models, backprop=False)
+    self.run(num_recycles=num_recycles, num_models=num_models, sample_models=False, models=models, backprop=False)
     if verbose: self._print_log("predict")
 
     # reset settings

@@ -67,7 +67,7 @@ class _af_design:
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best, self._tmp = {}, {}
 
-  def _get_num_models(self, num_models=None, sample_models=None, models=None):
+  def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
     if num_models is None: num_models = self.opt["num_models"]
     if sample_models is None: sample_models = self.opt["sample_models"]
@@ -97,7 +97,7 @@ class _af_design:
     
     # decide which model params to use
     if model_nums is None:
-      model_nums = self._get_num_models(num_models, sample_models, models)
+      model_nums = self._get_model_nums(num_models, sample_models, models)
   
     # loop through model params
     auxs = []
@@ -355,6 +355,8 @@ class _af_design:
       else:
         self.design_logits(soft_iters, e_soft=1, **kwargs)
     
+    self._tmp["seq_logits"] = self.aux["seq"]["logits"]
+    
     if temp_iters > 0:
       # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
       self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
@@ -373,10 +375,8 @@ class _af_design:
       '''mutate random position'''
       N,L,A = seq.shape
 
-      # sample position
-      # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
+      # fix some positions
       i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
-      
       if "fix_pos" in self.opt:
         if "pos" in self.opt:
           seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
@@ -388,6 +388,8 @@ class _af_design:
           seq = seq.at[...,p,:].set(seq_ref[...,p,:])
         i_prob = i_prob.at[p].set(0)
       
+      # sample position
+      # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
       i = jax.random.choice(self.key(),jnp.arange(L),[],p=i_prob/i_prob.sum())
 
       # sample amino acid
@@ -409,8 +411,9 @@ class _af_design:
     # optimize!
     seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
     for i in range(iters):
+
       buff = []
-      model_nums = self._get_num_models(num_models, sample_models, models)
+      model_nums = self._get_model_nums(num_models, sample_models, models)
       for t in range(tries):
         mut_seq = mut(seq, plddt, logits=seq_logits)
         self.set_seq(seq=mut_seq, set_state=False)

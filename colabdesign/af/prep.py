@@ -204,19 +204,19 @@ class _af_prep:
     self._lengths = [self._target_len, self._binder_len]
 
     # configure template rm masks
-    T,L = self._lenghts[0], sum(self._lengths)
+    T,L = self._lengths[0], sum(self._lengths)
     rm, rm_opt = {}, [[rm_target_seq,rm_binder_seq],[rm_target_sc,rm_binder_sc]]
     for n,x in zip(["rm_seq","rm_sc"],rm_opt):
-      rm[n] = np.zeros(L)
+      rm[n] = np.full(L,False)
       for m,y in zip(["target","binder"],x):
-        if isinstance(c,str):
-          rm[n][prep_pos(y,**pdb["idx"])["pos"]] = 1
+        if isinstance(y,str):
+          rm[n][prep_pos(y,**pdb["idx"])["pos"]] = True
         else:
           if m == "target": rm[n][:T] = y
           if m == "binder": rm[n][T:] = y
     
     # rm sidechains where there is no sequence
-    rm["rm_sc"][rm["rm_seq"]] = 1
+    rm["rm_sc"][rm["rm_seq"]] = True
     
     # set template [opt]ions
     self.opt["template"].update({"rm_ic":rm_template_ic, **rm,

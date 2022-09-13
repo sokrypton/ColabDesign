@@ -141,7 +141,7 @@ class _af_design:
     aux["log"].update({"recycles":int(aux["num_recycles"]), "models":model_nums})
     
     if return_aux:
-      return aux:
+      return aux
     else:
       self.aux = aux
 

@@ -1,3 +1,6 @@
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 from colabdesign.shared.utils import clear_mem
 from colabdesign.af.model import mk_af_model
 

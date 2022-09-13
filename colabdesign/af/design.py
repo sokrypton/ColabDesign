@@ -89,7 +89,7 @@ class _af_design:
     return model_nums    
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
-          backprop=True, callback=None, model_nums=None):
+          backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
 
     callbacks = [callback]
@@ -140,7 +140,10 @@ class _af_design:
     aux["log"] = to_float(aux["log"])
     aux["log"].update({"recycles":int(aux["num_recycles"]), "models":model_nums})
     
-    self.aux = aux
+    if return_aux:
+      return aux:
+    else:
+      self.aux = aux
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
@@ -411,8 +414,8 @@ class _af_design:
       for t in range(tries):
         mut_seq = mut(seq, plddt, logits=seq_logits)
         self.set_seq(seq=mut_seq, set_state=False)
-        self.run(backprop=False, model_nums=model_nums, **kwargs)
-        buff.append({"aux":self.aux, "seq":np.array(mut_seq)})
+        aux = self.run(backprop=False, model_nums=model_nums, return_aux=True, **kwargs)
+        buff.append({"aux":aux, "seq":np.array(mut_seq)})
 
       # accept best
       losses = [x["aux"]["loss"] for x in buff]
@@ -432,7 +435,7 @@ class _af_design:
     # stage 1: logits -> softmax(logits)
     if soft_iters > 0:
       self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
-      kwargs["seq_logits"] = self.aux["seq"]["logits"]
+      self._tmp["seq_logits"] = kwargs["seq_logits"] = self.aux["seq"]["logits"]
 
     # stage 2: semi_greedy
     if hard_iters > 0:

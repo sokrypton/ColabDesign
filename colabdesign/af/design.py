@@ -58,7 +58,7 @@ class _af_design:
     self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
 
     # initialize sequence
-    self.key = Key(seed=seed).get
+    self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
     self._k = 0
 
@@ -263,15 +263,18 @@ class _af_design:
       self._print_log(f"{self._k}")
 
   def predict(self, seq=None, num_models=None, num_recycles=None,
-              models=None, verbose=True):  
+              models=None, verbose=True, dropout=False, seed=None):  
     '''predict structure for input sequence (if provided)'''
-    
+
+    # set seed if defined
+    if seed is not None: self.set_seed(seed)
+
     # save settings
-    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])    
+    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
-    self.set_opt(hard=True, dropout=False, mlm_dropout=0.0, use_crop=False, use_pssm=False)
+    self.set_opt(hard=True, dropout=dropout, mlm_dropout=0.0, use_crop=False, use_pssm=False)
         
     # run
     self.run(num_models=num_models, sample_models=False, models=models, backprop=False)

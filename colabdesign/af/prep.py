@@ -183,13 +183,6 @@ class _af_prep:
     '''
     
     redesign = binder_chain is not None
-    if rm_binder_seq: rm_binder_sc = True
-    if rm_target_seq: rm_target_sc = True
-    
-    self.opt["template"].update({"rm_ic":rm_template_ic,
-                                 "rm_seq":rm_binder_seq, "rm_sc":rm_binder_sc,
-                                 "rm_target_seq":rm_target_seq, "rm_target_sc":rm_target_sc,                                 
-                                 "dropout":(0.0 if use_binder_template else 1.0)})
     
     self._args.update({"redesign":redesign})
 
@@ -208,8 +201,26 @@ class _af_prep:
       self._target_len = pdb["residue_index"].shape[0]
       self._binder_len = self._len = binder_len
       res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
-    
     self._lengths = [self._target_len, self._binder_len]
+
+    # configure template rm masks
+    T,L = self._lenghts[0], sum(self._lengths)
+    rm, rm_opt = {}, [[rm_target_seq,rm_binder_seq],[rm_target_sc,rm_binder_sc]]
+    for n,x in zip(["rm_seq","rm_sc"],rm_opt):
+      rm[n] = np.zeros(L)
+      for m,y in zip(["target","binder"],x):
+        if isinstance(c,str):
+          rm[n][prep_pos(y,**pdb["idx"])["pos"]] = 1
+        else:
+          if m == "target": rm[n][:T] = y
+          if m == "binder": rm[n][T:] = y
+    
+    # rm sidechains where there is no sequence
+    rm["rm_sc"][rm["rm_seq"]] = 1
+    
+    # set template [opt]ions
+    self.opt["template"].update({"rm_ic":rm_template_ic, **rm,
+                                 "dropout":(0.0 if use_binder_template else 1.0)})
 
     # gather hotspot info
     if hotspot is not None:

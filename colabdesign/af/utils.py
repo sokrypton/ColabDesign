@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec 
 
 from colabdesign.shared.protein import _np_kabsch
-from colabdesign.shared.utils import update_dict
+from colabdesign.shared.utils import update_dict, Key
 from colabdesign.shared.plot import plot_pseudo_3D, make_animation, show_pdb
 from colabdesign.shared.protein import renum_pdb_str
 from colabdesign.af.alphafold.common import protein
@@ -14,6 +14,9 @@ from colabdesign.af.alphafold.common import protein
 # AF_UTILS - various utils (save, plot, etc)
 ####################################################
 class _af_utils:  
+
+  def set_seed(self, seed=None):
+    self.key = Key(seed=seed).get
 
   def set_opt(self, *args, **kwargs):
     '''

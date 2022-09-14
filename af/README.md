@@ -1,4 +1,4 @@
-# AfDesign (v1.0.6)
+# AfDesign (v1.0.7)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -14,6 +14,12 @@
   - binder protocol improved, prior protocol would try to optimize number of contacts per target, new default is to optimize number of contacts per binder position. Number of contacts per binder position can be controlled with `model.set_opt("i_con",num=1)` and number of positions that should be contact with `model.set_opt("i_con",num_pos=5)`
   - implementing David Jones'-like protocol for semi-greedy optimization, where positions are selected based on plddt, and after 20 tries, the mutation that decreasing loss the most is accepted. `model.design_semigreedy()`
   - WARNING: the returned pLDDT is now in the "correct" direction (higher is better)
+  - removing recycle dimension from the input features (to standardize with multimer inputs)
+- **12Sept2022** - v1.0.7
+  - refactoring design.py to add `design_pssm_semigreedy()` protocol, which is a wrapper around `design_semigreedy(seq_logits=)`, and can be used to input/learn PSSM for biased mutagenesis.
+  - adding example [peptide_binder_design.ipynb](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/peptide_binder_design.ipynb) targeted for peptide binder hallucination/design.
+  - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used.
+  - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git
@@ -107,17 +113,29 @@ model.set_opt(num_recycles=1)
   - *backprop* - use loss from last recycle, but backprop through all recycles.
 
 #### How do I control which model params are used during design?
-By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration 
-and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
+By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
 ```python
 model = mk_afdesign_model(num_models=1, sample_models=True)
-model.set_opt(num_models=1)
+# or
+model.set_opt(num_models=1, sample_models=True)
 ```
 - `num_models` - number of model params to use at each iteration.
 - `sample_models`:
   - *True* - randomly select models params to use. (Recommended)
   - *False* - use the same model params each iteration.
+You can also specify exactly which models are used during any of the design protocols:
+```python
+model.design_(num_models=1, sample_models=True, models=[0,2,3])
+# or
+model.design_(num_models=2, sample_models=False, models=["model_1_ptm","model_3_ptm"])
+```
 #### Can I use OpenFold model params for design instead of AlphaFold?
+You may need to download them:
+```bash
+  for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
+  do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -P params; done
+```
+Once downloaded:
 ```python
 model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
 ```
@@ -149,8 +167,10 @@ model.restart(seed=0)
   - `design_hard()` - optimize *one_hot(logits)* inputs (discrete)
 
 - For complex topologies, we find directly optimizing one_hot encoded sequence `design_hard()` to be very challenging. 
-To get around this problem, we propose optimizing in 3 stages.
-  - `design_3stage()` - *logits* → *soft* → *hard*
+To get around this problem, we propose optimizing in 3 stages or first learning logits then switching to semigreedy optimization.
+  - `design_3stage()` - gradient based optimization (GD) (logits → soft → hard)
+  - `design_semigreedy(tries=X)` - tries X random mutations, accepts those that decrease loss
+  - `design_pssm_semigreey(tries=X)` - uses GD to get a sequence profile (PSSM), then uses the PSSM to bias semigreedy opt. (Recommended)
 
 #### What are all the different losses being optimized?
 - general losses

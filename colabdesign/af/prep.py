@@ -163,8 +163,10 @@ class _af_prep:
 
   def _prep_binder(self, pdb_filename, chain="A",
                    binder_len=50, binder_chain=None,
+                   rm_template_ic=False,
                    use_binder_template=False, 
-                   rm_template_ic=False,rm_template_seq=True, rm_template_sc=True,
+                   rm_binder_seq=True, rm_binder_sc=True,
+                   rm_target_seq=False,rm_target_sc=False,
                    hotspot=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for binder design
@@ -174,15 +176,14 @@ class _af_prep:
     -use_binder_template = use binder coordinates as template input
     -rm_template_ic = use target and binder coordinates as seperate template inputs
     -hotspot = define position/hotspots on target
-    -rm_template_seq = for binder redesign protocol, remove sequence info from binder template
+    -rm_[binder/target]_seq = remove sequence info from template
+    -rm_[binder/target]_sc  = remove sidechain info from template
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''
     
     redesign = binder_chain is not None
-
-    self.opt["template"].update({"rm_seq":rm_template_seq, "rm_sc":rm_template_sc, "rm_ic":rm_template_ic,
-                                 "dropout":(0.0 if use_binder_template else 1.0)})
+    
     self._args.update({"redesign":redesign})
 
     # get pdb info
@@ -200,8 +201,26 @@ class _af_prep:
       self._target_len = pdb["residue_index"].shape[0]
       self._binder_len = self._len = binder_len
       res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
-    
     self._lengths = [self._target_len, self._binder_len]
+
+    # configure template rm masks
+    T,L = self._lengths[0], sum(self._lengths)
+    rm, rm_opt = {}, [[rm_target_seq,rm_binder_seq],[rm_target_sc,rm_binder_sc]]
+    for n,x in zip(["rm_seq","rm_sc"],rm_opt):
+      rm[n] = np.full(L,False)
+      for m,y in zip(["target","binder"],x):
+        if isinstance(y,str):
+          rm[n][prep_pos(y,**pdb["idx"])["pos"]] = True
+        else:
+          if m == "target": rm[n][:T] = y
+          if m == "binder": rm[n][T:] = y
+    
+    # rm sidechains where there is no sequence
+    rm["rm_sc"][rm["rm_seq"]] = True
+    
+    # set template [opt]ions
+    self.opt["template"].update({"rm_ic":rm_template_ic, **rm,
+                                 "dropout":(0.0 if use_binder_template else 1.0)})
 
     # gather hotspot info
     if hotspot is not None:

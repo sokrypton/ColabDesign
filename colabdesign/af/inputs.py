@@ -11,19 +11,11 @@ from colabdesign.af.alphafold.model import model, config
 # AF_INPUTS - functions for modifying inputs before passing to alphafold
 ############################################################################
 class _af_inputs:
+
   def _get_seq(self, inputs, params, opt, aux, key):
     '''get sequence features'''
     seq = soft_seq(params["seq"], opt, key)
-    if "fix_pos" in opt:
-      if "pos" in self.opt:
-        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
-        p = opt["pos"][opt["fix_pos"]]
-        fix_seq = lambda x:x.at[...,p,:].set(seq_ref)
-      else:
-        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-        p = opt["fix_pos"]
-        fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
-      seq = jax.tree_map(fix_seq, seq)
+    seq = self._fix_pos(seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     # protocol specific modifications to seq features
@@ -36,6 +28,20 @@ class _af_inputs:
     if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
       seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
 
+    return seq
+
+  def _fix_pos(self, seq, return_p=False):
+    if "fix_pos" in self.opt:
+      if "pos" in self.opt:
+        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
+        p = self.opt["pos"][self.opt["fix_pos"]]
+        fix_seq = lambda x: x.at[...,p,:].set(seq_ref)
+      else:
+        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
+        p = self.opt["fix_pos"]
+        fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
+      seq = jax.tree_map(fix_seq, seq)
+      if return_p: return seq, p
     return seq
 
   def _update_template(self, inputs, opt, key):
@@ -52,12 +58,8 @@ class _af_inputs:
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      rm = jnp.logical_or(o["rm_seq"],o["rm_sc"])
-      rm_seq = jnp.full(L,o["rm_seq"])
-      rm_sc  = jnp.full(L,rm)
-      if self.protocol == "binder":
-        rm_seq = rm_seq.at[:self._target_len].set(False)
-        rm_sc  = rm_sc.at[:self._target_len].set(False)
+      rm_seq = jnp.broadcast_to(o["rm_seq"],L)
+      rm_sc  = jnp.broadcast_to(o["rm_sc"],L)
 
       # aatype = is used to define template's CB coordinates (CA in case of glycine)
       # template_aatype = is used as template's sequence

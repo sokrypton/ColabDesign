@@ -58,7 +58,7 @@ class _af_design:
     self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
 
     # initialize sequence
-    self.key = Key(seed=seed).get
+    self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
     self._k = 0
 
@@ -66,72 +66,84 @@ class _af_design:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
       self._best, self._tmp = {}, {}
-      
-  def run(self, num_recycles=None, backprop=True, callback=None):
+
+  def _get_model_nums(self, num_models=None, sample_models=None, models=None):
+    '''decide which model params to use'''
+    if num_models is None: num_models = self.opt["num_models"]
+    if sample_models is None: sample_models = self.opt["sample_models"]
+
+    ns_name = self._model_names
+    ns = list(range(len(ns_name)))
+    if models is not None:
+      models = models if isinstance(models,list) else [models]
+      ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
+    
+    m = min(num_models,len(ns))
+    if sample_models and m != len(ns):
+      ns = jnp.array(ns)
+      model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
+      model_nums = np.array(model_nums).tolist()
+    else:
+      model_nums = ns[:m]
+
+    return model_nums    
+
+  def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
+          backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
 
     callbacks = [callback]
     if self._args["use_crop"]: callbacks.append(self._crop())
     
     # decide which model params to use
-    ns_name = self._model_names.copy()
-    ns = list(range(len(ns_name)))
-
-    # sub select number of model params
-    if self._args["models"] is not None:
-      models = self._args["models"]
-      models = [models] if isinstance(models,(int,str)) else models
-      ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
-    
-    ns = jnp.array(ns)
-    m = min(self.opt["num_models"],len(ns))
-    if self.opt["sample_models"] and m != len(ns):
-      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
-    else:
-      model_num = ns[:m]      
-    model_num = np.array(model_num).tolist()
-
+    if model_nums is None:
+      model_nums = self._get_model_nums(num_models, sample_models, models)
+  
     # loop through model params
-    aux = []
-    for n in model_num:
+    auxs = []
+    for n in model_nums:
       p = self._model_params[n]
-      aux.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
-    aux = jax.tree_map(lambda *x: jnp.stack(x), *aux)
+      auxs.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
+    auxs = jax.tree_map(lambda *x: np.stack(x), *auxs)
 
     # update aux
-    self.aux = jax.tree_map(lambda x:x[0], aux)
-    self.aux["all"] = aux
+    aux = jax.tree_map(lambda x:x[0], auxs)
+    aux["all"] = auxs
 
     # average losses and gradients
-    self.aux["loss"] = aux["loss"].mean()
-    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), aux["losses"])
-    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), aux["grad"])
+    aux["loss"] = auxs["loss"].mean()
+    aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
+    aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
 
     # callback
     for callback in callbacks:
       if callback is not None: callback(self)
 
     # update log
-    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
-    self.aux["log"].update({k:aux[k].mean() for k in ["ptm","i_ptm"]})
-    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
-    self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
+    aux["log"] = {**aux["losses"], "loss":aux["loss"]}
+    aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
+    aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+    aux["log"]["plddt"] = 1 - aux["log"]["plddt"]
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       if self.protocol == "partial":
-        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+        aatype = aux["aatype"].argmax(-1)[...,self.opt["pos"]]
       else:
-        aatype = self.aux["seq"]["pseudo"].argmax(-1)
+        aatype = aux["seq"]["pseudo"].argmax(-1)
 
       mask = self._wt_aatype != -1
       true = self._wt_aatype[mask]
       pred = aatype[...,mask]
-      self.aux["log"]["seqid"] = (true == pred).mean()
+      aux["log"]["seqid"] = (true == pred).mean()
 
-    self.aux["log"] = to_float(self.aux["log"])
-    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
-                            "models":model_num})
+    aux["log"] = to_float(aux["log"])
+    aux["log"].update({"recycles":int(aux["num_recycles"]), "models":model_nums})
+    
+    if return_aux:
+      return aux
+    else:
+      self.aux = aux
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
@@ -186,24 +198,26 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def step(self, lr_scale=1.0, num_recycles=None, backprop=True,
+  def step(self, lr_scale=1.0, num_recycles=None,
+           num_models=None, sample_models=None, models=None, backprop=True,
            callback=None, stats_correct=False, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
-    self.run(num_recycles=num_recycles, backprop=backprop, callback=callback)
+    self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
+             models=models, backprop=backprop, callback=callback)
 
     # apply gradient
     g = self.aux["grad"]["seq"]
-    eff_len = (jnp.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+    eff_len = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
     
     # statistical correction - doi:10.1101/2022.04.29.490102
     if stats_correct:
       g = g - g.sum(-2,keepdims=True) / eff_len
 
     # normalize gradient
-    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.aux["grad"]["seq"] = g * jnp.sqrt(eff_len)/(gn+1e-7)
+    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    self.aux["grad"]["seq"] = g * np.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     lr = self.opt["lr"] * lr_scale
@@ -219,59 +233,68 @@ class _af_design:
     # save results
     self._save_results(save_best=save_best, verbose=verbose)
 
-  def _update_traj(self):
-    traj = {"seq":   self.aux["seq"]["pseudo"],
-            "xyz":   self.aux["atom_positions"][:,1,:],
-            "plddt": self.aux["plddt"],
-            "pae":   self.aux["pae"]}
-    traj = jax.tree_map(np.array, traj)
-    traj["log"] = self.aux["log"]
-    for k,v in traj.items(): self._traj[k].append(v)
-
-  def _print_log(self, print_str=None):
+  def _print_log(self, print_str=None, aux=None):
+    if aux is None: aux = self.aux
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "seq_ent","mlm","pae","exp_res","con","i_con",
-            "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]    
-    if len(self._lengths) > 1:
-      keys.append("i_ptm")
-    else:
-      del self.aux["log"]["i_ptm"]
-    keys.append("rmsd")
-    print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
-                      print_str=print_str, keys=keys, ok=["plddt","rmsd"]))
+            "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]
+    
+    if "i_ptm" in aux["log"]:
+      if len(self._lengths) > 1:
+        keys.append("i_ptm")
+      else:
+        aux["log"].pop("i_ptm")
 
-  def _save_best(self):
-    metric = self.aux["log"][self._args["best_metric"]]
-    if "metric" not in self._best or metric < self._best["metric"]:
-      self._best.update({"metric":metric, "aux":self.aux})
+    print(dict_to_str(aux["log"], filt=self.opt["weights"],
+                      print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
 
-  def _save_results(self, save_best=False, verbose=True):    
-    self._update_traj()
-    if save_best: self._save_best()
+  def _save_results(self, aux=None, save_best=False, verbose=True):
+    if aux is None: aux = self.aux
+    # update traj
+    traj = {"seq":   aux["seq"]["pseudo"],
+            "xyz":   aux["atom_positions"][:,1,:],
+            "plddt": aux["plddt"],
+            "pae":   aux["pae"]}
+    traj = jax.tree_map(np.array, traj)
+    traj["log"] = aux["log"]
+    for k,v in traj.items(): self._traj[k].append(v)
+
+    # save best
+    if save_best:
+      metric = aux["log"][self._args["best_metric"]]
+      if "metric" not in self._best or metric < self._best["metric"]:
+        self._best["aux"] = aux
+        self._best["metric"] = metric
+
     if verbose and (self._k % verbose) == 0:
-      self._print_log(f"{self._k}")
+      self._print_log(f"{self._k}", aux=aux)
 
-  def predict(self, seq=None, num_recycles=None, num_models=None, models=None, verbose=True):
+  def predict(self, seq=None, num_models=None, num_recycles=None,
+              models=None, verbose=True, dropout=False, seed=None, return_aux=False):  
     '''predict structure for input sequence (if provided)'''
-    
-    # save settings
-    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])    
 
-    # set settings
-    if seq is not None: self.set_seq(seq=seq, set_state=False)
-    if models is None:
-      models = self._model_names if num_models is None else self._model_names[:num_models]
-    num_models = len(models) if isinstance(models,list) else 1
-    
-    self.set_opt(hard=True, dropout=False, sample_models=False,
-                 models=models, num_models=num_models,
-                 mlm_dropout=0.0, use_crop=False)
+    # set seed if defined
+    if seed is not None: self.set_seed(seed)
+
+    # save settings
+    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])
+
+    # set [seq]uence/[opt]ions
+    if seq is not None: self.set_seq(seq=seq, set_state=False)    
+    self.set_opt(hard=True, soft=False, temp=1, dropout=dropout,
+                 mlm_dropout=0.0, use_crop=False, use_pssm=False)
+        
     # run
-    self.run(num_recycles=num_recycles, backprop=False)
-    if verbose: self._print_log("predict")
+    aux = self.run(num_recycles=num_recycles, num_models=num_models,
+                   sample_models=False, models=models, backprop=False, return_aux=True)
+    if verbose: self._print_log("predict", aux=aux)
 
     # reset settings
     (self.opt, self._args, self._params) = (opt, args, params)
+
+    # return (or save) results
+    if return_aux: return aux
+    else: self.aux = aux
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -281,10 +304,9 @@ class _af_design:
              temp=1.0, e_temp=None,
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
-             dropout=True, opt=None, weights=None,
-             mlm_dropout=0.05, num_recycles=None,
-             backprop=True, callback=None,
-             save_best=False, verbose=1):
+             dropout=True, opt=None, weights=None, mlm_dropout=0.05, 
+             num_recycles=None, num_models=None, sample_models=None, models=None,
+             backprop=True, callback=None, save_best=False, verbose=1):
 
     # update options/settings (if defined)
     self.set_opt(opt, dropout=dropout, mlm_dropout=mlm_dropout)
@@ -306,8 +328,9 @@ class _af_design:
       # decay learning rate based on temperature
       lr_scale = step * ((1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"]))
       
-      self.step(lr_scale=lr_scale, num_recycles=num_recycles, backprop=backprop,
-                callback=callback, save_best=save_best, verbose=verbose)
+      self.step(lr_scale=lr_scale, num_recycles=num_recycles,
+                num_models=num_models, sample_models=sample_models, models=models,
+                backprop=backprop, callback=callback, save_best=save_best, verbose=verbose)
 
   def design_logits(self, iters=100, **kwargs):
     ''' optimize logits '''
@@ -325,101 +348,110 @@ class _af_design:
   # experimental
   # ---------------------------------------------------------------------------------
   def design_3stage(self, soft_iters=300, temp_iters=100, hard_iters=10,
-                    ramp_recycles=True, num_recycles=None, num_models=1, **kwargs):
+                    ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
-    # set starting options
-    kwargs["num_recycles"] = num_recycles
-    self.set_opt(num_models=num_models, sample_models=True)
-
-    # logits -> softmax(logits/1.0)
-    if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
-      R = self.opt["num_recycles"] if num_recycles is None else num_recycles
-      p = 1.0 / (R + 1)
-      iters = soft_iters // (R + 1)
-      for r in range(R + 1):
-        kwargs["num_recycles"] = r
-        self.design_logits(iters, soft=r*p, e_soft=(r+1)*p, **kwargs)    
-    else:
-      self.design_logits(soft_iters, e_soft=1, **kwargs)
+    if soft_iters > 0:
+      # stage 1: logits -> softmax(logits/1.0)
+      if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
+        num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
+        p = 1.0 / num_cycles
+        for c in range(num_cycles):
+          kwargs["num_recycles"] = c
+          iters = soft_iters // num_cycles
+          self.design_logits(iters, soft=c*p, e_soft=(c+1)*p, **kwargs)        
+      else:
+        self.design_logits(soft_iters, e_soft=1, **kwargs)
     
-    # softmax(logits/1.0) -> softmax(logits/0.01)
-    self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
+    self._tmp["seq_logits"] = self.aux["seq"]["logits"]
+    
+    if temp_iters > 0:
+      # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
+      self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
+    
+    if hard_iters > 0:
+      # stage 3: 
+      for k in ["dropout","mlm_dropout","save_best","num_models"]: kwargs.pop(k,None)
+      self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
+                      num_models=len(self._model_names), **kwargs)
 
-    self.set_opt(num_models=len(self._model_params)) # use all models
-    self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
-                     num_recycles=kwargs["num_recycles"], verbose=kwargs.get("verbose",1))
-
-  def design_semigreedy(self, iters=100, tries=20, num_recycles=None, num_models=1,
-                        use_plddt=True, save_best=True, verbose=1):
+  def design_semigreedy(self, iters=100, tries=20, use_plddt=True,
+                        save_best=True, verbose=1, seq_logits=None, **kwargs):
     
     '''semigreedy search'''    
-    self.set_opt(hard=True, dropout=False, use_crop=False,
-                 num_models=num_models, sample_models=False)
-    
-    if self._k == 0:
-      self.run(num_recycles=num_recycles, backprop=False)
-
-    def mut(seq, plddt=None, bias=None):
+    def mut(seq, plddt=None, logits=None):
       '''mutate random position'''
-      # bias mutations towards positions with low pLDDT
-      # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-      L,A = seq.shape[-2:]
+      N,L,A = seq.shape
 
+      # fix some positions
+      i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
+      if "fix_pos" in self.opt:
+        seq, p = self._fix_pos(seq, return_p=True)
+        i_prob = i_prob.at[p].set(0)
+      
       # sample position
-      pi = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
-      if "fix_pos" in self.opt: pi = pi.at[self.opt["fix_pos"]].set(0)
-
-      assert sum(pi) > 0
-      i = jax.random.choice(self.key(),jnp.arange(L),[],p=pi/pi.sum())
+      # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
+      i = jax.random.choice(self.key(),jnp.arange(L),[],p=i_prob/i_prob.sum())
 
       # sample amino acid
-      if isinstance(bias,float):
-        pa = jax.nn.relu(1-seq[0,i])
-      else:
-        if bias.ndim == 2: bias = bias[i]
-        pa = jax.nn.softmax(bias - seq[0,i] * 1e8)
-
-      assert sum(pa) > 0
-      a = jax.random.choice(self.key(),jnp.arange(A),[],p=pa/pa.sum())
+      logits = np.array(0 if logits is None else logits)
+      if logits.ndim == 3:   b = logits[:,i]
+      elif logits.ndim == 2: b = logits[i]
+      else:                  b = logits
+      a_logits = b - seq[:,i] * 1e8
+      a = jax.random.categorical(self.key(),a_logits)
 
       # return mutant
-      return seq.at[0,i,:].set(jax.nn.one_hot(a,A))
+      return seq.at[:,i,:].set(jax.nn.one_hot(a,A))
 
-    def get_seq():
-      return jax.nn.one_hot(self._params["seq"].argmax(-1),20)
+
+    self.set_opt(hard=True, dropout=False, use_crop=False, use_pssm=False)    
+    num_models, sample_models, models = [kwargs.pop(k,None) for k in ["num_models","sample_models","models"]]
+    plddt = None
 
     # optimize!
+    seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
     for i in range(iters):
-      seq = get_seq()
-      plddt = None
-      if use_plddt:
-        plddt = np.asarray(self.aux["all"]["plddt"].mean(0))
-        if self.protocol == "binder":
-          plddt = plddt[self._target_len:]
-        else:
-          plddt = plddt[:self._len]
-      
+
       buff = []
-      for _ in range(tries):
-        self.set_seq(seq=mut(seq, plddt, bias=self.opt["bias"]), set_state=False)
-        self.run(num_recycles=num_recycles, backprop=False)
-        buff.append({"aux":self.aux, "seq":self._params["seq"]})
-      
-      # accept best      
-      buff = buff[np.argmin([x["aux"]["loss"] for x in buff])]
-      
-      self.set_seq(seq=buff["seq"])
-      self.aux = buff["aux"]
-      self._k += 1
+      model_nums = self._get_model_nums(num_models, sample_models, models)
+      for t in range(tries):
+        mut_seq = mut(seq, plddt, logits=seq_logits)
+        self.set_seq(seq=mut_seq, set_state=False)
+        aux = self.run(backprop=False, model_nums=model_nums, return_aux=True, **kwargs)
+        buff.append({"aux":aux, "seq":np.array(mut_seq)})
+
+      # accept best
+      losses = [x["aux"]["loss"] for x in buff]
+      best = buff[np.argmin(losses)]
+      self.aux, seq, self._k = best["aux"], jnp.array(best["seq"]), self._k + 1
+      self.set_seq(seq=seq)
       self._save_results(save_best=save_best, verbose=verbose)
 
-  # ---------------------------------------------------------------------------------
+      # update plddt
+      if use_plddt:
+        plddt = best["aux"]["all"]["plddt"].mean(0)
+        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
-  def template_predesign(self, iters=100, soft=True, hard=False, 
-                         temp=1.0, dropout=True, **kwargs):
-    '''use template for predesign stage, then increase template dropout until gone'''
-    self.set_opt(hard=hard, soft=soft, dropout=dropout, temp=temp)
-    for i in range(iters):
-      self.opt["template"]["dropout"] = (i+1)/iters
-      self.step(**kwargs)
+  def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10,
+                             ramp_recycles=True, ramp_models=True, **kwargs):
+
+    # stage 1: logits -> softmax(logits)
+    if soft_iters > 0:
+      self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
+      self._tmp["seq_logits"] = kwargs["seq_logits"] = self.aux["seq"]["logits"]
+
+    # stage 2: semi_greedy
+    if hard_iters > 0:
+      if ramp_models:
+        num_models = len(kwargs.get("models",self._model_names))
+        iters = hard_iters
+        for m in range(num_models):
+          kwargs["num_models"] = m + 1
+          kwargs["save_best"] = (m + 1) == num_models
+          self.design_semigreedy(iters, tries=tries, **kwargs)
+          if m < 2: iters = iters // 2
+      else:
+        self.design_semigreedy(hard_iters, tries=tries, **kwargs)
+
+  # ---------------------------------------------------------------------------------

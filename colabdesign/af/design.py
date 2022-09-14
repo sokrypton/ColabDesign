@@ -4,7 +4,6 @@ import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
-from colabdesign.af.inputs import _fix_pos
 
 try:
   from jax.example_libraries.optimizers import sgd, adam

@@ -191,6 +191,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # add user defined losses
       inputs["seq"] = aux["seq"]      
+      inputs["params"] = params
       if self._loss_callback is not None:
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
         for loss_fn in loss_fns:

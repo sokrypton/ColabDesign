@@ -61,13 +61,14 @@ class _af_utils:
     '''output the loss (for entire trajectory)'''
     return np.array([float(loss[x]) for loss in self._traj["log"]])
 
-  def save_pdb(self, filename=None, get_best=True, renum_pdb=True):
+  def save_pdb(self, filename=None, get_best=True, renum_pdb=True, aux=None):
     '''
     save pdb coordinates (if filename provided, otherwise return as string)
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
-    aux = jax.tree_map(np.asarray, aux["all"])
+    if aux is None:
+      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = aux["all"]
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
     if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
@@ -86,7 +87,8 @@ class _af_utils:
       p_str += to_pdb_str(jax.tree_map(lambda x:x[n],p), n+1)
     p_str += "END\n"
     
-    if filename is None: return p_str
+    if filename is None:
+      return p_str
     else: 
       with open(filename, 'w') as f:
         f.write(p_str)
@@ -94,14 +96,15 @@ class _af_utils:
   #-------------------------------------
   # plotting functions
   #-------------------------------------
-  def animate(self, s=0, e=None, dpi=100, get_best=True):
+  def animate(self, s=0, e=None, dpi=100, get_best=True, aux=None):
     '''
     animate the trajectory
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
     '''
-    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
-    aux = jax.tree_map(np.asarray, aux["all"])
+    if aux is None:
+      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = aux["all"]
     
     pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
@@ -112,12 +115,13 @@ class _af_utils:
       return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi) 
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
-    color="pLDDT", color_HP=False, size=(800,480), animate=False, get_best=True):
+               color="pLDDT", color_HP=False, size=(800,480), animate=False,
+               get_best=True, aux=None):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    pdb_str = self.save_pdb(get_best=get_best)
+    pdb_str = self.save_pdb(get_best=get_best, aux=aux)
     view = show_pdb(pdb_str,
                     show_sidechains=show_sidechains,
                     show_mainchains=show_mainchains,

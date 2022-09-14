@@ -14,6 +14,7 @@
   - binder protocol improved, prior protocol would try to optimize number of contacts per target, new default is to optimize number of contacts per binder position. Number of contacts per binder position can be controlled with `model.set_opt("i_con",num=1)` and number of positions that should be contact with `model.set_opt("i_con",num_pos=5)`
   - implementing David Jones'-like protocol for semi-greedy optimization, where positions are selected based on plddt, and after 20 tries, the mutation that decreasing loss the most is accepted. `model.design_semigreedy()`
   - WARNING: the returned pLDDT is now in the "correct" direction (higher is better)
+  - removing recycle dimension from the input features (to standardize with multimer inputs)
 - **12Sept2022** - v1.0.7
   - refactoring design.py to add `design_pssm_semigreedy()` protocol, which is a wrapper around `design_semigreedy(seq_logits=)`, and can be used to input/learn PSSM for biased mutagenesis.
   - adding example [peptide_binder_design.ipynb](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/peptide_binder_design.ipynb) targeted for peptide binder hallucination/design.

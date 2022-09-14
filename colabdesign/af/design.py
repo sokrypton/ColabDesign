@@ -4,6 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
+from colabdesign.af.inputs import _fix_pos
 
 try:
   from jax.example_libraries.optimizers import sgd, adam
@@ -233,37 +234,41 @@ class _af_design:
     # save results
     self._save_results(save_best=save_best, verbose=verbose)
 
-  def _print_log(self, print_str=None):
+  def _print_log(self, print_str=None, aux=None):
+    if aux is None: aux = self.aux
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
             "seq_ent","mlm","pae","exp_res","con","i_con",
-            "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]    
-    if len(self._lengths) > 1:
-      keys.append("i_ptm")
-    elif "i_ptm" in self.aux["log"]:
-      del self.aux["log"]["i_ptm"]
-    keys.append("rmsd")
-    print(dict_to_str(self.aux["log"], filt=self.opt["weights"],
-                      print_str=print_str, keys=keys, ok=["plddt","rmsd"]))
+            "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]
+    
+    if "i_ptm" in aux["log"]:
+      if len(self._lengths) > 1:
+        keys.append("i_ptm")
+      else:
+        aux["log"].pop("i_ptm")
 
-  def _save_results(self, save_best=False, verbose=True):
+    print(dict_to_str(aux["log"], filt=self.opt["weights"],
+                      print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
+
+  def _save_results(self, aux=None, save_best=False, verbose=True):
+    if aux is None: aux = self.aux
     # update traj
-    traj = {"seq":   self.aux["seq"]["pseudo"],
-            "xyz":   self.aux["atom_positions"][:,1,:],
-            "plddt": self.aux["plddt"],
-            "pae":   self.aux["pae"]}
+    traj = {"seq":   aux["seq"]["pseudo"],
+            "xyz":   aux["atom_positions"][:,1,:],
+            "plddt": aux["plddt"],
+            "pae":   aux["pae"]}
     traj = jax.tree_map(np.array, traj)
-    traj["log"] = self.aux["log"]
+    traj["log"] = aux["log"]
     for k,v in traj.items(): self._traj[k].append(v)
 
     # save best
     if save_best:
-      metric = self.aux["log"][self._args["best_metric"]]
+      metric = aux["log"][self._args["best_metric"]]
       if "metric" not in self._best or metric < self._best["metric"]:
-        self._best["aux"] = self.aux
+        self._best["aux"] = aux
         self._best["metric"] = metric
 
     if verbose and (self._k % verbose) == 0:
-      self._print_log(f"{self._k}")
+      self._print_log(f"{self._k}", aux=aux)
 
   def predict(self, seq=None, num_models=None, num_recycles=None,
               models=None, verbose=True, dropout=False, seed=None, return_aux=False):  
@@ -277,18 +282,20 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
-    self.set_opt(hard=True, soft=False, temp=1,
-                 dropout=dropout, mlm_dropout=0.0,
-                 use_crop=False, use_pssm=False)
+    self.set_opt(hard=True, soft=False, temp=1, dropout=dropout,
+                 mlm_dropout=0.0, use_crop=False, use_pssm=False)
         
     # run
     aux = self.run(num_recycles=num_recycles, num_models=num_models,
-                   sample_models=False, models=models, backprop=False, return_aux=return_aux)
-    if verbose: self._print_log("predict")
+                   sample_models=False, models=models, backprop=False, return_aux=True)
+    if verbose: self._print_log("predict", aux=aux)
+
     # reset settings
     (self.opt, self._args, self._params) = (opt, args, params)
 
+    # return (or save) results
     if return_aux: return aux
+    else: self.aux = aux
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -380,14 +387,7 @@ class _af_design:
       # fix some positions
       i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
       if "fix_pos" in self.opt:
-        if "pos" in self.opt:
-          seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
-          p = self.opt["pos"][self.opt["fix_pos"]]
-          seq = seq.at[...,p,:].set(seq_ref)
-        else:
-          seq_ref = jax.nn.one_hot(self._wt_aatype,20)
-          p = self.opt["fix_pos"]
-          seq = seq.at[...,p,:].set(seq_ref[...,p,:])
+        seq, p = self._fix_pos(seq, return_p=True)
         i_prob = i_prob.at[p].set(0)
       
       # sample position

@@ -266,7 +266,7 @@ class _af_design:
       self._print_log(f"{self._k}")
 
   def predict(self, seq=None, num_models=None, num_recycles=None,
-              models=None, verbose=True, dropout=False, seed=None):  
+              models=None, verbose=True, dropout=False, seed=None, return_aux=False):  
     '''predict structure for input sequence (if provided)'''
 
     # set seed if defined
@@ -282,11 +282,13 @@ class _af_design:
                  use_crop=False, use_pssm=False)
         
     # run
-    self.run(num_recycles=num_recycles, num_models=num_models, sample_models=False, models=models, backprop=False)
+    aux = self.run(num_recycles=num_recycles, num_models=num_models,
+                   sample_models=False, models=models, backprop=False, return_aux=return_aux)
     if verbose: self._print_log("predict")
-
     # reset settings
     (self.opt, self._args, self._params) = (opt, args, params)
+
+    if return_aux: return aux
 
   # ---------------------------------------------------------------------------------
   # example design functions

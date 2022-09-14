@@ -41,8 +41,8 @@ class _af_inputs:
         p = self.opt["fix_pos"]
         fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
       seq = jax.tree_map(fix_seq, seq)
-    if return_p: return seq, p
-    else: return p
+      if return_p: return seq, p
+    return seq
 
   def _update_template(self, inputs, opt, key):
     ''''dynamically update template features'''

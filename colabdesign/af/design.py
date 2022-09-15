@@ -269,8 +269,10 @@ class _af_design:
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}", aux=aux)
 
-  def predict(self, seq=None, num_models=None, num_recycles=None,
-              models=None, verbose=True, dropout=False, seed=None, return_aux=False):  
+  def predict(self, seq=None,
+              num_models=None, num_recycles=None, models=None, sample_models=False,
+              dropout=False, mlm_dropout=False, hard=True, soft=False, temp=1,
+              return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
     # set seed if defined
@@ -281,12 +283,13 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
-    self.set_opt(hard=True, soft=False, temp=1, dropout=dropout,
-                 mlm_dropout=0.0, use_crop=False, use_pssm=False)
+    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
+                 mlm_dropout=mlm_dropout, use_crop=False, use_pssm=False)
         
     # run
     aux = self.run(num_recycles=num_recycles, num_models=num_models,
-                   sample_models=False, models=models, backprop=False, return_aux=True)
+                   sample_models=sample_models, models=models, backprop=False,
+                   return_aux=True, **kwargs)
     if verbose: self._print_log("predict", aux=aux)
 
     # reset settings
@@ -375,7 +378,7 @@ class _af_design:
       self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
                       num_models=len(self._model_names), **kwargs)
 
-  def design_semigreedy(self, iters=100, tries=20, use_plddt=True,
+  def design_semigreedy(self, iters=100, tries=20, dropout=False, use_plddt=True,
                         save_best=True, verbose=1, seq_logits=None, **kwargs):
     
     '''semigreedy search'''    
@@ -405,20 +408,18 @@ class _af_design:
       return seq.at[:,i,:].set(jax.nn.one_hot(a,A))
 
 
-    self.set_opt(hard=True, dropout=False, use_crop=False, use_pssm=False)    
-    num_models, sample_models, models = [kwargs.pop(k,None) for k in ["num_models","sample_models","models"]]
     plddt = None
+    seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
+    model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
 
     # optimize!
-    seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
     for i in range(iters):
 
       buff = []
-      model_nums = self._get_model_nums(num_models, sample_models, models)
+      model_nums = self._get_model_nums(**model_flags)
       for t in range(tries):
         mut_seq = mut(seq, plddt, logits=seq_logits)
-        self.set_seq(seq=mut_seq, set_state=False)
-        aux = self.run(backprop=False, model_nums=model_nums, return_aux=True, **kwargs)
+        aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})
 
       # accept best
@@ -443,6 +444,7 @@ class _af_design:
 
     # stage 2: semi_greedy
     if hard_iters > 0:
+      kwargs["dropout"] = False
       if ramp_models:
         num_models = len(kwargs.get("models",self._model_names))
         iters = hard_iters

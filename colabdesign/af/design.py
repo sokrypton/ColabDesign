@@ -263,7 +263,7 @@ class _af_design:
         self._best["aux"] = aux
         self._best["metric"] = metric
 
-    if verbose:
+    if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}", aux=aux)
 
   def predict(self, seq=None,
@@ -353,13 +353,13 @@ class _af_design:
 
     verbose = kwargs.get("verbose",1)
     if soft_iters > 0:
-      if verbose: print("stage1: running logits→soft")
+      if verbose: print("Stage 1: running (logits → soft)")
       # stage 1: logits -> softmax(logits/1.0)
       if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
         num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
         p = 1.0 / num_cycles
         for c in range(num_cycles):
-          if verbose > 1 and c > 0: print(f"increasing number of recycles to {c+1}")
+          if verbose and c > 0: print(f"Increasing number of recycles to {c+1}.")
           kwargs["num_recycles"] = c
           iters = soft_iters // num_cycles
           self.design_logits(iters, soft=c*p, e_soft=(c+1)*p, **kwargs)        
@@ -369,18 +369,18 @@ class _af_design:
     self._tmp["seq_logits"] = self.aux["seq"]["logits"]
     
     if temp_iters > 0:
-      if verbose: print("stage2: running softmax(logits/1.0)→soft(logits/0.01)")
+      if verbose: print("Stage 2: running (soft → hard)")
       # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
       self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     
     if hard_iters > 0:
       # stage 3: 
-      if verbose: print("stage 3: running one_hot(logits)")
+      if verbose: print("Stage 3: running (hard)")
       for k in ["dropout","mlm_dropout","save_best","num_models"]: kwargs.pop(k,None)
       self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
                       num_models=len(self._model_names), **kwargs)
 
-  def design_semigreedy(self, iters=100, tries=20, dropout=False, use_plddt=True,
+  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
                         save_best=True, seq_logits=None, **kwargs):
     '''semigreedy search'''    
 
@@ -409,12 +409,13 @@ class _af_design:
       # return mutant
       return seq.at[:,i,:].set(jax.nn.one_hot(a,A))
 
-    verbose = kwargs.pop("verbose",1)
     plddt = None
     seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
+    verbose = kwargs.pop("verbose",1)
 
     # optimize!
+    if verbose: print("Running semigreedy optimization...")
     for i in range(iters):
 
       buff = []
@@ -422,7 +423,7 @@ class _af_design:
       for t in range(tries):
         mut_seq = mut(seq, plddt, logits=seq_logits)
         aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
-                           verbose=verbose>1, **kwargs)
+                           verbose=False, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})
 
       # accept best
@@ -448,13 +449,12 @@ class _af_design:
 
     # stage 2: semi_greedy
     if hard_iters > 0:
-      if verbose: print("running semigreedy optimization")
       kwargs["dropout"] = False
       if ramp_models:
         num_models = len(kwargs.get("models",self._model_names))
         iters = hard_iters
         for m in range(num_models):
-          if verbose > 1 and m > 0: print(f'increasing number of models to {m+1}')
+          if verbose and m > 0: print(f'Increasing number of models to {m+1}.')
           kwargs["num_models"] = m + 1
           kwargs["save_best"] = (m + 1) == num_models
           self.design_semigreedy(iters, tries=tries, **kwargs)

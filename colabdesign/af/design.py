@@ -80,7 +80,7 @@ class _af_design:
     
     m = min(num_models,len(ns))
     if sample_models and m != len(ns):
-      ns = jnp.array(ns)
+      ns = np.array(ns)
       model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
       model_nums = np.array(model_nums).tolist()
     else:
@@ -107,43 +107,40 @@ class _af_design:
     auxs = jax.tree_map(lambda *x: np.stack(x), *auxs)
 
     # update aux
-    aux = jax.tree_map(lambda x:x[0], auxs)
-    aux["all"] = auxs
+    self.aux = jax.tree_map(lambda x:x[0], auxs)
+    self.aux["all"] = auxs
 
     # average losses and gradients
-    aux["loss"] = auxs["loss"].mean()
-    aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
-    aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
+    self.aux["loss"] = auxs["loss"].mean()
+    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
+    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
 
     # callback
     for callback in callbacks:
       if callback is not None: callback(self)
 
     # update log
-    aux["log"] = {**aux["losses"], "loss":aux["loss"]}
-    aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
-    aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
-    aux["log"]["plddt"] = 1 - aux["log"]["plddt"]
+    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
+    self.aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
+    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+    self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       if self.protocol == "partial":
-        aatype = aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
       else:
-        aatype = aux["seq"]["pseudo"].argmax(-1)
+        aatype = self.aux["seq"]["pseudo"].argmax(-1)
 
       mask = self._wt_aatype != -1
       true = self._wt_aatype[mask]
       pred = aatype[...,mask]
-      aux["log"]["seqid"] = (true == pred).mean()
+      self.aux["log"]["seqid"] = (true == pred).mean()
 
-    aux["log"] = to_float(aux["log"])
-    aux["log"].update({"recycles":int(aux["num_recycles"]), "models":model_nums})
+    self.aux["log"] = to_float(self.aux["log"])
+    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]), "models":model_nums})
     
-    if return_aux:
-      return aux
-    else:
-      self.aux = aux
+    if return_aux: return self.aux
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
@@ -152,7 +149,7 @@ class _af_design:
       (loss, aux), grad = self._model["grad_fn"](*flags)
     else:
       loss, aux = self._model["fn"](*flags)
-      grad = jax.tree_map(jnp.zeros_like, self._params)
+      grad = jax.tree_map(np.zeros_like, self._params)
     aux.update({"loss":loss,"grad":grad})
     return aux
 
@@ -193,7 +190,7 @@ class _af_design:
           grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
         self._inputs["prev"] = aux["prev"]
 
-      aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).sum(0), *grad)
+      aux["grad"] = jax.tree_map(lambda *x: np.stack(x).sum(0), *grad)
     
     aux["num_recycles"] = num_recycles
     return aux

@@ -15,7 +15,7 @@
   - implementing David Jones'-like protocol for semi-greedy optimization, where positions are selected based on plddt, and after 20 tries, the mutation that decreasing loss the most is accepted. `model.design_semigreedy()`
   - WARNING: the returned pLDDT is now in the "correct" direction (higher is better)
   - removing recycle dimension from the input features (to standardize with multimer inputs)
-- **12Sept2022** - v1.0.7
+- **14Sept2022** - v1.0.7
   - refactoring design.py to add `design_pssm_semigreedy()` protocol, which is a wrapper around `design_semigreedy(seq_logits=)`, and can be used to input/learn PSSM for biased mutagenesis.
   - adding example [peptide_binder_design.ipynb](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/peptide_binder_design.ipynb) targeted for peptide binder hallucination/design.
   - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used.

@@ -81,16 +81,17 @@ class _af_design:
     m = min(num_models,len(ns))
     if sample_models and m != len(ns):
       ns = np.array(ns)
+
       model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
       model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
-
     return model_nums    
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
           backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
+
 
     callbacks = [callback]
     if self._args["use_crop"]: callbacks.append(self._crop())
@@ -114,7 +115,7 @@ class _af_design:
     self.aux["loss"] = auxs["loss"].mean()
     self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
     self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
-
+    
     # callback
     for callback in callbacks:
       if callback is not None: callback(self)
@@ -128,19 +129,20 @@ class _af_design:
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       if self.protocol == "partial":
-        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+        aatype = aux["aatype"].argmax(-1)[...,self.opt["pos"]]
       else:
-        aatype = self.aux["seq"]["pseudo"].argmax(-1)
+        aatype = aux["seq"]["pseudo"].argmax(-1)
 
       mask = self._wt_aatype != -1
       true = self._wt_aatype[mask]
       pred = aatype[...,mask]
-      self.aux["log"]["seqid"] = (true == pred).mean()
+      aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]), "models":model_nums})
     
     if return_aux: return self.aux
+
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
@@ -280,9 +282,9 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
+
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
                  mlm_dropout=mlm_dropout, use_crop=False, use_pssm=False)
-        
     # run
     aux = self.run(num_recycles=num_recycles, num_models=num_models,
                    sample_models=sample_models, models=models, backprop=False,
@@ -351,15 +353,18 @@ class _af_design:
                     ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
+
     verbose = kwargs.get("verbose",1)
     if soft_iters > 0:
       if verbose: print("Stage 1: running (logits → soft)")
+
       # stage 1: logits -> softmax(logits/1.0)
       if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
         num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
         p = 1.0 / num_cycles
         for c in range(num_cycles):
           if verbose and c > 0: print(f"Increasing number of recycles to {c+1}.")
+
           kwargs["num_recycles"] = c
           iters = soft_iters // num_cycles
           self.design_logits(iters, soft=c*p, e_soft=(c+1)*p, **kwargs)        
@@ -383,7 +388,6 @@ class _af_design:
   def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
                         save_best=True, seq_logits=None, **kwargs):
     '''semigreedy search'''    
-
     def mut(seq, plddt=None, logits=None):
       '''mutate random position'''
       N,L,A = seq.shape
@@ -442,6 +446,7 @@ class _af_design:
                              ramp_recycles=True, ramp_models=True, **kwargs):
 
     verbose = kwargs.get("verbose",1)
+
     # stage 1: logits -> softmax(logits)
     if soft_iters > 0:
       self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
@@ -450,16 +455,19 @@ class _af_design:
     # stage 2: semi_greedy
     if hard_iters > 0:
       kwargs["dropout"] = False
+
       if ramp_models:
         num_models = len(kwargs.get("models",self._model_names))
         iters = hard_iters
         for m in range(num_models):
           if verbose and m > 0: print(f'Increasing number of models to {m+1}.')
+
           kwargs["num_models"] = m + 1
           kwargs["save_best"] = (m + 1) == num_models
           self.design_semigreedy(iters, tries=tries, **kwargs)
           if m < 2: iters = iters // 2
       else:
         self.design_semigreedy(hard_iters, tries=tries, **kwargs)
+
 
   # ---------------------------------------------------------------------------------

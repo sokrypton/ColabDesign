@@ -21,6 +21,7 @@
   - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used during optimization.
   - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
   - fixing integration with TrDesign that got broken in v1.0.6
+
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git

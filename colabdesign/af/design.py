@@ -363,7 +363,7 @@ class _af_design:
         num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
         p = 1.0 / num_cycles
         for c in range(num_cycles):
-          if verbose and c > 0: print(f"Increasing number of recycles to {c+1}.")
+          if verbose and c > 0: print(f"Increasing number of recycles to {c}.")
 
           kwargs["num_recycles"] = c
           iters = soft_iters // num_cycles

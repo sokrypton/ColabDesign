@@ -48,7 +48,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "best_metric":best_metric,
                   "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
 
-    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False, "mlm_dropout":0.05,
+    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
@@ -58,8 +58,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
+      self.opt["mlm_dropout"] = 0.05
       self.opt["weights"]["mlm"] = 0.1
-    
+
     self._params = {}
     self._inputs = {}
 

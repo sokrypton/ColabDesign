@@ -270,7 +270,7 @@ class _af_design:
 
   def predict(self, seq=None,
               num_models=None, num_recycles=None, models=None, sample_models=False,
-              dropout=False, mlm_dropout=False, hard=True, soft=False, temp=1,
+              dropout=False, hard=True, soft=False, temp=1,
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
@@ -284,7 +284,7 @@ class _af_design:
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
 
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
-                 mlm_dropout=mlm_dropout, use_crop=False, use_pssm=False)
+                 use_crop=False, use_pssm=False)
     # run
     aux = self.run(num_recycles=num_recycles, num_models=num_models,
                    sample_models=sample_models, models=models, backprop=False,
@@ -306,12 +306,12 @@ class _af_design:
              temp=1.0, e_temp=None,
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
-             dropout=True, opt=None, weights=None, mlm_dropout=0.05, 
+             dropout=True, opt=None, weights=None, 
              num_recycles=None, num_models=None, sample_models=None, models=None,
              backprop=True, callback=None, save_best=False, verbose=1):
 
     # update options/settings (if defined)
-    self.set_opt(opt, dropout=dropout, mlm_dropout=mlm_dropout)
+    self.set_opt(opt, dropout=dropout)
     self.set_weights(weights)
     
     m = {"soft":[soft,e_soft],"temp":[temp,e_temp],
@@ -353,12 +353,11 @@ class _af_design:
                     ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
-
     verbose = kwargs.get("verbose",1)
+
+    # stage 1: logits -> softmax(logits/1.0)
     if soft_iters > 0:
       if verbose: print("Stage 1: running (logits → soft)")
-
-      # stage 1: logits -> softmax(logits/1.0)
       if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
         num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
         p = 1.0 / num_cycles
@@ -373,31 +372,30 @@ class _af_design:
     
     self._tmp["seq_logits"] = self.aux["seq"]["logits"]
     
+    # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
     if temp_iters > 0:
       if verbose: print("Stage 2: running (soft → hard)")
-      # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
       self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     
+    # stage 3:
     if hard_iters > 0:
-      # stage 3: 
       if verbose: print("Stage 3: running (hard)")
-      for k in ["dropout","mlm_dropout","save_best","num_models"]: kwargs.pop(k,None)
-      self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
-                      num_models=len(self._model_names), **kwargs)
+      kwargs["dropout"] = False
+      kwargs["save_best"] = True
+      kwargs["num_models"] = len(self._model_names)
+      self.design_hard(hard_iters, temp=1e-2, **kwargs)
 
-  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
-                        save_best=True, seq_logits=None, **kwargs):
-    '''semigreedy search'''    
-    def mut(seq, plddt=None, logits=None):
-      '''mutate random position'''
-      N,L,A = seq.shape
+  def mutate(self, seq, plddt=None, logits=None, mutation_rate=1):
+    '''mutate random position'''
+    N,L,A = seq.shape
 
-      # fix some positions
-      i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
-      if "fix_pos" in self.opt:
-        seq, p = self._fix_pos(seq, return_p=True)
-        i_prob = i_prob.at[p].set(0)
-      
+    # fix some positions
+    i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
+    if "fix_pos" in self.opt:
+      seq, p = self._fix_pos(seq, return_p=True)
+      i_prob = i_prob.at[p].set(0)
+    
+    for m in range(mutation_rate):
       # sample position
       # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
       i = jax.random.choice(self.key(),jnp.arange(L),[],p=i_prob/i_prob.sum())
@@ -411,8 +409,60 @@ class _af_design:
       a = jax.random.categorical(self.key(),a_logits)
 
       # return mutant
-      return seq.at[:,i,:].set(jax.nn.one_hot(a,A))
+      seq = seq.at[:,i,:].set(jax.nn.one_hot(a,A))
+    
+    return seq
 
+  def design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
+                  use_plddt=True, seq_logits=None, save_best=True, **kwargs):
+    '''
+    mcmc with simulated annealing
+    ----------------------------------------
+    steps = number for steps for the MCMC trajectory
+    half_life = half-life for the temperature decay during simulated annealing
+    T_init = starting temperature for simulated annealing. Temperature is decayed exponentially
+    mutation_rate = number of mutations at each MCMC step
+    '''
+
+    # code borrowed from: github.com/bwicky/oligomer_hallucination
+
+    verbose = kwargs.pop("verbose",1)
+
+    plddt, best_loss, loss = None, np.inf, np.inf 
+    current_seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)    
+    for i in range(steps):
+
+      # update temperature
+      T = T_init * (np.exp(np.log(0.5) / half_life) ** i) 
+
+      # mutate sequence
+      if i == 0: mut_seq = current_seq
+      else:      mut_seq = self.mutate(current_seq, plddt, seq_logits, mutation_rate)
+
+      # get loss
+      aux = self.predict(mut_seq, return_aux=True, verbose=False, **kwargs)
+      loss = aux["log"]["loss"]
+  
+      # decide
+      delta = loss - current_loss
+      if i == 0 or delta < 0 or jax.random.uniform(self.key(), 0, 1) < np.exp( -delta / T):
+
+        # accept
+        (current_seq,current_loss) = (mut_seq,loss)
+        
+        if use_plddt:
+          plddt = aux["all"]["plddt"].mean(0)
+          plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+        
+        if loss < best_loss:
+          self.set_seq(seq=current_seq)
+          self._k = i
+          self._save_results(save_best=save_best, verbose=verbose)
+
+  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
+                        save_best=True, seq_logits=None, **kwargs):
+
+    '''semigreedy search'''    
     plddt = None
     seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
@@ -425,7 +475,7 @@ class _af_design:
       buff = []
       model_nums = self._get_model_nums(**model_flags)
       for t in range(tries):
-        mut_seq = mut(seq, plddt, logits=seq_logits)
+        mut_seq = self.mutate(seq, plddt, logits=seq_logits)
         aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
                            verbose=False, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})
@@ -455,7 +505,6 @@ class _af_design:
     # stage 2: semi_greedy
     if hard_iters > 0:
       kwargs["dropout"] = False
-
       if ramp_models:
         num_models = len(kwargs.get("models",self._model_names))
         iters = hard_iters

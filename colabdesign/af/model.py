@@ -117,7 +117,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                             use_multimer=a["use_multimer"])
 
     # setup function to get gradients
-    def _model(params, model_params, inputs, key, opt):
+    def _model(inputs, model_params, key):
+      opt = inputs["opt"]
 
       aux = {}
       key = Key(key=key).get
@@ -129,7 +130,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       L = inputs["aatype"].shape[0]
 
       # get sequence
-      seq = self._get_seq(inputs, params, opt, aux, key())
+      seq = self._get_seq(inputs, aux, key())
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
@@ -145,7 +146,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       
       # update template features
       if a["use_templates"]:
-        self._update_template(inputs, opt, key())
+        self._update_template(inputs, key())
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       
       # set dropout
@@ -188,21 +189,20 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       aux["losses"] = {}
 
       # add protocol specific losses
-      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
+      self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
       # add user defined losses
       inputs["seq"] = aux["seq"]      
-      inputs["params"] = params
       if self._loss_callback is not None:
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
         for loss_fn in loss_fns:
-          aux["losses"].update(loss_fn(inputs, outputs, opt))
+          aux["losses"].update(loss_fn(inputs, outputs))
 
       if a["debug"]:
         aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
 
       # sequence entropy loss
-      aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
+      aux["losses"].update(get_seq_ent_loss(inputs, outputs))
       
       # experimental masked-language-modeling
       if a["use_mlm"]:

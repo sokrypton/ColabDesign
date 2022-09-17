@@ -12,7 +12,8 @@ from colabdesign.af.alphafold.model import model, config
 ############################################################################
 class _af_inputs:
 
-  def _get_seq(self, inputs, params, opt, aux, key):
+  def _get_seq(self, inputs, aux, key):
+    params, opt = inputs["params"], inputs["opt"]
     '''get sequence features'''
     seq = soft_seq(params["seq"], opt, key)
     seq = self._fix_pos(seq)
@@ -44,9 +45,10 @@ class _af_inputs:
       if return_p: return seq, p
     return seq
 
-  def _update_template(self, inputs, opt, key):
+  def _update_template(self, inputs, key):
     ''''dynamically update template features'''
     
+    opt = inputs["opt"]
     o = opt["template"]
 
     # enable templates

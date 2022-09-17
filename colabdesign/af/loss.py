@@ -13,7 +13,8 @@ from colabdesign.af.alphafold.common import confidence_jax, residue_constants
 
 class _af_loss:
   # protocol specific loss functions
-  def _loss_fixbb(self, inputs, outputs, opt, aux):
+  def _loss_fixbb(self, inputs, outputs, aux):
+    opt = inputs["opt"]
     '''get losses'''
     copies = self._args["copies"] if self._args["homooligomer"] else 1    
     # rmsd loss
@@ -28,10 +29,11 @@ class _af_loss:
     })
     
     # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, opt, aux)
+    self._loss_unsupervised(inputs, outputs, aux)
 
-  def _loss_binder(self, inputs, outputs, opt, aux):
+  def _loss_binder(self, inputs, outputs, aux):
     '''get losses'''
+    opt = inputs["opt"]
     zeros = jnp.zeros(sum(self._lengths))
     binder_id = zeros.at[self._target_len:].set(1)
     if "hotspot" in opt:
@@ -76,8 +78,9 @@ class _af_loss:
 
     aux["atom_positions"] = align_fn(aux["atom_positions"])
 
-  def _loss_partial(self, inputs, outputs, opt, aux):
+  def _loss_partial(self, inputs, outputs, aux):
     '''get losses'''    
+    opt = inputs["opt"]
     pos = opt["pos"]
     if self._args["repeat"] or self._args["homooligomer"]:
       C,L = self._args["copies"], self._len
@@ -103,7 +106,7 @@ class _af_loss:
     })
     
     # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, opt, aux)
+    self._loss_unsupervised(inputs, outputs, aux)
 
     # sidechain specific losses
     if self._args["use_sidechains"] and copies == 1:
@@ -133,13 +136,14 @@ class _af_loss:
     # align final atoms
     aux["atom_positions"] = aln["align"](aux["atom_positions"])
 
-  def _loss_hallucination(self, inputs, outputs, opt, aux):
+  def _loss_hallucination(self, inputs, outputs, aux):
     # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, opt, aux)
+    self._loss_unsupervised(inputs, outputs, aux)
 
-  def _loss_unsupervised(self, inputs, outputs, opt, aux):
+  def _loss_unsupervised(self, inputs, outputs, aux):
 
     # define masks
+    opt = inputs["opt"]
     mask_1d = jnp.ones_like(inputs["asym_id"])
     if "pos" in opt:
       C,L = self._args["copies"], self._len
@@ -235,10 +239,11 @@ def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
   return mask_loss(p, mask_2d)
 
-def get_con_loss(inputs, outputs, opt,
+def get_con_loss(inputs, outputs,
                  mask_1d=None, mask_1b=None, mask_2d=None):
 
   # get top k
+  opt = inputs["opt"]
   def min_k(x, k=1, mask=None):
     y = jnp.sort(x if mask is None else jnp.where(mask,x,jnp.nan))
     k_mask = jnp.logical_and(jnp.arange(y.shape[-1]) < k, jnp.isnan(y) == False)
@@ -482,7 +487,8 @@ def _get_sc_rmsd_loss(true, pred, sc):
   rmsd = jnp.sqrt(msd + 1e-8)
   return {"rmsd":rmsd, "align":align_fn}
 
-def get_seq_ent_loss(inputs, outputs, opt):
+def get_seq_ent_loss(inputs, outputs):
+  opt = inputs["opt"]
   x = inputs["seq"]["logits"] / opt["temp"]
   ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
   mask = jnp.ones(ent.shape[-1])

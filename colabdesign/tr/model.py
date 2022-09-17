@@ -49,7 +49,8 @@ class mk_tr_model(design_model):
   
   def _get_model(self):
     runner = TrRosetta()    
-    def _get_loss(inputs, outputs, opt):
+    def _get_loss(inputs, outputs):
+      opt = inputs["opt"]
       aux = {"outputs":outputs, "losses":{}}
       log_p = jax.tree_map(jax.nn.log_softmax, outputs)
 
@@ -82,7 +83,9 @@ class mk_tr_model(design_model):
       loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
-    def _model(params, model_params, opt, inputs, key):
+    def _model(inputs, model_params, key):
+      opt = inputs["opt"]
+      params = inputs["params"]
       seq = soft_seq(params["seq"], opt)
       if "fix_pos" in opt:
         if "pos" in self.opt:
@@ -99,7 +102,7 @@ class mk_tr_model(design_model):
                      "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]})
       rate = jnp.where(opt["dropout"],0.15,0.0)
       outputs = runner(inputs, model_params, key, rate)
-      loss, aux = _get_loss(inputs, outputs, opt)
+      loss, aux = _get_loss(inputs, outputs)
       aux.update({"seq":seq,"opt":opt})
       return loss, aux
 
@@ -228,7 +231,9 @@ class mk_tr_model(design_model):
     aux_all = []
     for n in model_num:
       model_params = self._model_params[n]
-      flags = [self._params, model_params, self.opt, self._inputs, self.key()]
+      self._inputs["opt"] = self.opt
+      self._inputs["params"] = self._params
+      flags = [self._inputs, model_params, self.key()]
       if backprop:
         (loss,aux),grad = self._model["grad_fn"](*flags)
       else:

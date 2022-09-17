@@ -99,7 +99,8 @@ class _af_design:
     # decide which model params to use
     if model_nums is None:
       model_nums = self._get_model_nums(num_models, sample_models, models)
-  
+    assert len(model_nums) > 0, "ERROR: no model params defined"
+
     # loop through model params
     auxs = []
     for n in model_nums:

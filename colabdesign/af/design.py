@@ -449,7 +449,7 @@ class _af_design:
         plddt = best["aux"]["all"]["plddt"].mean(0)
         plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
-  def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10,
+  def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10, e_tries=None,
                              ramp_recycles=True, ramp_models=True, **kwargs):
 
     verbose = kwargs.get("verbose",1)
@@ -470,15 +470,16 @@ class _af_design:
 
           kwargs["num_models"] = m + 1
           kwargs["save_best"] = (m + 1) == num_models
-          self.design_semigreedy(iters, tries=tries, **kwargs)
+          self.design_semigreedy(iters, tries=tries, e_tries=e_tries, **kwargs)
           if m < 2: iters = iters // 2
       else:
-        self.design_semigreedy(hard_iters, tries=tries, **kwargs)
+        self.design_semigreedy(hard_iters, tries=tries, e_tries=e_tries, **kwargs)
 
 
   # ---------------------------------------------------------------------------------
-  # experimental untested
+  # experimental optimizers (not extensively evaluated)
   # ---------------------------------------------------------------------------------
+
   def _design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
                    use_plddt=True, seq_logits=None, save_best=True, **kwargs):
     '''

@@ -416,7 +416,7 @@ class _af_design:
   def design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
                   use_plddt=True, seq_logits=None, save_best=True, **kwargs):
     '''
-    mcmc with simulated annealing
+    MCMC with simulated annealing
     ----------------------------------------
     steps = number for steps for the MCMC trajectory
     half_life = half-life for the temperature decay during simulated annealing
@@ -426,10 +426,16 @@ class _af_design:
 
     # code borrowed from: github.com/bwicky/oligomer_hallucination
 
+    # gather settings
     verbose = kwargs.pop("verbose",1)
+    model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
 
-    plddt, best_loss, loss = None, np.inf, np.inf 
+    # initalize
+    plddt, best_loss, current_loss = None, np.inf, np.inf 
     current_seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)    
+
+    # run!
+    if verbose: print("Running MCMC with simulated annealing...")
     for i in range(steps):
 
       # update temperature
@@ -440,12 +446,13 @@ class _af_design:
       else:      mut_seq = self.mutate(current_seq, plddt, seq_logits, mutation_rate)
 
       # get loss
-      aux = self.predict(mut_seq, return_aux=True, verbose=False, **kwargs)
+      model_nums = self._get_model_nums(**model_flags)
+      aux = self.predict(mut_seq, return_aux=True, verbose=False, model_nums=model_nums, **kwargs)
       loss = aux["log"]["loss"]
   
       # decide
       delta = loss - current_loss
-      if i == 0 or delta < 0 or jax.random.uniform(self.key(), 0, 1) < np.exp( -delta / T):
+      if i == 0 or delta < 0 or jax.random.uniform(self.key(),[]) < np.exp( -delta / T):
 
         # accept
         (current_seq,current_loss) = (mut_seq,loss)
@@ -455,8 +462,8 @@ class _af_design:
           plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
         
         if loss < best_loss:
+          (best_loss, self._k) = (loss, i)
           self.set_seq(seq=current_seq)
-          self._k = i
           self._save_results(save_best=save_best, verbose=verbose)
 
   def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,

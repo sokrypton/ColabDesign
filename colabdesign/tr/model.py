@@ -107,13 +107,14 @@ class mk_tr_model(design_model):
             "fn":jax.jit(_model)}
   
   def prep_inputs(self, pdb_filename=None, chain=None, length=None,
-                  pos=None, fix_pos=None, atoms_to_exclude=None, **kwargs):
+                  pos=None, fix_pos=None, atoms_to_exclude=None, ignore_missing=True,
+                  **kwargs):
     '''
     prep inputs for TrDesign
     '''    
     if self.protocol in ["fixbb", "partial"]:
       # parse PDB file and return features compatible with TrRosetta
-      pdb = prep_pdb(pdb_filename, chain)
+      pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
       self._inputs["batch"] = pdb["batch"]
 
       if fix_pos is not None:
@@ -158,7 +159,7 @@ class mk_tr_model(design_model):
       for n in range(1,6):
         model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
         self._inputs["6D_bkg"].append(self._bkg_model(model_params, key, self._len))
-      self._inputs["6D_bkg"] = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *self._inputs["6D_bkg"])
+      self._inputs["6D_bkg"] = jax.tree_map(lambda *x:np.stack(x).mean(0), *self._inputs["6D_bkg"])
 
       # reweight the background
       self.opt["weights"]["bkg"] = dict(dist=1/6,omega=1/6,phi=2/6,theta=2/6)
@@ -211,7 +212,7 @@ class mk_tr_model(design_model):
     
     if models is None:
       # decide which model params to use
-      ns = jnp.arange(5)
+      ns = np.arange(5)
       m = min(self.opt["num_models"],len(ns))
       if self.opt["sample_models"] and m != len(ns):
         model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
@@ -232,12 +233,12 @@ class mk_tr_model(design_model):
         (loss,aux),grad = self._model["grad_fn"](*flags)
       else:
         loss,aux = self._model["fn"](*flags)
-        grad = jax.tree_map(jnp.zeros_like, self._params)
+        grad = jax.tree_map(np.zeros_like, self._params)
       aux.update({"loss":loss, "grad":grad})
       aux_all.append(aux)
     
     # average results
-    self.aux = jax.tree_map(lambda *x:jnp.stack(x).mean(0), *aux_all)
+    self.aux = jax.tree_map(lambda *x:np.stack(x).mean(0), *aux_all)
     self.aux["model_num"] = model_num
 
   def step(self, models=None, backprop=True,
@@ -247,14 +248,14 @@ class mk_tr_model(design_model):
 
     # normalize gradient
     g = self.aux["grad"]["seq"]
-    gn = jnp.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
 
     if "fix_pos" in self.opt:
       # note: gradients only exist in unconstrained positions
       eff_len = self._len - self.opt["fix_pos"].shape[0]
     else:
       eff_len = self._len
-    self.aux["grad"]["seq"] *= jnp.sqrt(eff_len)/(gn+1e-7)
+    self.aux["grad"]["seq"] *= np.sqrt(eff_len)/(gn+1e-7)
 
     # set learning rate
     self.aux["grad"] = jax.tree_map(lambda x:x*self.opt["lr"], self.aux["grad"])

@@ -80,17 +80,18 @@ class _af_design:
     
     m = min(num_models,len(ns))
     if sample_models and m != len(ns):
-      ns = jnp.array(ns)
+      ns = np.array(ns)
+
       model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
       model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
-
     return model_nums    
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
           backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
+
 
     callbacks = [callback]
     if self._args["use_crop"]: callbacks.append(self._crop())
@@ -107,23 +108,23 @@ class _af_design:
     auxs = jax.tree_map(lambda *x: np.stack(x), *auxs)
 
     # update aux
-    aux = jax.tree_map(lambda x:x[0], auxs)
-    aux["all"] = auxs
+    self.aux = jax.tree_map(lambda x:x[0], auxs)
+    self.aux["all"] = auxs
 
     # average losses and gradients
-    aux["loss"] = auxs["loss"].mean()
-    aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
-    aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
-
+    self.aux["loss"] = auxs["loss"].mean()
+    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
+    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
+    
     # callback
     for callback in callbacks:
       if callback is not None: callback(self)
 
     # update log
-    aux["log"] = {**aux["losses"], "loss":aux["loss"]}
-    aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
-    aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
-    aux["log"]["plddt"] = 1 - aux["log"]["plddt"]
+    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
+    self.aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
+    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+    self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
@@ -137,13 +138,11 @@ class _af_design:
       pred = aatype[...,mask]
       aux["log"]["seqid"] = (true == pred).mean()
 
-    aux["log"] = to_float(aux["log"])
-    aux["log"].update({"recycles":int(aux["num_recycles"]), "models":model_nums})
+    self.aux["log"] = to_float(self.aux["log"])
+    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]), "models":model_nums})
     
-    if return_aux:
-      return aux
-    else:
-      self.aux = aux
+    if return_aux: return self.aux
+
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
@@ -152,7 +151,7 @@ class _af_design:
       (loss, aux), grad = self._model["grad_fn"](*flags)
     else:
       loss, aux = self._model["fn"](*flags)
-      grad = jax.tree_map(jnp.zeros_like, self._params)
+      grad = jax.tree_map(np.zeros_like, self._params)
     aux.update({"loss":loss,"grad":grad})
     return aux
 
@@ -193,7 +192,7 @@ class _af_design:
           grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
         self._inputs["prev"] = aux["prev"]
 
-      aux["grad"] = jax.tree_map(lambda *x: jnp.stack(x).sum(0), *grad)
+      aux["grad"] = jax.tree_map(lambda *x: np.stack(x).sum(0), *grad)
     
     aux["num_recycles"] = num_recycles
     return aux
@@ -266,7 +265,7 @@ class _af_design:
         self._best["aux"] = aux
         self._best["metric"] = metric
 
-    if verbose:
+    if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}", aux=aux)
 
   def predict(self, seq=None,
@@ -283,9 +282,9 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, set_state=False)    
+
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
                  mlm_dropout=mlm_dropout, use_crop=False, use_pssm=False)
-        
     # run
     aux = self.run(num_recycles=num_recycles, num_models=num_models,
                    sample_models=sample_models, models=models, backprop=False,
@@ -354,15 +353,18 @@ class _af_design:
                     ramp_recycles=True, **kwargs):
     '''three stage design (logits→soft→hard)'''
 
+
     verbose = kwargs.get("verbose",1)
     if soft_iters > 0:
-      if verbose: print("stage1: running logits→soft")
+      if verbose: print("Stage 1: running (logits → soft)")
+
       # stage 1: logits -> softmax(logits/1.0)
       if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
         num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
         p = 1.0 / num_cycles
         for c in range(num_cycles):
-          if verbose > 1 and c > 0: print(f"increasing number of recycles to {c+1}")
+          if verbose and c > 0: print(f"Increasing number of recycles to {c}.")
+
           kwargs["num_recycles"] = c
           iters = soft_iters // num_cycles
           self.design_logits(iters, soft=c*p, e_soft=(c+1)*p, **kwargs)        
@@ -372,21 +374,20 @@ class _af_design:
     self._tmp["seq_logits"] = self.aux["seq"]["logits"]
     
     if temp_iters > 0:
-      if verbose: print("stage2: running softmax(logits/1.0)→soft(logits/0.01)")
+      if verbose: print("Stage 2: running (soft → hard)")
       # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
       self.design_soft(temp_iters, e_temp=1e-2, **kwargs)
     
     if hard_iters > 0:
       # stage 3: 
-      if verbose: print("stage 3: running one_hot(logits)")
+      if verbose: print("Stage 3: running (hard)")
       for k in ["dropout","mlm_dropout","save_best","num_models"]: kwargs.pop(k,None)
       self.design_hard(hard_iters, temp=1e-2, dropout=False, mlm_dropout=0.0, save_best=True,
                       num_models=len(self._model_names), **kwargs)
 
-  def design_semigreedy(self, iters=100, tries=20, dropout=False, use_plddt=True,
+  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
                         save_best=True, seq_logits=None, **kwargs):
     '''semigreedy search'''    
-
     def mut(seq, plddt=None, logits=None):
       '''mutate random position'''
       N,L,A = seq.shape
@@ -412,12 +413,13 @@ class _af_design:
       # return mutant
       return seq.at[:,i,:].set(jax.nn.one_hot(a,A))
 
-    verbose = kwargs.pop("verbose",1)
     plddt = None
     seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
+    verbose = kwargs.pop("verbose",1)
 
     # optimize!
+    if verbose: print("Running semigreedy optimization...")
     for i in range(iters):
 
       buff = []
@@ -425,7 +427,7 @@ class _af_design:
       for t in range(tries):
         mut_seq = mut(seq, plddt, logits=seq_logits)
         aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
-                           verbose=verbose>1, **kwargs)
+                           verbose=False, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})
 
       # accept best
@@ -444,6 +446,7 @@ class _af_design:
                              ramp_recycles=True, ramp_models=True, **kwargs):
 
     verbose = kwargs.get("verbose",1)
+
     # stage 1: logits -> softmax(logits)
     if soft_iters > 0:
       self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
@@ -451,18 +454,20 @@ class _af_design:
 
     # stage 2: semi_greedy
     if hard_iters > 0:
-      if verbose: print("running semigreedy optimization")
       kwargs["dropout"] = False
+
       if ramp_models:
         num_models = len(kwargs.get("models",self._model_names))
         iters = hard_iters
         for m in range(num_models):
-          if verbose > 1 and m > 0: print(f'increasing number of models to {m+1}')
+          if verbose and m > 0: print(f'Increasing number of models to {m+1}.')
+
           kwargs["num_models"] = m + 1
           kwargs["save_best"] = (m + 1) == num_models
           self.design_semigreedy(iters, tries=tries, **kwargs)
           if m < 2: iters = iters // 2
       else:
         self.design_semigreedy(hard_iters, tries=tries, **kwargs)
+
 
   # ---------------------------------------------------------------------------------

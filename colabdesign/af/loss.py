@@ -239,7 +239,7 @@ def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
   return mask_loss(p, mask_2d)
 
-def get_con_loss(inputs, outputs, opt,
+def get_con_loss(inputs, outputs, con_opt,
                  mask_1d=None, mask_1b=None, mask_2d=None):
 
   # get top k
@@ -259,9 +259,9 @@ def get_con_loss(inputs, outputs, opt,
   dgram = outputs["distogram"]["logits"]
   dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
 
-  p = _get_con_loss(dgram, dgram_bins, cutoff=opt["cutoff"], binary=opt["binary"])
-  if "seqsep" in opt:
-    m = jnp.abs(offset) >= opt["seqsep"]
+  p = _get_con_loss(dgram, dgram_bins, cutoff=con_opt["cutoff"], binary=con_opt["binary"])
+  if "seqsep" in con_opt:
+    m = jnp.abs(offset) >= con_opt["seqsep"]
   else:
     m = jnp.ones_like(offset)
 
@@ -274,8 +274,8 @@ def get_con_loss(inputs, outputs, opt,
   else:
     m = jnp.logical_and(m, mask_2d)  
 
-  p = min_k(p, opt["num"], m)
-  return min_k(p, opt["num_pos"], mask_1d)
+  p = min_k(p, con_opt["num"], m)
+  return min_k(p, con_opt["num_pos"], mask_1d)
 
 def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   '''dgram to contacts'''

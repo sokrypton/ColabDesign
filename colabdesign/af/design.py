@@ -129,14 +129,14 @@ class _af_design:
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       if self.protocol == "partial":
-        aatype = aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
       else:
-        aatype = aux["seq"]["pseudo"].argmax(-1)
+        aatype = self.aux["seq"]["pseudo"].argmax(-1)
 
       mask = self._wt_aatype != -1
       true = self._wt_aatype[mask]
       pred = aatype[...,mask]
-      aux["log"]["seqid"] = (true == pred).mean()
+      self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]), "models":model_nums})

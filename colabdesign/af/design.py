@@ -385,7 +385,7 @@ class _af_design:
       kwargs["num_models"] = len(self._model_names)
       self.design_hard(hard_iters, temp=1e-2, **kwargs)
 
-  def mutate(self, seq, plddt=None, logits=None, mutation_rate=1):
+  def _mutate(self, seq, plddt=None, logits=None, mutation_rate=1):
     '''mutate random position'''
     N,L,A = seq.shape
 
@@ -432,7 +432,7 @@ class _af_design:
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
       for t in range(int(num_tries)):
-        mut_seq = self.mutate(seq, plddt, logits=seq_logits)
+        mut_seq = self._mutate(seq, plddt, logits=seq_logits)
         aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
                            verbose=False, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})
@@ -510,7 +510,7 @@ class _af_design:
 
       # mutate sequence
       if i == 0: mut_seq = current_seq
-      else:      mut_seq = self.mutate(current_seq, plddt, seq_logits, mutation_rate)
+      else:      mut_seq = self._mutate(current_seq, plddt, seq_logits, mutation_rate)
 
       # get loss
       model_nums = self._get_model_nums(**model_flags)

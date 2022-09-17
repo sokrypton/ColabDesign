@@ -239,11 +239,10 @@ def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
   return mask_loss(p, mask_2d)
 
-def get_con_loss(inputs, outputs,
+def get_con_loss(inputs, outputs, opt,
                  mask_1d=None, mask_1b=None, mask_2d=None):
 
   # get top k
-  opt = inputs["opt"]
   def min_k(x, k=1, mask=None):
     y = jnp.sort(x if mask is None else jnp.where(mask,x,jnp.nan))
     k_mask = jnp.logical_and(jnp.arange(y.shape[-1]) < k, jnp.isnan(y) == False)

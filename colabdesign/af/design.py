@@ -431,7 +431,7 @@ class _af_design:
       buff = []
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
-      for t in range(num_tries):
+      for t in range(int(num_tries)):
         mut_seq = self.mutate(seq, plddt, logits=seq_logits)
         aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
                            verbose=False, **kwargs)

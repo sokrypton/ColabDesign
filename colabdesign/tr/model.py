@@ -83,9 +83,9 @@ class mk_tr_model(design_model):
       loss = sum(jax.tree_leaves(losses))
       return loss, aux
 
-    def _model(inputs, model_params, key):
+    def _model(params, model_params, inputs, key):
+      inputs["params"] = params
       opt = inputs["opt"]
-      params = inputs["params"]
       seq = soft_seq(params["seq"], opt)
       if "fix_pos" in opt:
         if "pos" in self.opt:
@@ -232,8 +232,7 @@ class mk_tr_model(design_model):
     for n in model_num:
       model_params = self._model_params[n]
       self._inputs["opt"] = self.opt
-      self._inputs["params"] = self._params
-      flags = [self._inputs, model_params, self.key()]
+      flags = [self._params, model_params, self._inputs, self.key()]
       if backprop:
         (loss,aux),grad = self._model["grad_fn"](*flags)
       else:

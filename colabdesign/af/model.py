@@ -118,7 +118,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                             use_multimer=a["use_multimer"])
 
     # setup function to get gradients
-    def _model(inputs, model_params, key):
+    def _model(params, model_params, inputs, key):
+      inputs["params"] = params
       opt = inputs["opt"]
 
       aux = {}
@@ -217,7 +218,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # weighted loss
       w = opt["weights"]
       loss = sum([v * w[k] if k in w else v for k,v in aux["losses"].items()])
-            
+
       return loss, aux
     
     return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),

@@ -145,9 +145,8 @@ class _af_design:
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
-    self._inputs["params"] = self._params
     self._inputs["opt"] = self.opt
-    flags  = [self._inputs, model_params, self.key()]
+    flags  = [self._params, model_params, self._inputs, self.key()]
     if backprop:
       (loss, aux), grad = self._model["grad_fn"](*flags)
     else:

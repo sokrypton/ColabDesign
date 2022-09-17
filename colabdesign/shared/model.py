@@ -85,15 +85,19 @@ class design_model:
       if isinstance(seq, list):
         if isinstance(seq[0], str):
           seq = jnp.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
-          seq = jax.nn.one_hot(seq,20)
         else:
           seq = jnp.asarray(seq)
+      else:
+        seq = jnp.asarray(seq)
+
+      if jnp.issubdtype(seq.dtype, jnp.integer):
+        seq = jax.nn.one_hot(seq,20)
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
         set_bias = True
       
-      x = jnp.broadcast_to(jnp.asarray(seq),shape)
+      x = jnp.broadcast_to(seq,shape)
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)

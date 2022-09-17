@@ -388,12 +388,13 @@ class _af_design:
 
   def _mutate(self, seq, plddt=None, logits=None, mutation_rate=1):
     '''mutate random position'''
-    N,L,A = seq.shape
+    N,L = seq.shape
 
     # fix some positions
     i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
     if "fix_pos" in self.opt:
-      seq, p = self._fix_pos(seq, return_p=True)
+      seq_oh, p = self._fix_pos(jax.nn.one_hot(seq,20), return_p=True)
+      seq = seq_oh.argmax(-1)
       i_prob = i_prob.at[p].set(0)
     
     for m in range(mutation_rate):
@@ -406,11 +407,11 @@ class _af_design:
       if logits.ndim == 3:   b = logits[:,i]
       elif logits.ndim == 2: b = logits[i]
       else:                  b = logits
-      a_logits = b - seq[:,i] * 1e8
+      a_logits = b - jax.nn.one_hot(seq[:,i],20) * 1e8
       a = jax.random.categorical(self.key(),a_logits)
 
       # return mutant
-      seq = seq.at[:,i,:].set(jax.nn.one_hot(a,A))
+      seq = seq.at[:,i].set(a)
     
     return seq
 
@@ -421,7 +422,7 @@ class _af_design:
     if e_tries is None: e_tries = tries
 
     plddt = None
-    seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
+    seq = self._params["seq"].argmax(-1)
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
 
@@ -500,7 +501,7 @@ class _af_design:
 
     # initalize
     plddt, best_loss, current_loss = None, np.inf, np.inf 
-    current_seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)    
+    current_seq = self._params["seq"].argmax(-1)
 
     # run!
     if verbose: print("Running MCMC with simulated annealing...")

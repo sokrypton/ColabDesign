@@ -413,8 +413,74 @@ class _af_design:
     
     return seq
 
-  def design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
-                  use_plddt=True, seq_logits=None, save_best=True, **kwargs):
+  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
+                        save_best=True, seq_logits=None, e_tries=None, **kwargs):
+
+    '''semigreedy search'''    
+    if e_tries is None: e_tries = tries
+
+    plddt = None
+    seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
+    model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
+    verbose = kwargs.pop("verbose",1)
+
+    # optimize!
+    if verbose: print("Running semigreedy optimization...")
+    for i in range(iters):
+
+      buff = []
+      model_nums = self._get_model_nums(**model_flags)
+      num_tries = (tries+(e_tries-tries)*((i+1)/iters))
+      for t in range(num_tries):
+        mut_seq = self.mutate(seq, plddt, logits=seq_logits)
+        aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
+                           verbose=False, **kwargs)
+        buff.append({"aux":aux, "seq":np.array(mut_seq)})
+
+      # accept best
+      losses = [x["aux"]["loss"] for x in buff]
+      best = buff[np.argmin(losses)]
+      self.aux, seq, self._k = best["aux"], jnp.array(best["seq"]), self._k + 1
+      self.set_seq(seq=seq)
+      self._save_results(save_best=save_best, verbose=verbose)
+
+      # update plddt
+      if use_plddt:
+        plddt = best["aux"]["all"]["plddt"].mean(0)
+        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+
+  def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10,
+                             ramp_recycles=True, ramp_models=True, **kwargs):
+
+    verbose = kwargs.get("verbose",1)
+
+    # stage 1: logits -> softmax(logits)
+    if soft_iters > 0:
+      self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
+      self._tmp["seq_logits"] = kwargs["seq_logits"] = self.aux["seq"]["logits"]
+
+    # stage 2: semi_greedy
+    if hard_iters > 0:
+      kwargs["dropout"] = False
+      if ramp_models:
+        num_models = len(kwargs.get("models",self._model_names))
+        iters = hard_iters
+        for m in range(num_models):
+          if verbose and m > 0: print(f'Increasing number of models to {m+1}.')
+
+          kwargs["num_models"] = m + 1
+          kwargs["save_best"] = (m + 1) == num_models
+          self.design_semigreedy(iters, tries=tries, **kwargs)
+          if m < 2: iters = iters // 2
+      else:
+        self.design_semigreedy(hard_iters, tries=tries, **kwargs)
+
+
+  # ---------------------------------------------------------------------------------
+  # experimental untested
+  # ---------------------------------------------------------------------------------
+  def _design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
+                   use_plddt=True, seq_logits=None, save_best=True, **kwargs):
     '''
     MCMC with simulated annealing
     ----------------------------------------
@@ -465,65 +531,3 @@ class _af_design:
           (best_loss, self._k) = (loss, i)
           self.set_seq(seq=current_seq)
           self._save_results(save_best=save_best, verbose=verbose)
-
-  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
-                        save_best=True, seq_logits=None, **kwargs):
-
-    '''semigreedy search'''    
-    plddt = None
-    seq = jax.nn.one_hot(self._params["seq"].argmax(-1),20)
-    model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
-    verbose = kwargs.pop("verbose",1)
-
-    # optimize!
-    if verbose: print("Running semigreedy optimization...")
-    for i in range(iters):
-
-      buff = []
-      model_nums = self._get_model_nums(**model_flags)
-      for t in range(tries):
-        mut_seq = self.mutate(seq, plddt, logits=seq_logits)
-        aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
-                           verbose=False, **kwargs)
-        buff.append({"aux":aux, "seq":np.array(mut_seq)})
-
-      # accept best
-      losses = [x["aux"]["loss"] for x in buff]
-      best = buff[np.argmin(losses)]
-      self.aux, seq, self._k = best["aux"], jnp.array(best["seq"]), self._k + 1
-      self.set_seq(seq=seq)
-      self._save_results(save_best=save_best, verbose=verbose)
-
-      # update plddt
-      if use_plddt:
-        plddt = best["aux"]["all"]["plddt"].mean(0)
-        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
-
-  def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10,
-                             ramp_recycles=True, ramp_models=True, **kwargs):
-
-    verbose = kwargs.get("verbose",1)
-
-    # stage 1: logits -> softmax(logits)
-    if soft_iters > 0:
-      self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
-      self._tmp["seq_logits"] = kwargs["seq_logits"] = self.aux["seq"]["logits"]
-
-    # stage 2: semi_greedy
-    if hard_iters > 0:
-      kwargs["dropout"] = False
-      if ramp_models:
-        num_models = len(kwargs.get("models",self._model_names))
-        iters = hard_iters
-        for m in range(num_models):
-          if verbose and m > 0: print(f'Increasing number of models to {m+1}.')
-
-          kwargs["num_models"] = m + 1
-          kwargs["save_best"] = (m + 1) == num_models
-          self.design_semigreedy(iters, tries=tries, **kwargs)
-          if m < 2: iters = iters // 2
-      else:
-        self.design_semigreedy(hard_iters, tries=tries, **kwargs)
-
-
-  # ---------------------------------------------------------------------------------

@@ -21,6 +21,7 @@
   - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used during optimization.
   - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
   - fixing integration with TrDesign that got broken in v1.0.6
+  - WARNING: custom loss_callback has been refactored to only take (`inputs`, `outputs`) as input. `inputs` dictionary now contains ["params","opt","seq"]
 
 ### setup
 ```bash

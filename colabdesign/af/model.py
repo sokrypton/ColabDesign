@@ -2,6 +2,7 @@ import os
 import jax
 import jax.numpy as jnp
 import numpy as np
+from inspect import signature
 
 from colabdesign.af.alphafold.model import data, config, model, all_atom
 
@@ -196,10 +197,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if self._loss_callback is not None:
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
         for loss_fn in loss_fns:
-          aux["losses"].update(loss_fn(inputs, outputs))
+          if "opt" in signature(loss_fn).parameters:
+            # backward compatibility
+            losses = loss_fn(inputs, outputs, opt)
+          else:
+            losses = loss_fn(inputs, outputs)
+          aux["losses"].update(losses)
 
       if a["debug"]:
-        aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
+        aux["debug"] = {"inputs":inputs, "outputs":outputs}
 
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs))

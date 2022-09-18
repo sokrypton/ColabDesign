@@ -199,8 +199,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
         for loss_fn in loss_fns:
           if "opt" in signature(loss_fn).parameters:
-            print("DeprecationWarning: Update your loss_callback function to loss_fn(inputs, outputs).")
-            print("DeprecationWarning: 'opt' is now accessible via inputs['opt'].")
+            print("DeprecationWarning:")
+            print("  Update your loss_callback function to loss_fn(inputs, outputs).")
+            print("  'opt' is now accessible via inputs['opt'].")
             losses = loss_fn(inputs, outputs, opt)
           else:
             losses = loss_fn(inputs, outputs)

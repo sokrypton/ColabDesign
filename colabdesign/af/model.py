@@ -143,8 +143,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      aatype = seq["pseudo"][0].argmax(-1)
-      update_aatype(aatype, inputs)
+      update_aatype(seq["pseudo"][0].argmax(-1), inputs)
       
       # update template features
       if a["use_templates"]:

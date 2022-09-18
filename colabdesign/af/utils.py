@@ -71,7 +71,6 @@ class _af_utils:
     aux = aux["all"]
     
     p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
-    if p["aatype"].ndim == 3: p["aatype"] = p["aatype"].argmax(-1)
     p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
 
     def to_pdb_str(x, n=None):

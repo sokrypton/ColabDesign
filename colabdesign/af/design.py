@@ -130,7 +130,7 @@ class _af_design:
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
       if self.protocol == "partial":
-        aatype = self.aux["aatype"].argmax(-1)[...,self.opt["pos"]]
+        aatype = self.aux["aatype"][...,self.opt["pos"]]
       else:
         aatype = self.aux["seq"]["pseudo"].argmax(-1)
 

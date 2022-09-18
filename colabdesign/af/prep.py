@@ -56,8 +56,6 @@ class _af_prep:
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
-    self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc, "rm_ic":rm_template_ic})
-
     # prep features
     pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
 
@@ -110,14 +108,26 @@ class _af_prep:
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
-  
-    self._prep_model(**kwargs)
+
+    # configure template [opt]ions
+    rm,L = {},sum(self._lengths)
+    for n,x in [["rm_seq",rm_template_seq],["rm_sc",rm_template_sc]]:
+      rm[n] = np.full(L,False)
+      if isinstance(x,str):
+        rm[n][prep_pos(x,**pdb["idx"])["pos"]] = True
+      else:
+        rm[n][:] = x
+    # rm sidechains where there is no sequence
+    rm["rm_sc"][rm["rm_seq"]] = True    
+    self.opt["template"].update({"rm_ic":rm_template_ic, **rm})
 
     # undocumented: dist cropping (for Shihao)
     if self._args["use_crop"]:
       cb_atoms = pdb["cb_feat"]["atoms"]
       cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
       self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
+  
+    self._prep_model(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
     '''

@@ -138,10 +138,7 @@ class AlphaFoldIteration(hk.Module):
 
     representations['msa'] = msa_representation
     
-    if jnp.issubdtype(batch['aatype'].dtype, jnp.integer):
-      num_residues = batch['aatype'].shape
-    else:
-      num_residues, _ = batch['aatype'].shape
+    num_residues = batch['aatype'].shape
 
     if self.config.use_struct:
       struct_module = folding.StructureModule
@@ -226,11 +223,7 @@ class AlphaFold(hk.Module):
       The output of AlphaFoldIteration is a nested dictionary containing
       predictions from the various heads.
     """
-    if jnp.issubdtype(batch['aatype'].dtype, jnp.integer):
-      num_res = batch['aatype'].shape
-    else:
-      num_res, _ = batch['aatype'].shape
-
+    num_res = batch['aatype'].shape
     impl = AlphaFoldIteration(self.config, self.global_config)
 
 
@@ -1244,29 +1237,16 @@ def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
   ca_idx = residue_constants.atom_order['CA']
   cb_idx = residue_constants.atom_order['CB']
 
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    is_gly = jnp.equal(aatype, residue_constants.restype_order['G'])
-    is_gly_tile = jnp.tile(is_gly[..., None], [1] * len(is_gly.shape) + [3])
-    pseudo_beta = jnp.where(is_gly_tile, all_atom_positions[..., ca_idx, :], all_atom_positions[..., cb_idx, :])
+  is_gly = jnp.equal(aatype, residue_constants.restype_order['G'])
+  is_gly_tile = jnp.tile(is_gly[..., None], [1] * len(is_gly.shape) + [3])
+  pseudo_beta = jnp.where(is_gly_tile, all_atom_positions[..., ca_idx, :], all_atom_positions[..., cb_idx, :])
 
-    if all_atom_mask is not None:
-      pseudo_beta_mask = jnp.where(is_gly, all_atom_mask[..., ca_idx], all_atom_mask[..., cb_idx])
-      pseudo_beta_mask = pseudo_beta_mask.astype(jnp.float32)
-      return pseudo_beta, pseudo_beta_mask
-    else:
-      return pseudo_beta
+  if all_atom_mask is not None:
+    pseudo_beta_mask = jnp.where(is_gly, all_atom_mask[..., ca_idx], all_atom_mask[..., cb_idx])
+    pseudo_beta_mask = pseudo_beta_mask.astype(jnp.float32)
+    return pseudo_beta, pseudo_beta_mask
   else:
-    is_gly = aatype[...,residue_constants.restype_order['G']]
-    ca_pos = all_atom_positions[...,ca_idx,:]
-    cb_pos = all_atom_positions[...,cb_idx,:]
-    pseudo_beta = is_gly[...,None] * ca_pos + (1-is_gly[...,None]) * cb_pos
-    if all_atom_mask is not None:
-      ca_mask = all_atom_mask[...,ca_idx]
-      cb_mask = all_atom_mask[...,cb_idx]
-      pseudo_beta_mask = is_gly * ca_mask + (1-is_gly) * cb_mask
-      return pseudo_beta, pseudo_beta_mask
-    else:
-      return pseudo_beta
+    return pseudo_beta
 
 class EvoformerIteration(hk.Module):
   """Single iteration (block) of Evoformer stack.
@@ -1530,15 +1510,10 @@ class EmbeddingsAndEvoformer(hk.Module):
     # Append num_templ rows to msa_activations with template embeddings.
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 7-8
     if c.template.enabled and c.template.embed_torsion_angles:
-      if jnp.issubdtype(batch['template_aatype'].dtype, jnp.integer):
-        num_templ, num_res = batch['template_aatype'].shape
-        # Embed the templates aatypes.
-        aatype = batch['template_aatype']
-        aatype_one_hot = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1)
-      else:
-        num_templ, num_res, _ = batch['template_aatype'].shape
-        aatype = batch['template_aatype'].argmax(-1)
-        aatype_one_hot = batch['template_aatype']
+      num_templ, num_res = batch['template_aatype'].shape
+      # Embed the templates aatypes.
+      aatype = batch['template_aatype']
+      aatype_one_hot = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1)
 
       # Embed the templates aatype, torsion angles and masks.
       # Shape (templates, residues, msa_channels)
@@ -1656,10 +1631,7 @@ class SingleTemplateEmbedding(hk.Module):
     template_dgram = template_dgram.astype(dtype)
     to_concat = [template_dgram, template_mask_2d[:, :, None]]
 
-    if jnp.issubdtype(batch['template_aatype'].dtype, jnp.integer):
-      aatype = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1, dtype=dtype)
-    else:
-      aatype = batch['template_aatype']
+    aatype = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1, dtype=dtype)
 
     to_concat.append(jnp.tile(aatype[None, :, :], [num_res, 1, 1]))
     to_concat.append(jnp.tile(aatype[:, None, :], [1, num_res, 1]))

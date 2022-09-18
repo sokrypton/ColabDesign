@@ -61,7 +61,7 @@ class _af_inputs:
       
       # decide which position to remove sequence and/or sidechains
       rm_seq = jnp.broadcast_to(o["rm_seq"],L)
-      rm_sc  = jnp.broadcast_to(o["rm_sc"],L)
+      rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(o["rm_sc"],L))
 
       # aatype = is used to define template's CB coordinates (CA in case of glycine)
       # template_aatype = is used as template's sequence
@@ -124,20 +124,13 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   inputs.update({"msa_feat":msa_feat})
 
 def update_aatype(aatype, inputs):
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    inputs.update({"aatype":aatype,
-                   "atom14_atom_exists":residue_constants.restype_atom14_mask[aatype],
-                   "atom37_atom_exists":residue_constants.restype_atom37_mask[aatype],
-                   "residx_atom14_to_atom37":residue_constants.restype_atom14_to_atom37[aatype],
-                   "residx_atom37_to_atom14":residue_constants.restype_atom37_to_atom14[aatype]})
-  else:
-    restype_atom14_to_atom37 = jax.nn.one_hot(residue_constants.restype_atom14_to_atom37,37)
-    restype_atom37_to_atom14 = jax.nn.one_hot(residue_constants.restype_atom37_to_atom14,14)
-    inputs.update({"aatype":aatype,
-                   "atom14_atom_exists":jnp.einsum("...a,am->...m", aatype, residue_constants.restype_atom14_mask),
-                   "atom37_atom_exists":jnp.einsum("...a,am->...m", aatype, residue_constants.restype_atom37_mask),
-                   "residx_atom14_to_atom37":jnp.einsum("...a,abc->...bc", aatype, restype_atom14_to_atom37),
-                   "residx_atom37_to_atom14":jnp.einsum("...a,abc->...bc", aatype, restype_atom37_to_atom14)})
+  r = residue_constants
+  a = {"atom14_atom_exists":r.restype_atom14_mask,
+       "atom37_atom_exists":r.restype_atom37_mask,
+       "residx_atom14_to_atom37":r.restype_atom14_to_atom37,
+       "residx_atom37_to_atom14":r.restype_atom37_to_atom14}
+  inputs.update(jax.tree_map(lambda x:jnp.asarray(x)[aatype],a))
+  inputs["aatype"] = aatype
 
 def expand_copies(x, copies, block_diag=True):
   '''

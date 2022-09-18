@@ -117,8 +117,6 @@ class _af_prep:
         rm[n][prep_pos(x,**pdb["idx"])["pos"]] = True
       else:
         rm[n][:] = x
-    # rm sidechains where there is no sequence
-    rm["rm_sc"][rm["rm_seq"]] = True    
     self.opt["template"].update({"rm_ic":rm_template_ic, **rm})
 
     # undocumented: dist cropping (for Shihao)
@@ -214,23 +212,21 @@ class _af_prep:
     self._lengths = [self._target_len, self._binder_len]
 
     # configure template rm masks
-    T,L = self._lengths[0], sum(self._lengths)
-    rm, rm_opt = {}, [[rm_target_seq,rm_binder_seq],[rm_target_sc,rm_binder_sc]]
-    for n,x in zip(["rm_seq","rm_sc"],rm_opt):
+    (T,L,rm) = (self._lengths[0],sum(self._lengths),{})
+    rm_opt = {"rm_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
+              "rm_sc": {"target":rm_target_sc, "binder":rm_binder_sc}}
+    for n,x in rm_opt.items():
       rm[n] = np.full(L,False)
-      for m,y in zip(["target","binder"],x):
+      for m,y in x.items():
         if isinstance(y,str):
           rm[n][prep_pos(y,**pdb["idx"])["pos"]] = True
         else:
           if m == "target": rm[n][:T] = y
           if m == "binder": rm[n][T:] = y
-    
-    # rm sidechains where there is no sequence
-    rm["rm_sc"][rm["rm_seq"]] = True
-    
+        
     # set template [opt]ions
-    self.opt["template"].update({"rm_ic":rm_template_ic, **rm,
-                                 "dropout":(0.0 if use_binder_template else 1.0)})
+    template_dropout = 0.0 if use_binder_template else 1.0
+    self.opt["template"].update({"rm_ic":rm_template_ic, "dropout":template_dropout, **rm})
 
     # gather hotspot info
     if hotspot is not None:

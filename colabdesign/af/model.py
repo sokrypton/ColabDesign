@@ -30,7 +30,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                use_multimer=False,
                use_mlm=False,
                use_crop=False, crop_len=None, crop_mode="slide",               
-               input_callback=None, loss_callback=None, design_callback=None,
+               inputs_callback=None, loss_callback=None, design_callback=None,
                debug=False,
                data_dir="."):
     
@@ -42,7 +42,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._callbacks = {"loss":loss_callback, "inputs":input_callback, "design":design_callback}
+    self._callbacks = {"loss":loss_callback, "inputs":inputs_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm,

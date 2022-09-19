@@ -308,16 +308,21 @@ class _af_design:
              hard=0.0, e_hard=None,
              step=1.0, e_step=None,
              dropout=True, opt=None, weights=None, 
-             num_recycles=None, num_models=None, sample_models=None, models=None,
+             num_recycles=None, ramp_recycles=False, 
+             num_models=None, sample_models=None, models=None,
              backprop=True, callback=None, save_best=False, verbose=1):
 
     # update options/settings (if defined)
     self.set_opt(opt, dropout=dropout)
-    self.set_weights(weights)
-    
+    self.set_weights(weights)    
     m = {"soft":[soft,e_soft],"temp":[temp,e_temp],
          "hard":[hard,e_hard],"step":[step,e_step]}
     m = {k:[s,(s if e is None else e)] for k,(s,e) in m.items()}
+
+    if ramp_recycles:
+      if num_recycles is None:
+        num_recycles = self.opt["num_recycles"]
+      m["num_recycles"] = [0,num_recycles]
 
     for i in range(iters):
       for k,(s,e) in m.items():
@@ -326,6 +331,7 @@ class _af_design:
         else:
           v = (s+(e-s)*((i+1)/iters))
           if k == "step": step = v
+          elif k == "num_recycles": num_recycles = round(v)
           else: self.set_opt({k:v})
       
       # decay learning rate based on temperature
@@ -359,20 +365,10 @@ class _af_design:
     # stage 1: logits -> softmax(logits/1.0)
     if soft_iters > 0:
       if verbose: print("Stage 1: running (logits → soft)")
-      if ramp_recycles and self._args["recycle_mode"] not in ["add_prev","backprop"]:
-        num_cycles = kwargs.pop("num_recycles", self.opt["num_recycles"]) + 1
-        p = 1.0 / num_cycles
-        for c in range(num_cycles):
-          if verbose and c > 0: print(f"Increasing number of recycles to {c}.")
-
-          kwargs["num_recycles"] = c
-          iters = soft_iters // num_cycles
-          self.design_logits(iters, soft=c*p, e_soft=(c+1)*p, **kwargs)        
-      else:
-        self.design_logits(soft_iters, e_soft=1, **kwargs)
-    
-    self._tmp["seq_logits"] = self.aux["seq"]["logits"]
-    
+      self.design_logits(soft_iters, e_soft=1,
+        ramp_recycles=ramp_recycles, **kwargs)
+      self._tmp["seq_logits"] = self.aux["seq"]["logits"]
+      
     # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
     if temp_iters > 0:
       if verbose: print("Stage 2: running (soft → hard)")

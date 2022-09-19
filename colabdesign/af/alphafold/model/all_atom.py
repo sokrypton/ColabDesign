@@ -81,10 +81,7 @@ def atom14_to_atom37(atom14_data: jnp.ndarray,  # (N, 14, ...)
   assert 'residx_atom37_to_atom14' in batch
   assert 'atom37_atom_exists' in batch
   
-  if jnp.issubdtype(batch['residx_atom37_to_atom14'].dtype, jnp.integer):
-    atom37_data = utils.batched_gather(atom14_data, batch['residx_atom37_to_atom14'], batch_dims=1)
-  else:
-    atom37_data = jnp.einsum("na...,nba->nb...", atom14_data, batch['residx_atom37_to_atom14'])
+  atom37_data = utils.batched_gather(atom14_data, batch['residx_atom37_to_atom14'], batch_dims=1)
     
   if len(atom14_data.shape) == 2:
     atom37_data *= batch['atom37_atom_exists']
@@ -100,10 +97,7 @@ def atom37_to_atom14(
   assert 'residx_atom14_to_atom37' in batch
   assert 'atom14_atom_exists' in batch
 
-  if jnp.issubdtype(batch['residx_atom14_to_atom37'].dtype, jnp.integer):
-    atom14_data = utils.batched_gather(atom37_data, batch['residx_atom14_to_atom37'], batch_dims=1)
-  else:
-    atom14_data = jnp.einsum("na...,nba->nb...", atom37_data, batch['residx_atom14_to_atom37'])
+  atom14_data = utils.batched_gather(atom37_data, batch['residx_atom14_to_atom37'], batch_dims=1)
     
   if len(atom37_data.shape) == 2:
     atom14_data *= batch['atom14_atom_exists'].astype(atom14_data.dtype)
@@ -461,10 +455,7 @@ def torsion_angles_to_frames(
   Returns:
     Frames corresponding to all the Sidechain Rigid Transforms
   """
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    assert len(aatype.shape) == 1
-  else:
-    assert len(aatype.shape) == 2
+  assert len(aatype.shape) == 1
   assert len(backb_to_global.rot.xx.shape) == 1
   assert len(torsion_angles_sin_cos.shape) == 3
   assert torsion_angles_sin_cos.shape[1] == 7
@@ -473,10 +464,7 @@ def torsion_angles_to_frames(
   # Gather the default frames for all rigid groups.
   # r3.Rigids with shape (N, 8)
   
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    m = utils.batched_gather(residue_constants.restype_rigid_group_default_frame, aatype)
-  else:
-    m = jnp.einsum("...a,abcd->...bcd",aatype,residue_constants.restype_rigid_group_default_frame)
+  m = utils.batched_gather(residue_constants.restype_rigid_group_default_frame, aatype)
   
   default_frames = r3.rigids_from_tensor4x4(m)
 
@@ -486,10 +474,7 @@ def torsion_angles_to_frames(
   cos_angles = torsion_angles_sin_cos[..., 1]
 
   # insert zero rotation for backbone group.
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    num_residues, = aatype.shape
-  else:
-    num_residues,_ = aatype.shape
+  num_residues, = aatype.shape
   sin_angles = jnp.concatenate([jnp.zeros([num_residues, 1]), sin_angles],axis=-1)
   cos_angles = jnp.concatenate([jnp.ones([num_residues, 1]), cos_angles],axis=-1)
   zeros = jnp.zeros_like(sin_angles)
@@ -554,11 +539,8 @@ def frames_and_literature_positions_to_atom14_pos(
   """
 
   # Pick the appropriate transform for every atom.
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    residx_to_group_idx = utils.batched_gather(residue_constants.restype_atom14_to_rigid_group, aatype)
-    group_mask = jax.nn.one_hot(residx_to_group_idx, num_classes=8)  # shape (N, 14, 8)
-  else:
-    group_mask = jnp.einsum("...a,abc->...bc",aatype, jax.nn.one_hot(residue_constants.restype_atom14_to_rigid_group, 8))
+  residx_to_group_idx = utils.batched_gather(residue_constants.restype_atom14_to_rigid_group, aatype)
+  group_mask = jax.nn.one_hot(residx_to_group_idx, num_classes=8)  # shape (N, 14, 8)
 
   # r3.Rigids with shape (N, 14)
   map_atoms_to_global = jax.tree_map(
@@ -567,10 +549,7 @@ def frames_and_literature_positions_to_atom14_pos(
 
   # Gather the literature atom positions for each residue.
   # r3.Vecs with shape (N, 14)
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    group_pos = utils.batched_gather(residue_constants.restype_atom14_rigid_group_positions, aatype)
-  else:
-    group_pos = jnp.einsum("...a,abc->...bc", aatype, residue_constants.restype_atom14_rigid_group_positions)
+  group_pos = utils.batched_gather(residue_constants.restype_atom14_rigid_group_positions, aatype)
   lit_positions = r3.vecs_from_tensor(group_pos)
 
   # Transform each atom from its local frame to the global frame.
@@ -578,10 +557,7 @@ def frames_and_literature_positions_to_atom14_pos(
   pred_positions = r3.rigids_mul_vecs(map_atoms_to_global, lit_positions)
 
   # Mask out non-existing atoms.
-  if jnp.issubdtype(aatype.dtype, jnp.integer):
-    mask = utils.batched_gather(residue_constants.restype_atom14_mask, aatype)
-  else:
-    mask = jnp.einsum("...a,ab->...b",aatype,residue_constants.restype_atom14_mask)
+  mask = utils.batched_gather(residue_constants.restype_atom14_mask, aatype)
   pred_positions = jax.tree_map(lambda x: x * mask, pred_positions)
   return pred_positions
 

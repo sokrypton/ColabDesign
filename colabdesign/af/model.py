@@ -2,6 +2,7 @@ import os
 import jax
 import jax.numpy as jnp
 import numpy as np
+from inspect import signature
 
 from colabdesign.af.alphafold.model import data, config, model, all_atom
 
@@ -48,7 +49,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "best_metric":best_metric,
                   "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
 
-    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False, "mlm_dropout":0.05,
+    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
@@ -58,8 +59,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
+      self.opt["mlm_dropout"] = 0.05
       self.opt["weights"]["mlm"] = 0.1
-    
+
     self._params = {}
     self._inputs = {}
 
@@ -116,7 +118,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                             use_multimer=a["use_multimer"])
 
     # setup function to get gradients
-    def _model(params, model_params, inputs, key, opt):
+    def _model(params, model_params, inputs, key):
+      inputs["params"] = params
+      opt = inputs["opt"]
 
       aux = {}
       key = Key(key=key).get
@@ -128,7 +132,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       L = inputs["aatype"].shape[0]
 
       # get sequence
-      seq = self._get_seq(inputs, params, opt, aux, key())
+      seq = self._get_seq(inputs, aux, key())
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
@@ -139,12 +143,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      aatype = jax.nn.one_hot(seq["pseudo"][0].argmax(-1),21)
-      update_aatype(jnp.broadcast_to(aatype,(L,21)), inputs)
+      update_aatype(seq["pseudo"][0].argmax(-1), inputs)
       
       # update template features
       if a["use_templates"]:
-        self._update_template(inputs, opt, key())
+        self._update_template(inputs, key())
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       
       # set dropout
@@ -187,21 +190,27 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       aux["losses"] = {}
 
       # add protocol specific losses
-      self._get_loss(inputs=inputs, outputs=outputs, opt=opt, aux=aux)
+      self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
       # add user defined losses
       inputs["seq"] = aux["seq"]      
-      inputs["params"] = params
       if self._loss_callback is not None:
         loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
         for loss_fn in loss_fns:
-          aux["losses"].update(loss_fn(inputs, outputs, opt))
+          if "opt" in signature(loss_fn).parameters:
+            print("DeprecationWarning:")
+            print("  Update your loss_callback function to loss_fn(inputs, outputs).")
+            print("  'opt' is now accessible via inputs['opt'].")
+            losses = loss_fn(inputs, outputs, opt)
+          else:
+            losses = loss_fn(inputs, outputs)
+          aux["losses"].update(losses)
 
       if a["debug"]:
-        aux["debug"] = {"inputs":inputs, "outputs":outputs, "opt":opt}
+        aux["debug"] = {"inputs":inputs, "outputs":outputs}
 
       # sequence entropy loss
-      aux["losses"].update(get_seq_ent_loss(inputs, outputs, opt))
+      aux["losses"].update(get_seq_ent_loss(inputs, outputs))
       
       # experimental masked-language-modeling
       if a["use_mlm"]:
@@ -210,7 +219,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # weighted loss
       w = opt["weights"]
       loss = sum([v * w[k] if k in w else v for k,v in aux["losses"].items()])
-            
+
       return loss, aux
     
     return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),

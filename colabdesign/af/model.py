@@ -29,8 +29,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
                use_mlm=False,
-               use_crop=False, crop_len=None, crop_mode="slide",
-               debug=False, loss_callback=None, data_dir="."):
+               use_crop=False, crop_len=None, crop_mode="slide",               
+               input_callback=None, loss_callback=None, design_callback=None,
+               debug=False,
+               data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
@@ -40,7 +42,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._loss_callback = loss_callback
+    self._callbacks = {"loss":loss_callback, "inputs":input_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm,
@@ -143,8 +145,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      update_aatype(seq["pseudo"][0].argmax(-1), inputs)
-      
+      update_aatype(seq["pseudo"][0].argmax(-1), inputs)      
+
+      inputs["seq"] = aux["seq"]      
+
       # update template features
       if a["use_templates"]:
         self._update_template(inputs, key())
@@ -159,6 +163,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       if "batch" not in inputs:
         inputs["batch"] = None
+
+      # inputs callback
+      if self._callbacks["inputs"] is not None:
+        fns = self._callbacks["inputs"]
+        if not isinstance(fns, list): fns = [fns]
+        for fn in fns: fn(inputs)
       
       #######################################################################
       # OUTPUTS
@@ -193,18 +203,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
       # add user defined losses
-      inputs["seq"] = aux["seq"]      
-      if self._loss_callback is not None:
-        loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
-        for loss_fn in loss_fns:
-          if "opt" in signature(loss_fn).parameters:
-            print("DeprecationWarning:")
-            print("  Update your loss_callback function to loss_fn(inputs, outputs).")
-            print("  'opt' is now accessible via inputs['opt'].")
-            losses = loss_fn(inputs, outputs, opt)
+      if self._callbacks["loss"] is not None:
+        fns = self._callbacks["loss"]
+        if not isinstance(fns, list): fns = [fns]
+        for fn in fns:
+          if "opt" in signature(fn).parameters:
+            aux["losses"].update(fn(inputs, outputs, opt))
           else:
-            losses = loss_fn(inputs, outputs)
-          aux["losses"].update(losses)
+            aux["losses"].update(fn(inputs, outputs))
 
       if a["debug"]:
         aux["debug"] = {"inputs":inputs, "outputs":outputs}

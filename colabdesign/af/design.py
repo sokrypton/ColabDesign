@@ -91,10 +91,6 @@ class _af_design:
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
           backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
-
-
-    callbacks = [callback]
-    if self._args["use_crop"]: callbacks.append(self._crop())
     
     # decide which model params to use
     if model_nums is None:
@@ -117,9 +113,15 @@ class _af_design:
     self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
     self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
     
-    # callback
-    for callback in callbacks:
-      if callback is not None: callback(self)
+    # design callbacks
+    def append(x,fns):
+      if not isinstance(fns,list): fns = [fns]
+      x += [fn for fn in fns if fn is not None]
+    callbacks = []
+    append(callbacks, callback)
+    append(callbacks, self._callbacks["design"])
+    if self._args["use_crop"]: append(callbacks, self._crop())
+    for callback in callbacks: callback(self)
 
     # update log
     self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}

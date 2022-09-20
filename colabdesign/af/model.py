@@ -28,9 +28,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                model_names=None,
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
-               use_mlm=False,
-               use_crop=False, crop_len=None, crop_mode="slide",
-               debug=False, loss_callback=None, data_dir="."):
+               use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
+               pre_callback=None, post_callback=None, design_callback=None,
+               loss_callback=None, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
@@ -40,7 +40,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._loss_callback = loss_callback
+    self._callbacks = {"pre":pre_callback, "post":post_callback, 
+                       "loss":loss_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm,
@@ -143,8 +144,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      update_aatype(seq["pseudo"][0].argmax(-1), inputs)
-      
+      update_aatype(seq["pseudo"][0].argmax(-1), inputs)      
+
+      inputs["seq"] = aux["seq"]      
+
       # update template features
       if a["use_templates"]:
         self._update_template(inputs, key())
@@ -159,6 +162,16 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       if "batch" not in inputs:
         inputs["batch"] = None
+
+      # pre callback
+      if self._callbacks["pre"] is not None:
+        fns = self._callbacks["pre"]
+        if not isinstance(fns, list): fns = [fns]
+        for fn in fns: 
+          fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
+                     "seq":seq, "key":key(), "params":params}
+          sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+          fn(**sub_args)
       
       #######################################################################
       # OUTPUTS
@@ -192,34 +205,31 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # add protocol specific losses
       self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
-      # add user defined losses
-      inputs["seq"] = aux["seq"]      
-      if self._loss_callback is not None:
-        loss_fns = self._loss_callback if isinstance(self._loss_callback,list) else [self._loss_callback]
-        for loss_fn in loss_fns:
-          if "opt" in signature(loss_fn).parameters:
-            print("DeprecationWarning:")
-            print("  Update your loss_callback function to loss_fn(inputs, outputs).")
-            print("  'opt' is now accessible via inputs['opt'].")
-            losses = loss_fn(inputs, outputs, opt)
-          else:
-            losses = loss_fn(inputs, outputs)
-          aux["losses"].update(losses)
-
-      if a["debug"]:
-        aux["debug"] = {"inputs":inputs, "outputs":outputs}
-
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs))
       
       # experimental masked-language-modeling
       if a["use_mlm"]:
         aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
+
+      # run user defined callbacks
+      for c in ["loss","post"]:
+        fns = self._callbacks[c]
+        if fns is not None:
+          if not isinstance(fns, list): fns = [fns]
+          for fn in fns:
+            fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
+                       "aux":aux, "seq":seq, "key":key(), "params":params}
+            sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+            if c == "loss": aux["losses"].update(fn(**sub_args))
+            if c == "post": fn(**sub_args)
+
+      # save for debugging
+      if a["debug"]: aux["debug"] = {"inputs":inputs,"outputs":outputs}
   
       # weighted loss
       w = opt["weights"]
       loss = sum([v * w[k] if k in w else v for k,v in aux["losses"].items()])
-
       return loss, aux
     
     return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),

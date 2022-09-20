@@ -28,11 +28,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                model_names=None,
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
-               use_mlm=False,
-               use_crop=False, crop_len=None, crop_mode="slide",               
-               inputs_callback=None, loss_callback=None, design_callback=None,
-               debug=False,
-               data_dir="."):
+               use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
+               pre_callback=None, post_callback=None, design_callback=None,
+               loss_callback=None, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
@@ -42,7 +40,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._callbacks = {"loss":loss_callback, "inputs":inputs_callback, "design":design_callback}
+    self._callbacks = {"pre":pre_callback, "post":post_callback, 
+                       "loss":loss_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm,
@@ -164,14 +163,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if "batch" not in inputs:
         inputs["batch"] = None
 
-      # inputs callback
-      if self._callbacks["inputs"] is not None:
-        fns = self._callbacks["inputs"]
+      # pre callback
+      if self._callbacks["pre"] is not None:
+        fns = self._callbacks["pre"]
         if not isinstance(fns, list): fns = [fns]
         for fn in fns: 
-          args = {"inputs":inputs, "opt":opt, "aux":aux, 
-                  "seq":seq, "key":key, "params":params}
-          sub_args = {k:args[k] for k in signature(fn).parameters}
+          fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
+                     "seq":seq, "key":key(), "params":params}
+          sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
           fn(**sub_args)
       
       #######################################################################
@@ -213,18 +212,20 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if a["use_mlm"]:
         aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
 
-      # add user defined losses
-      if self._callbacks["loss"] is not None:
-        fns = self._callbacks["loss"]
-        if not isinstance(fns, list): fns = [fns]
-        for fn in fns:
-          args = {"inputs":inputs, "outputs":outputs, "opt":opt,
-                  "aux":aux, "seq":seq, "key":key, "params":params}
-          sub_args = {k:args[k] for k in signature(fn).parameters}
-          aux["losses"].update(fn(**sub_args))
+      # run user defined callbacks
+      for c in ["loss","post"]:
+        fns = self._callbacks[c]
+        if fns is not None:
+          if not isinstance(fns, list): fns = [fns]
+          for fn in fns:
+            fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
+                       "aux":aux, "seq":seq, "key":key(), "params":params}
+            sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+            if c == "loss": aux["losses"].update(fn(**sub_args))
+            if c == "post": fn(**sub_args)
 
-      if a["debug"]:
-        aux["debug"] = {"inputs":inputs, "outputs":outputs}
+      # save for debugging
+      if a["debug"]: aux["debug"] = {"inputs":inputs,"outputs":outputs}
   
       # weighted loss
       w = opt["weights"]

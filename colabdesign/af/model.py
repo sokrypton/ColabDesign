@@ -168,7 +168,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if self._callbacks["inputs"] is not None:
         fns = self._callbacks["inputs"]
         if not isinstance(fns, list): fns = [fns]
-        for fn in fns: fn(inputs)
+        for fn in fns: 
+          args = {"inputs":inputs, "opt":opt, "aux":aux, 
+                  "seq":seq, "key":key, "params":params}
+          sub_args = {k:args[k] for k in signature(fn).parameters}
+          fn(**sub_args)
       
       #######################################################################
       # OUTPUTS
@@ -202,30 +206,29 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # add protocol specific losses
       self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
-      # add user defined losses
-      if self._callbacks["loss"] is not None:
-        fns = self._callbacks["loss"]
-        if not isinstance(fns, list): fns = [fns]
-        for fn in fns:
-          if "opt" in signature(fn).parameters:
-            aux["losses"].update(fn(inputs, outputs, opt))
-          else:
-            aux["losses"].update(fn(inputs, outputs))
-
-      if a["debug"]:
-        aux["debug"] = {"inputs":inputs, "outputs":outputs}
-
       # sequence entropy loss
       aux["losses"].update(get_seq_ent_loss(inputs, outputs))
       
       # experimental masked-language-modeling
       if a["use_mlm"]:
         aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
+
+      # add user defined losses
+      if self._callbacks["loss"] is not None:
+        fns = self._callbacks["loss"]
+        if not isinstance(fns, list): fns = [fns]
+        for fn in fns:
+          args = {"inputs":inputs, "outputs":outputs, "opt":opt,
+                  "aux":aux, "seq":seq, "key":key, "params":params}
+          sub_args = {k:args[k] for k in signature(fn).parameters}
+          aux["losses"].update(fn(**sub_args))
+
+      if a["debug"]:
+        aux["debug"] = {"inputs":inputs, "outputs":outputs}
   
       # weighted loss
       w = opt["weights"]
       loss = sum([v * w[k] if k in w else v for k,v in aux["losses"].items()])
-
       return loss, aux
     
     return {"grad_fn":jax.jit(jax.value_and_grad(_model, has_aux=True, argnums=0)),

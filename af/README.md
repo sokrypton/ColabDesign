@@ -22,7 +22,7 @@
   - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used during optimization.
   - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
   - fixing integration with TrDesign that got broken in v1.0.6
-  - custom callback functions (\[pre|loss|pos\]_callback) have been refactored to be more flexible. Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
+  - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible. Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git
@@ -261,6 +261,32 @@ def design_custom(self):
 model = mk_afdesign_model()
 design_custom(model)
 ```
+
+#### custom callback examples
+Looking for more control over afdesign? The callback functions have gotten much smarter. Based on your input arguments, it will automatically fetch the variable of interest. You can now define your own custom losses, params to optimize, modify inputs before alphafold is run, and modify auxiliary outputs.
+```python
+def custom_pre_callback(inputs, aux, opt, key):
+  inputs["aatype"] = inputs["aatype"].at[:].set(0)
+  aux["pre"] = opt["pre"] + jax.random.randint(key,[],0,10)
+
+def custom_post_callback(outputs, aux):
+  aux["post"] = outputs["structure_module"]
+
+def custom_loss_callback(outputs, params):
+  loss = jnp.square(outputs["structure_module"]["final_atom14_positions"] + params["custom_param"]).mean()
+  return {"custom_loss":loss}
+
+af_model = mk_afdesign_model(protocol="fixbb",
+                             pre_callback=custom_pre_callback,
+                             post_callback=custom_post_callback,
+                             loss_callback=custom_loss_callback)
+af_model._params["custom_param"] = 1.0
+af_model.opt["weights"]["custom_loss"] = 0.1
+af_model.opt["pre"] = 100
+
+af_model.prep_inputs(pdb_filename=get_pdb("1TEN"), chain="A")
+```
+
 # Previous Updates
 - **24Feb2022** - "Beta" branch started. Refactoring code to allow homooligomeric hallucination/design and averaging gradients across recycles (which is now the default).
 Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_pae/inter_con to i_pae/i_con for clarity.

@@ -169,7 +169,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         if not isinstance(fns, list): fns = [fns]
         for fn in fns: 
           fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
-                     "seq":aux["seq"], "key":key(), "params":params}
+                     "seq":seq, "key":key(), "params":params}
           sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
           fn(**sub_args)
       
@@ -219,7 +219,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
           if not isinstance(fns, list): fns = [fns]
           for fn in fns:
             fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
-                       "aux":aux, "seq":aux["seq"], "key":key(), "params":params}
+                       "aux":aux, "seq":seq, "key":key(), "params":params}
             sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
             if c == "loss": aux["losses"].update(fn(**sub_args))
             if c == "post": fn(**sub_args)

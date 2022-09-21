@@ -42,7 +42,7 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","use_crop","crop_mode","crop_len"]:
+    for k in ["best_metric", "use_crop","crop_mode","crop_len"]:
       if k in kwargs:
         self._args[k] = kwargs.pop(k)
             
@@ -55,15 +55,14 @@ class _af_utils:
     
     if "optimizer" in kwargs:
       o = kwargs.pop("optimizer")
-      lr = kwargs.pop("learning_rate",kwargs.pop("lr",None))
-      if o in ["sgd","adam","default_adam"]:
+      lr = kwargs.pop("learning_rate", None)
+      if o in ["sgd","adam"]:
         self._tmp["state"] = {}
         self._args["optimizer"] = o
         if lr is None:
           if o == "sgd": lr = 0.1
           if o == "adam": lr = 0.02
-          if o == "default_adam": lr = 1e-3
-        self.opt["lr"] = lr
+        self.opt["learning_rate"] = lr
 
     ks = list(kwargs.keys())
     if len(ks) > 0:

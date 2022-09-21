@@ -199,30 +199,28 @@ class _af_design:
     self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
              models=models, backprop=backprop, callback=callback)
 
-    # modify gradients
-    def mod_adam(b1=0.9, b2=0.999, eps=1e-8):
-      for k,g in self.aux["grad"].items():
-        gg = np.square(g)
-        s = self._tmp["state"].get(k,{"i":0,"m":0,"v":0})
-        s["i"] += 1
-        m = s["m"] = b1 * s["m"] + (1-b1) * g
-        v = s["v"] = b2 * s["v"] + (1-b2) * gg
-        m_ = m / (1 - b1 ** s["i"])
-        v_ = v / (1 - b2 ** s["i"])
-        self.aux["grad"][k] = m_/(np.sqrt(v_) + eps)
-        self._tmp["state"][k] = s
-    
-    def mod_sgd(eps=1e-8):
+    # modify gradients    
+    if self.opt["norm_seq_grad"]:
       g = self.aux["grad"]["seq"]
       eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
       gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
-      self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + eps)      
+      self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
 
-    if self._args["optimizer"] in ["sgd","adam"]:          mod_sgd()
-    if self._args["optimizer"] in ["adam","default_adam"]: mod_adam()
+    if self._args["optimizer"] == "adam":
+      (b1, b2, eps) = (0.9, 0.999, 1e-8)
+      for k,g in self.aux["grad"].items():
+        gg = np.square(g)
+        s = self._tmp["state"].get(k,{"i":0,"m":0,"v":0})
+        i = s["i"] = s["i"] + 1
+        m = s["m"] = b1 * s["m"] + (1-b1) * g
+        v = s["v"] = b2 * s["v"] + (1-b2) * gg
+        m_ = m / (1 - b1 ** i)
+        v_ = v / (1 - b2 ** i)
+        self._tmp["state"][k] = s
+        self.aux["grad"][k] = m_/(np.sqrt(v_) + eps)
 
     # apply gradients
-    lr = self.opt["lr"] * lr_scale
+    lr = self.opt["learning_rate"] * lr_scale
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # increment

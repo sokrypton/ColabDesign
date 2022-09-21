@@ -57,6 +57,7 @@ class _af_utils:
       o = kwargs.pop("optimizer")
       lr = kwargs.pop("learning_rate",kwargs.pop("lr",None))
       if o in ["sgd","adam","mod_adam"]:
+        self._tmp["state"] = {}
         self._args["optimizer"] = o
         if lr is None:
           if o in ["sgd","mod_adam"]: lr = 0.1

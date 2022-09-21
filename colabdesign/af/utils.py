@@ -53,13 +53,15 @@ class _af_utils:
       else:
         print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
     
-    if "optimizer" in kwargs and kwargs["optimizer"] in ["sgd","adam","mod_adam"]:
-      o = self._args["optimizer"] = kwargs.pop("optimizer")
-      lr = kwargs.pop("lr",kwargs.pop("learning_rate",None))
-      if lr is None:
-        if o in ["sgd","mod_adam"]: lr = 0.1
-        if o in ["adam"]: lr = 0.02
-      self.opt["lr"] = lr
+    if "optimizer" in kwargs:
+      o = kwargs.pop("optimizer")
+      lr = kwargs.pop("learning_rate",kwargs.pop("lr",None))
+      if o in ["sgd","adam","mod_adam"]:
+        self._args["optimizer"] = o
+        if lr is None:
+          if o in ["sgd","mod_adam"]: lr = 0.1
+          if o in ["adam"]: lr = 0.02
+        self.opt["lr"] = lr
 
     ks = list(kwargs.keys())
     if len(ks) > 0:

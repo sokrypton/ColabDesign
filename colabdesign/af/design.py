@@ -5,11 +5,6 @@ import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
 
-try:
-  from jax.example_libraries.optimizers import sgd, adam
-except:
-  from jax.experimental.optimizers import sgd, adam
-
 ####################################################
 # AF_DESIGN - design functions
 ####################################################
@@ -28,7 +23,8 @@ except:
 
 class _af_design:
 
-  def restart(self, seed=None, optimizer="sgd", learning_rate=None, opt=None, weights=None,
+  def restart(self, seed=None, opt=None, weights=None,
+              optimizer=None, learning_rate=None,
               seq=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
@@ -47,30 +43,19 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {}
+      self._best, self._tmp = {}, {"state":{}}
 
     # update options/settings (if defined)
     self.set_opt(opt)
     self.set_weights(weights)
 
     # setup optimizer
-    assert isinstance(optimizer, str)
-    if optimizer == "adam": (self._optimizer,lr) = (adam,0.02)
-    if optimizer == "sgd":  (self._optimizer,lr) = (sgd,0.1)
-    if learning_rate is None: learning_rate = lr
-    self.opt["lr"] = learning_rate
-    self._set_lr(learning_rate)    
-
+    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
+  
     # initialize sequence
     self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
     self._k = 0
-
-  def _set_lr(self, lr, **kwargs):
-    '''set learning rate'''
-    if self._tmp.get("lr",None) != lr:
-      self._init_fun, self._update_fun, self._get_params = self._optimizer(lr, **kwargs)
-      self._tmp["lr"] = lr
 
   def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
@@ -207,31 +192,42 @@ class _af_design:
 
   def step(self, lr_scale=1.0, num_recycles=None,
            num_models=None, sample_models=None, models=None, backprop=True,
-           callback=None, stats_correct=False, save_best=False, verbose=1):
+           callback=None, save_best=False, verbose=1):
     '''do one step of gradient descent'''
     
     # run
     self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
              models=models, backprop=backprop, callback=callback)
 
-    # apply gradient
-    g = self.aux["grad"]["seq"]
-    eff_len = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+    # modify gradients
+    def mod_adam(b1=0.9, b2=0.999, eps=1e-8, mod=False):
+      for k,g in self.aux["grad"].items():
+        gg = np.square(g)
+        if mod and k == "seq":
+          eff_L = (gg.sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+          gg = gg.sum((-1,-2),keepdims=True) / eff_L
+        s = self._tmp["state"].get(k,{"i":0,"m":0,"v":0})
+        s["i"] += 1
+        m = s["m"] = b1 * s["m"] + (1-b1) * g
+        v = s["v"] = b2 * s["v"] + (1-b2) * gg
+        m_ = m / (1 - b1 ** s["i"])
+        v_ = v / (1 - b2 ** s["i"])
+        self.aux["grad"][k] = m_/(np.sqrt(v_) + eps)
+        self._tmp["state"][k] = s
     
-    # statistical correction - doi:10.1101/2022.04.29.490102
-    if stats_correct:
-      g = g - g.sum(-2,keepdims=True) / eff_len
+    def mod_sgd(eps=1e-8):
+      g = self.aux["grad"]["seq"]
+      eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+      gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
+      self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + eps)      
 
-    # normalize gradient
-    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.aux["grad"]["seq"] = g * np.sqrt(eff_len) / (gn+1e-7)
+    if self._args["optimizer"] in ["sgd","adam"]: mod_sgd()
+    if self._args["optimizer"] in ["adam"]:       mod_adam()
+    if self._args["optimizer"] in ["mod_adam"]:   mod_adam(mod=True)
 
-    # set learning rate
-    self._set_lr(self.opt["lr"] * lr_scale)
-
-    # update state/params
-    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
-    self._params = self._get_params(self._state)
+    # apply gradients
+    lr = self.opt["lr"] * lr_scale
+    self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # increment
     self._k += 1
@@ -288,7 +284,7 @@ class _af_design:
     (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])
 
     # set [seq]uence/[opt]ions
-    if seq is not None: self.set_seq(seq=seq, set_state=False)    
+    if seq is not None: self.set_seq(seq=seq)    
 
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
                  use_crop=False, use_pssm=False)

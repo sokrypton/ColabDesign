@@ -28,7 +28,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                model_names=None,
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
-               use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
+               use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",
+               optimizer="sgd", learning_rate=None,
                pre_callback=None, post_callback=None, design_callback=None,
                loss_callback=None, debug=False, data_dir="."):
     
@@ -58,6 +59,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
+
+    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
 
     if self._args["use_mlm"]:
       self.opt["mlm_dropout"] = 0.05

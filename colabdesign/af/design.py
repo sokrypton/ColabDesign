@@ -28,7 +28,7 @@ except:
 
 class _af_design:
 
-  def restart(self, seed=None, optimizer="sgd", opt=None, weights=None,
+  def restart(self, seed=None, optimizer="sgd", learning_rate=None, opt=None, weights=None,
               seq=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
@@ -44,28 +44,33 @@ class _af_design:
     # reset [opt]ions
     if reset_opt and not keep_history:
       self.opt = copy_dict(self._opt)
+    if not keep_history:
+      # initialize trajectory
+      self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
+      self._best, self._tmp = {}, {}
 
     # update options/settings (if defined)
     self.set_opt(opt)
     self.set_weights(weights)
 
     # setup optimizer
-    if isinstance(optimizer, str):
-      if optimizer == "adam": (optimizer,lr) = (adam,0.02)
-      if optimizer == "sgd":  (optimizer,lr) = (sgd,0.1)
-      self.opt["lr"] = lr
-
-    self._init_fun, self._update_fun, self._get_params = optimizer(1.0)
+    assert isinstance(optimizer, str)
+    if optimizer == "adam": (self._optimizer,lr) = (adam,0.02)
+    if optimizer == "sgd":  (self._optimizer,lr) = (sgd,0.1)
+    if learning_rate is None: learning_rate = lr
+    self.opt["lr"] = learning_rate
+    self._set_lr(learning_rate)    
 
     # initialize sequence
     self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
     self._k = 0
 
-    if not keep_history:
-      # initialize trajectory
-      self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {}
+  def _set_lr(self, lr, **kwargs):
+    '''set learning rate'''
+    if self._tmp.get("lr",None) != lr:
+      self._init_fun, self._update_fun, self._get_params = self._optimizer(lr, **kwargs)
+      self._tmp["lr"] = lr
 
   def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
@@ -219,11 +224,10 @@ class _af_design:
 
     # normalize gradient
     gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.aux["grad"]["seq"] = g * np.sqrt(eff_len)/(gn+1e-7)
+    self.aux["grad"]["seq"] = g * np.sqrt(eff_len) / (gn+1e-7)
 
     # set learning rate
-    lr = self.opt["lr"] * lr_scale
-    self.aux["grad"] = jax.tree_map(lambda x:x*lr, self.aux["grad"])
+    self._set_lr(self.opt["lr"] * lr_scale)
 
     # update state/params
     self._state = self._update_fun(self._k, self.aux["grad"], self._state)

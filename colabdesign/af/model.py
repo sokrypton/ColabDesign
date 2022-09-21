@@ -25,7 +25,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
-               model_names=None, optimizer="sgd",
+               model_names=None, optimizer="sgd", learning_rate=None,
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
                use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               

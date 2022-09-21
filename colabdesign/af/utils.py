@@ -56,12 +56,13 @@ class _af_utils:
     if "optimizer" in kwargs:
       o = kwargs.pop("optimizer")
       lr = kwargs.pop("learning_rate",kwargs.pop("lr",None))
-      if o in ["sgd","adam","mod_adam"]:
+      if o in ["sgd","adam","default_adam"]:
         self._tmp["state"] = {}
         self._args["optimizer"] = o
         if lr is None:
-          if o in ["sgd","mod_adam"]: lr = 0.1
-          if o in ["adam"]: lr = 0.02
+          if o == "sgd": lr = 0.1
+          if o == "adam": lr = 0.02
+          if o == "default_adam": lr = 1e-3
         self.opt["lr"] = lr
 
     ks = list(kwargs.keys())

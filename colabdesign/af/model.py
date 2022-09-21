@@ -35,7 +35,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
-    assert optimizer in ["sgd","adam","mod_adam"]
+    assert optimizer in ["sgd","adam","default_adam"]
     assert crop_mode in ["slide","roll","pair","dist"]
 
     # decide if templates should be used

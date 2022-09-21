@@ -37,7 +37,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
     assert optimizer in ["sgd","adam","mod_adam"]
     assert crop_mode in ["slide","roll","pair","dist"]
-    
+
     # decide if templates should be used
     if protocol == "binder": use_templates = True
 
@@ -61,6 +61,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
+    self._tmp = {"state":{}}
     self.set_args(optimizer=optimizer, learning_rate=learning_rate)
 
     if self._args["use_mlm"]:

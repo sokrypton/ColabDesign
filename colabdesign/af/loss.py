@@ -19,7 +19,8 @@ class _af_loss:
     copies = self._args["copies"] if self._args["homooligomer"] else 1    
     # rmsd loss
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
-    aux["atom_positions"] = aln["align"](aux["atom_positions"])
+    if self._args["realign"]:
+      aux["atom_positions"] = aln["align"](aux["atom_positions"])
     
     # supervised losses
     aux["losses"].update({
@@ -76,7 +77,8 @@ class _af_loss:
     else:
       align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
 
-    aux["atom_positions"] = align_fn(aux["atom_positions"])
+    if self._args["realign"]:
+      aux["atom_positions"] = align_fn(aux["atom_positions"])
 
   def _loss_partial(self, inputs, outputs, aux):
     '''get losses'''    
@@ -134,7 +136,8 @@ class _af_loss:
         aux["losses"]["sc_fape"] = 0.0
 
     # align final atoms
-    aux["atom_positions"] = aln["align"](aux["atom_positions"])
+    if self._args["realign"]:
+      aux["atom_positions"] = aln["align"](aux["atom_positions"])
 
   def _loss_hallucination(self, inputs, outputs, aux):
     # unsupervised losses

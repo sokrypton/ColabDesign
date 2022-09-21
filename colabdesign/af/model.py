@@ -45,7 +45,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                        "loss":loss_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
-                  "recycle_mode":recycle_mode, "use_mlm": use_mlm,
+                  "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":optimizer, "best_metric":best_metric,
                   "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}

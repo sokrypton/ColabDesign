@@ -59,15 +59,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
-    self._tmp = {"state":{}}
-    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
-
     if self._args["use_mlm"]:
       self.opt["mlm_dropout"] = 0.05
       self.opt["weights"]["mlm"] = 0.1
 
     self._params = {}
     self._inputs = {}
+    self._tmp = {"state":{}}
 
     #############################
     # configure AlphaFold

@@ -1,6 +1,7 @@
 import random, os
 import jax
 import jax.numpy as jnp
+import optax
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
@@ -48,14 +49,29 @@ class _af_design:
     # update options/settings (if defined)
     self.set_opt(opt)
     self.set_weights(weights)
-
-    # setup optimizer
-    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
   
     # initialize sequence
     self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
+
+    # setup optimizer
+    self.set_optimizer(optimizer, learning_rate)
     self._k = 0
+
+  def set_optimizer(self, optimizer=None, learning_rate=None, **kwargs):
+    '''set/reset optimizer'''
+    optimizers = {'adabelief':optax.adabelief,'adafactor':optax.adafactor,
+                  'adagrad':optax.adagrad,'adam':optax.adam,
+                  'adamw':optax.adamw,'fromage':optax.fromage,
+                  'lamb':optax.lamb,'lars':optax.lars,
+                  'noisy_sgd':optax.noisy_sgd,'dpsgd':optax.dpsgd,
+                  'radam':optax.radam,'rmsprop':optax.rmsprop,
+                  'sgd':optax.sgd,'sm3':optax.sm3,'yogi':optax.yogi}
+    
+    if optimizer not None: self._args["optimizer"] = optimizer
+    self._optimizer = optimizers[self._args["optimizer"]](1.0, **kwargs)
+    self._tmp["state"] = self._optimizer.init(self._params)
+    self.opt["learning_rate"] = 0.1 if learning_rate is None else learning_rate    
 
   def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
@@ -190,6 +206,12 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
+  def _norm_seq_grad(self):
+    g = self.aux["grad"]["seq"]
+    eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
+
   def step(self, lr_scale=1.0, num_recycles=None,
            num_models=None, sample_models=None, models=None, backprop=True,
            callback=None, save_best=False, verbose=1):
@@ -200,25 +222,11 @@ class _af_design:
              models=models, backprop=backprop, callback=callback)
 
     # modify gradients    
-    if self.opt["norm_seq_grad"]:
-      g = self.aux["grad"]["seq"]
-      eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
-      gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
-      self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
-
-    if self._args["optimizer"] == "adam":
-      (b1, b2, eps) = (0.9, 0.999, 1e-8)
-      for k,g in self.aux["grad"].items():
-        gg = np.square(g)
-        s = self._tmp["state"].get(k,{"i":0,"m":0,"v":0})
-        i = s["i"] = s["i"] + 1
-        m = s["m"] = b1 * s["m"] + (1-b1) * g
-        v = s["v"] = b2 * s["v"] + (1-b2) * gg
-        m_ = m / (1 - b1 ** i)
-        v_ = v / (1 - b2 ** i)
-        self._tmp["state"][k] = s
-        self.aux["grad"][k] = m_/(np.sqrt(v_) + eps)
-
+    if self.opt["norm_seq_grad"]: self._norm_seq_grad()
+    updates, self._tmp["state"] = self._optimizer.update(self.aux["grad"], self._tmp["state"])
+    _params = optax.apply_updates(self._params, updates)
+    self._aux["grad"] = jax.tree_map(lambda x,y:x-y, self._params, _params)
+  
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])

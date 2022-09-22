@@ -32,7 +32,8 @@ class mk_tr_model(design_model):
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
                 "num_models":num_models,"sample_models":sample_models,
                 "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0,
-                "learning_rate":learning_rate, "use_pssm":False}
+                "learning_rate":learning_rate, "use_pssm":False,
+                "norm_seq_grad":True}
                 
     self._args = {"optimizer":optimizer}
     self._params = {}

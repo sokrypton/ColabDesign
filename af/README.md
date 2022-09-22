@@ -205,7 +205,7 @@ By default, we use normalized stochastic gradient descent. See [full list](https
 To use the default ADAM use:
 ```python
 model = mk_afdesign_model(optimizer="adam", learning_rate=0.1)
-# or (if model already initalized and you want more control)
+# and/or for more control (note: optimizer/learning_rate etc. can change after model has been initialized)
 model.set_optimizer(optimizer="adam", learning_rate=0.1, b1=0.9, b2=0.999)
 ```
 Note: By default, the gradients for the sequence parameters are normalized. We find this helps with convergence. To disable:

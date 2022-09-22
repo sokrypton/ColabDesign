@@ -123,7 +123,7 @@ class design_model:
     gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
     self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
 
-  def set_optimizer(self, optimizer=None, learning_rate=None, **kwargs):
+  def set_optimizer(self, optimizer=None, learning_rate=None, norm_seq_grad=None, **kwargs):
     '''
     set/reset optimizer
     ----------------------------------
@@ -142,6 +142,8 @@ class design_model:
     o = optimizers[self._args["optimizer"]](1.0, **kwargs)
     self._state = o.init(self._params)
     self.opt["learning_rate"] = 0.1 if learning_rate is None else learning_rate
+    if norm_seq_grad is not None:
+      self.opt["norm_seq_grad"] = norm_seq_grad
 
     def update_grad(state, grad):
       updates, state = o.update(grad, state)

@@ -70,7 +70,8 @@ class design_model:
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
       wt_seq = np.eye(20)[self._wt_aatype]
       if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
-        seq = np.zeros(shape).at[...,self.opt["pos"],:].set(wt_seq)
+        seq = np.zeros(shape)
+        seq[...,self.opt["pos"],:] = wt_seq
       else:
         seq = wt_seq
     

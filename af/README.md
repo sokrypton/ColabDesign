@@ -12,7 +12,7 @@
   - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used during optimization.
   - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
   - fixing integration with TrDesign that got broken in v1.0.6
-- **20Sept2022** - v1.0.8
+- **22Sept2022** - v1.0.8
   - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible. Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
   - adding support for [Optax optimizers](#optax-optimizers)
 ### setup

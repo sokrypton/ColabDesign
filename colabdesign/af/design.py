@@ -368,7 +368,7 @@ class _af_design:
     N,L = seq.shape
 
     # fix some positions
-    i_prob = np.ones(L) if plddt is None else np.minimum(1-plddt,0)
+    i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
     if "fix_pos" in self.opt:
       if "pos" in self.opt:
         p = self.opt["pos"][self.opt["fix_pos"]]

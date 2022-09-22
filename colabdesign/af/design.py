@@ -68,7 +68,7 @@ class _af_design:
                   'radam':optax.radam,'rmsprop':optax.rmsprop,
                   'sgd':optax.sgd,'sm3':optax.sm3,'yogi':optax.yogi}
     
-    if optimizer not None: self._args["optimizer"] = optimizer
+    if optimizer is not None: self._args["optimizer"] = optimizer
     self._optimizer = optimizers[self._args["optimizer"]](1.0, **kwargs)
     self._tmp["state"] = self._optimizer.init(self._params)
     self.opt["learning_rate"] = 0.1 if learning_rate is None else learning_rate    
@@ -225,7 +225,7 @@ class _af_design:
     if self.opt["norm_seq_grad"]: self._norm_seq_grad()
     updates, self._tmp["state"] = self._optimizer.update(self.aux["grad"], self._tmp["state"])
     _params = optax.apply_updates(self._params, updates)
-    self._aux["grad"] = jax.tree_map(lambda x,y:x-y, self._params, _params)
+    self.aux["grad"] = jax.tree_map(lambda x,y:x-y, self._params, _params)
   
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale

@@ -15,9 +15,6 @@ from colabdesign.af.alphafold.common import protein
 ####################################################
 class _af_utils:  
 
-  def set_seed(self, seed=None):
-    self.key = Key(seed=seed).get
-
   def set_opt(self, *args, **kwargs):
     '''
     set [opt]ions

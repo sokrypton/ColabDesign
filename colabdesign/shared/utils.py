@@ -85,16 +85,34 @@ def dict_to_str(x, filt=None, keys=None, ok=None, print_str=None, f=2):
 
 class Key():
   '''random key generator'''
-  def __init__(self, key=None, seed=None):
+  def __init__(self, key=None, seed=None, backend="gpu"):
+    self.random = Random(backend=backend)
     if key is None:
       self.seed = random.randint(0,2147483647) if seed is None else seed
-      self.key = jax.random.PRNGKey(self.seed) 
+      self.key = self.random.PRNGKey(self.seed) 
     else:
       self.key = key
   def get(self, num=1):
     if num > 1:
-      self.key, *sub_keys = jax.random.split(self.key, num=(num+1))
+      self.key, *sub_keys = self.random.split(self.key, num=(num+1))
       return sub_keys
     else:
-      self.key, sub_key = jax.random.split(self.key)
+      self.key, sub_key = self.random.split(self.key)
       return sub_key
+
+class Random():
+  def __init__(self, backend="gpu"):
+    self.PRNGKey = jax.jit(jax.random.PRNGKey, backend=backend)
+    self.split = jax.jit(jax.random.split, backend=backend)
+    self.bernoulli = jax.jit(jax.random.bernoulli, backend=backend)
+    self.categorical = jax.jit(jax.random.categorical, backend=backend)
+    self.choice = jax.jit(jax.random.choice, backend=backend)
+    self.gumbel = jax.jit(jax.random.gumbel, backend=backend)
+    self.normal = jax.jit(jax.random.normal, backend=backend)
+    self.randint = jax.jit(jax.random.randint, backend=backend)
+    self.uniform = jax.jit(jax.random.uniform, backend=backend)
+
+def softmax(x, axis=-1):
+  x = x - x.max(axis,keepdims=True)
+  x = np.exp(x)
+  return x / x.sum(axis,keepdims=True)

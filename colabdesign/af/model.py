@@ -7,7 +7,7 @@ from inspect import signature
 from colabdesign.af.alphafold.model import data, config, model, all_atom
 
 from colabdesign.shared.model import design_model
-from colabdesign.shared.utils import Key
+from colabdesign.shared.utils import Key, Random
 
 from colabdesign.af.prep   import _af_prep
 from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss, get_mlm_loss
@@ -25,7 +25,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
-               model_names=None, optimizer="sgd", learning_rate=None,
+               model_names=None, optimizer="sgd", learning_rate=0.1,
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
                use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
@@ -49,7 +49,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "optimizer":optimizer, "best_metric":best_metric,
                   "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
 
-    self.opt = {"dropout":True, "use_pssm":False, "learning_rate":0.1, "norm_seq_grad":True,
+    self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
@@ -64,7 +64,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self._params = {}
     self._inputs = {}
-    self._tmp = {"state":{}}
+    self._tmp = {}
 
     #############################
     # configure AlphaFold
@@ -110,6 +110,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     idx = ["fixbb","hallucination","binder","partial"].index(self.protocol)
     self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial][idx]
     self._get_loss   = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial][idx]
+
+    # extras
+    self.random = Random(backend="cpu")
 
   def _get_model(self, cfg, callback=None):
 

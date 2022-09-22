@@ -1,7 +1,6 @@
 import random, os
 import jax
 import jax.numpy as jnp
-import optax
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
@@ -25,7 +24,6 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 class _af_design:
 
   def restart(self, seed=None, opt=None, weights=None,
-              optimizer=None, learning_rate=None,
               seq=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
@@ -44,7 +42,7 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {"state":{}}
+      self._best, self._tmp = {}, {}
 
     # update options/settings (if defined)
     self.set_opt(opt)
@@ -54,29 +52,9 @@ class _af_design:
     self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
 
-    # setup optimizer
-    self.set_optimizer(optimizer, learning_rate)
+    # reset optimizer
     self._k = 0
-
-  def set_optimizer(self, optimizer=None, learning_rate=None, **kwargs):
-    '''
-    set/reset optimizer
-    ----------------------------------
-    supported optimizers include: [adabelief, adafactor, adagrad, adam, adamw, 
-    fromage, lamb, lars, noisy_sgd, dpsgd, radam, rmsprop, sgd, sm3, yogi]
-    '''
-    optimizers = {'adabelief':optax.adabelief,'adafactor':optax.adafactor,
-                  'adagrad':optax.adagrad,'adam':optax.adam,
-                  'adamw':optax.adamw,'fromage':optax.fromage,
-                  'lamb':optax.lamb,'lars':optax.lars,
-                  'noisy_sgd':optax.noisy_sgd,'dpsgd':optax.dpsgd,
-                  'radam':optax.radam,'rmsprop':optax.rmsprop,
-                  'sgd':optax.sgd,'sm3':optax.sm3,'yogi':optax.yogi}
-    
-    if optimizer is not None: self._args["optimizer"] = optimizer
-    self._optimizer = optimizers[self._args["optimizer"]](1.0, **kwargs)
-    self._tmp["state"] = self._optimizer.init(self._params)
-    self.opt["learning_rate"] = 0.1 if learning_rate is None else learning_rate    
+    self.set_optimizer()
 
   def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
@@ -93,10 +71,11 @@ class _af_design:
     if sample_models and m != len(ns):
       ns = np.array(ns)
 
-      model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
+      model_nums = self.random.choice(self.key(),ns,(m,),replace=False)
       model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
+
     return model_nums    
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
@@ -191,7 +170,7 @@ class _af_design:
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)
       mask = [0] * cycles
-      if mode == "sample":  mask[jax.random.randint(self.key(),[],0,cycles)] = 1
+      if mode == "sample":  mask[self.random.randint(self.key(),[],0,cycles)] = 1
       if mode == "average": mask = [1/cycles] * cycles
       if mode == "last":    mask[-1] = 1
       if mode == "first":   mask[0] = 1
@@ -211,12 +190,6 @@ class _af_design:
     aux["num_recycles"] = num_recycles
     return aux
 
-  def _norm_seq_grad(self):
-    g = self.aux["grad"]["seq"]
-    eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
-    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
-    self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
-
   def step(self, lr_scale=1.0, num_recycles=None,
            num_models=None, sample_models=None, models=None, backprop=True,
            callback=None, save_best=False, verbose=1):
@@ -228,10 +201,7 @@ class _af_design:
 
     # modify gradients    
     if self.opt["norm_seq_grad"]: self._norm_seq_grad()
-    if self._optimizer != "sgd":
-      # use optax optimizers
-      updates, self._tmp["state"] = self._optimizer.update(self.aux["grad"], self._tmp["state"])
-      self.aux["grad"] = jax.tree_map(lambda x:np.asarray(-x), updates)
+    self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"])
   
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale
@@ -406,7 +376,7 @@ class _af_design:
     for m in range(mutation_rate):
       # sample position
       # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-      i = jax.random.choice(self.key(),jnp.arange(L),[],p=i_prob/i_prob.sum())
+      i = self.random.choice(self.key(),np.arange(L),[],p=i_prob/i_prob.sum())
 
       # sample amino acid
       logits = np.array(0 if logits is None else logits)
@@ -414,7 +384,7 @@ class _af_design:
       elif logits.ndim == 2: b = logits[i]
       else:                  b = logits
       a_logits = b - jax.nn.one_hot(seq[:,i],20) * 1e8
-      a = jax.random.categorical(self.key(),a_logits)
+      a = self.random.categorical(self.key(),a_logits)
 
       # return mutant
       seq = seq.at[:,i].set(a)
@@ -527,7 +497,7 @@ class _af_design:
   
       # decide
       delta = loss - current_loss
-      if i == 0 or delta < 0 or jax.random.uniform(self.key(),[]) < np.exp( -delta / T):
+      if i == 0 or delta < 0 or self.random.uniform(self.key(),[]) < np.exp( -delta / T):
 
         # accept
         (current_seq,current_loss) = (mut_seq,loss)

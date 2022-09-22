@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
+from colabdesign.shared.utils import copy_dict, update_dict, Key, Random, dict_to_str
 from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model, soft_seq
@@ -15,14 +15,10 @@ from colabdesign.tr.trrosetta import TrRosetta, get_model_params
 from colabdesign.af.prep import prep_pdb
 from colabdesign.af.alphafold.common import protein
 
-try:
-  from jax.example_libraries.optimizers import sgd, adam
-except:
-  from jax.experimental.optimizers import sgd, adam
-
 class mk_tr_model(design_model):
   def __init__(self, protocol="fixbb", num_models=1,
                sample_models=True, data_dir="params/tr",
+               optimizer="sgd", learning_rate=0.1
                loss_callback=None):
     
     assert protocol in ["fixbb","hallucination","partial"]
@@ -35,14 +31,18 @@ class mk_tr_model(design_model):
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
                 "num_models":num_models,"sample_models":sample_models,
-                "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0, "use_pssm":False}
+                "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0,
+                "learning_rate":learning_rate, "use_pssm":False}
                 
+    self._args = {"optimizer":optimizer}
     self._params = {}
     self._inputs = {}
 
     # setup model
     self._model = self._get_model()
     self._model_params = [get_model_params(f"{self._data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
+
+    self.random = Random(backend="cpu")
 
     if protocol in ["hallucination","partial"]:
       self._bkg_model = TrRosetta(bkg_model=True)
@@ -197,35 +197,29 @@ class mk_tr_model(design_model):
 
     self.set_opt(opt)
     self.set_weights(weights)
-    self.key = Key(seed=seed).get
-
-    # setup optimizer
-    self._init_fun, self._update_fun, self._get_params = sgd(1.0)
+    self.set_seed(seed)
     
     # set sequence
     self.set_seq(seq, **kwargs)
     
+    # setup optimizer
     self._k = 0
+    self.set_optimizer()
 
     # clear previous best
     self._best = {}
     
-  def run(self, models=None, backprop=True):
+  def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
     
-    if models is None:
-      # decide which model params to use
-      ns = np.arange(5)
-      m = min(self.opt["num_models"],len(ns))
-      if self.opt["sample_models"] and m != len(ns):
-        model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
-      else:
-        model_num = ns[:m]
-      model_num = np.array(model_num).tolist()
-    elif isinstance(models,int):
-      model_num = [models]
+    # decide which model params to use
+    ns = np.arange(5)
+    m = min(self.opt["num_models"],len(ns))
+    if self.opt["sample_models"] and m != len(ns):
+      model_num = self.random.choice(self.key(),ns,(m,),replace=False)
     else:
-      model_num = list(models)
+      model_num = ns[:m]
+    model_num = np.array(model_num).tolist()
 
     # run in serial
     aux_all = []
@@ -245,28 +239,19 @@ class mk_tr_model(design_model):
     self.aux = jax.tree_map(lambda *x:np.stack(x).mean(0), *aux_all)
     self.aux["model_num"] = model_num
 
+
   def step(self, models=None, backprop=True,
            callback=None, save_best=True, verbose=1):
     self.run(models=models, backprop=backprop)
     if callback is not None: callback(self)
 
-    # normalize gradient
-    g = self.aux["grad"]["seq"]
-    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    # modify gradients    
+    if self.opt["norm_seq_grad"]: self._norm_seq_grad()
+    self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"])
 
-    if "fix_pos" in self.opt:
-      # note: gradients only exist in unconstrained positions
-      eff_len = self._len - self.opt["fix_pos"].shape[0]
-    else:
-      eff_len = self._len
-    self.aux["grad"]["seq"] *= np.sqrt(eff_len)/(gn+1e-7)
-
-    # set learning rate
-    self.aux["grad"] = jax.tree_map(lambda x:x*self.opt["lr"], self.aux["grad"])
-
-    # apply gradient
-    self._state = self._update_fun(self._k, self.aux["grad"], self._state)
-    self._params = self._get_params(self._state)    
+    # apply gradients
+    lr = self.opt["learning_rate"]
+    self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # increment
     self._k += 1

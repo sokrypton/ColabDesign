@@ -146,8 +146,8 @@ class design_model:
     if norm_seq_grad is not None:
       self.opt["norm_seq_grad"] = norm_seq_grad
 
-    def update_grad(state, grad):
-      updates, state = o.update(grad, state)
+    def update_grad(state, grad, params):
+      updates, state = o.update(grad, state, params)
       grad = jax.tree_map(lambda x:-x, updates)
       return state, grad
     self._optimizer = jax.jit(update_grad)

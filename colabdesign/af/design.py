@@ -202,7 +202,7 @@ class _af_design:
 
     # modify gradients    
     if self.opt["norm_seq_grad"]: self._norm_seq_grad()
-    self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"])
+    self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"], self._params)
   
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale

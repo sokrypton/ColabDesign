@@ -228,9 +228,10 @@ class _af_design:
 
     # modify gradients    
     if self.opt["norm_seq_grad"]: self._norm_seq_grad()
-    updates, self._tmp["state"] = self._optimizer.update(self.aux["grad"], self._tmp["state"])
-    _params = optax.apply_updates(self._params, updates)
-    self.aux["grad"] = jax.tree_map(lambda x,y:x-y, self._params, _params)
+    if self._optimizer != "sgd":
+      # use optax optimizers
+      updates, self._tmp["state"] = self._optimizer.update(self.aux["grad"], self._tmp["state"])
+      self.aux["grad"] = jax.tree_map(lambda x:np.asarray(-x), updates)
   
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale

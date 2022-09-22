@@ -365,7 +365,7 @@ class _af_design:
 
   def _mutate(self, seq, plddt=None, logits=None, mutation_rate=1):
     '''mutate random position'''
-    seq = np.asarray(seq)
+    seq = np.array(seq)
     N,L = seq.shape
 
     # fix some positions

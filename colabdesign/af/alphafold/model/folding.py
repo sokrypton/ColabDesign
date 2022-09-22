@@ -968,5 +968,7 @@ class MultiRigidSidechain(hk.Module):
     outputs.update({
         'atom_pos': pred_positions,  # r3.Vecs (N, 14)
         'frames': all_frames_to_global,  # r3.Rigids (N, 8)
+        'angles': angles,
+        'backb_to_global': backb_to_global
     })
     return outputs

@@ -25,7 +25,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                num_models=1, sample_models=True,
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
-               model_names=None,
+               model_names=None, optimizer="sgd", learning_rate=None,
                use_openfold=False, use_alphafold=True,
                use_multimer=False,
                use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
@@ -34,8 +34,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
+    assert optimizer in ["sgd","adam"]
     assert crop_mode in ["slide","roll","pair","dist"]
-    
+
     # decide if templates should be used
     if protocol == "binder": use_templates = True
 
@@ -44,20 +45,22 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                        "loss":loss_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
-                  "recycle_mode":recycle_mode, "use_mlm": use_mlm,
-                  "debug":debug,
-                  "repeat":False, "homooligomer":False, "copies":1,
-                  "best_metric":best_metric,
+                  "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
+                  "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
+                  "optimizer":optimizer, "best_metric":best_metric,
                   "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
 
-    self.opt = {"dropout":True, "lr":1.0, "use_pssm":False,
-                "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,
+    self.opt = {"dropout":True, "use_pssm":False, "learning_rate":0.1, "norm_seq_grad":True,
+                "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
                 "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
+
+    self._tmp = {"state":{}}
+    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
 
     if self._args["use_mlm"]:
       self.opt["mlm_dropout"] = 0.05

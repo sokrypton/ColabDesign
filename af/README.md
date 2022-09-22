@@ -24,7 +24,7 @@
   - fixing integration with TrDesign that got broken in v1.0.6
 - **20Sept2022** - v1.0.8
   - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible. Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
-  - fixing adam optimizer (enable with `model.restart(optimizer="adam")`)
+  - adding support for [adam optimizer](#Adam-Optimizer), setting learning rate and option to disable sequence gradient normalization.
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git
@@ -207,6 +207,18 @@ model.set_opt(con=dict(cutoff=8, seqsep=5, num=1))
 For interface:
 ```python
 model.set_opt(i_con=dict(...))
+```
+
+#### Adam Optimizer
+By default, we use normalized stochastic gradient descent. To use the default ADAM use:
+```python
+model = mk_afdesign_model(optimizer="adam")
+# or (if model already initalized and you want more control)
+model.set_opt(optimizer="adam", learning_rate=1e-3, norm_seq_grad=False)
+```
+By default, the gradients for the sequence parameters are normalized. We find this helps with convergence. To disable:
+```python
+model.set_opt(optimizer="sgd", norm_seq_grad=False)
 ```
 
 # Advanced FAQ

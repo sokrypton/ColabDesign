@@ -57,7 +57,9 @@ class _af_prep:
     ---------------------------------------------------
     '''    
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
+    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
+                   offsets=kwargs.pop("pdb_offsets",None),
+                   lengths=kwargs.pop("pdb_lengths",None))
 
     self._len = pdb["residue_index"].shape[0]
     self._lengths = [self._len]
@@ -269,7 +271,9 @@ class _af_prep:
     self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc,"rm_ic":rm_template_ic})
 
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
+    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
+                   offsets=kwargs.pop("pdb_offsets",None),
+                   lengths=kwargs.pop("pdb_lengths",None))
 
     pdb["len"] = sum(pdb["lengths"])
 

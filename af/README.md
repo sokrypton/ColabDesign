@@ -6,16 +6,6 @@
 
 # Updates
 - Jump to [Previous Updates](#previous-updates)
-- **09Sept2022** - v1.0.6
-  - support for alphafold-multimer `model = mk_afdesign_model(..., use_multimer=True)`
-  - support for experimentally resolved loss `model.set_weights(exp_res=1)`
-  - support for multichain design/hallucination for fixbb, hallucination and partial protocols: `model.prep_inputs(..., copies=2)`
-  - support to fix the sequence for certain positions `model.prep_inputs(..., fix_pos="1-10")` (supported in protocols "fixbb" and "partial")
-  - binder protocol improved, prior protocol would try to optimize number of contacts per target, new default is to optimize number of contacts per binder position. Number of contacts per binder position can be controlled with `model.set_opt("i_con",num=1)` and number of positions that should be contact with `model.set_opt("i_con",num_pos=5)`
-  - implementing David Jones'-like protocol for semi-greedy optimization, where positions are selected based on plddt, and after 20 tries, the mutation that decreasing loss the most is accepted. `model.design_semigreedy()`
-  - WARNING: the returned pLDDT is now in the "correct" direction (higher is better)
-  - removing recycle dimension from the input features (to standardize with multimer inputs)
-  - removing all dependence on TensorFlow
 - **14Sept2022** - v1.0.7
   - refactoring design.py to add `design_pssm_semigreedy()` protocol, which is a wrapper around `design_semigreedy(seq_logits=)`, and can be used to input/learn PSSM for biased optimization.
   - adding example [peptide_binder_design.ipynb](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/peptide_binder_design.ipynb) targeted for peptide binder hallucination/design.
@@ -24,7 +14,7 @@
   - fixing integration with TrDesign that got broken in v1.0.6
 - **20Sept2022** - v1.0.8
   - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible. Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
-  - adding support for [optax optimizers](#Optax-Optimizers), setting learning rate and option to disable sequence gradient normalization.
+  - adding support for [Optax optimizers](#optax-optimizers)
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git
@@ -315,3 +305,13 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
 - **11July2022** - v1.0.3 - Improved homo-oligomeric support. RMSD and dgram losses have been refactored to automatically save aligned coordinates. Multimeric coordinates now saved with chain identifiers.
 - **23July2022** - v1.0.4 - Adding support for openfold weights. To enable set `mk_afdesign_model(..., use_openfold=True)`.
 - **31July2022** - v1.0.5 - Refactoring to add support for swapping batch features without recompile. Allowing for implementation of [AF2Rank](https://github.com/sokrypton/ColabDesign/blob/main/af/examples/AF2Rank.ipynb)!
+- **09Sept2022** - v1.0.6
+  - support for alphafold-multimer `model = mk_afdesign_model(..., use_multimer=True)`
+  - support for experimentally resolved loss `model.set_weights(exp_res=1)`
+  - support for multichain design/hallucination for fixbb, hallucination and partial protocols: `model.prep_inputs(..., copies=2)`
+  - support to fix the sequence for certain positions `model.prep_inputs(..., fix_pos="1-10")` (supported in protocols "fixbb" and "partial")
+  - binder protocol improved, prior protocol would try to optimize number of contacts per target, new default is to optimize number of contacts per binder position. Number of contacts per binder position can be controlled with `model.set_opt("i_con",num=1)` and number of positions that should be contact with `model.set_opt("i_con",num_pos=5)`
+  - implementing David Jones'-like protocol for semi-greedy optimization, where positions are selected based on plddt, and after 20 tries, the mutation that decreasing loss the most is accepted. `model.design_semigreedy()`
+  - WARNING: the returned pLDDT is now in the "correct" direction (higher is better)
+  - removing recycle dimension from the input features (to standardize with multimer inputs)
+  - removing all dependence on TensorFlow

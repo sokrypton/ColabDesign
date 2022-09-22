@@ -59,7 +59,12 @@ class _af_design:
     self._k = 0
 
   def set_optimizer(self, optimizer=None, learning_rate=None, **kwargs):
-    '''set/reset optimizer'''
+    '''
+    set/reset optimizer
+    ----------------------------------
+    supported optimizers include: [adabelief, adafactor, adagrad, adam, adamw, 
+    fromage, lamb, lars, noisy_sgd, dpsgd, radam, rmsprop, sgd, sm3, yogi]
+    '''
     optimizers = {'adabelief':optax.adabelief,'adafactor':optax.adafactor,
                   'adagrad':optax.adagrad,'adam':optax.adam,
                   'adamw':optax.adamw,'fromage':optax.fromage,

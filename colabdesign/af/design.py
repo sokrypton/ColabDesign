@@ -42,7 +42,7 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {}
+      self._best, self._tmp = {}, {"state":{}}
 
     # update options/settings (if defined)
     self.set_opt(opt)

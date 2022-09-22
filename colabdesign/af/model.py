@@ -34,6 +34,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
+    assert optimizer in ["sgd","adam"]
     assert crop_mode in ["slide","roll","pair","dist"]
 
     # decide if templates should be used
@@ -57,6 +58,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
+
+    self._tmp = {"state":{}}
+    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
 
     if self._args["use_mlm"]:
       self.opt["mlm_dropout"] = 0.05

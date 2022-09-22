@@ -15,9 +15,6 @@ from colabdesign.af.alphafold.common import protein
 ####################################################
 class _af_utils:  
 
-  def set_seed(self, seed=None):
-    self.key = Key(seed=seed).get
-
   def set_opt(self, *args, **kwargs):
     '''
     set [opt]ions
@@ -54,15 +51,8 @@ class _af_utils:
         print(f"ERROR: use {self.__class__.__name__}(recycle_mode=...) to set the recycle_mode")
     
     if "optimizer" in kwargs:
-      o = kwargs.pop("optimizer")
-      lr = kwargs.pop("learning_rate", None)
-      if o in ["sgd","adam"]:
-        self._tmp["state"] = {}
-        self._args["optimizer"] = o
-        if lr is None:
-          if o == "sgd": lr = 0.1
-          if o == "adam": lr = 0.02
-        self.opt["learning_rate"] = lr
+      self.set_optimizer(kwargs.pop("optimizer"),
+        learning_rate=kwargs.pop("learning_rate", None))
 
     ks = list(kwargs.keys())
     if len(ks) > 0:

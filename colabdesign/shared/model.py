@@ -1,8 +1,9 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+import optax
 
-from colabdesign.shared.utils import copy_dict, update_dict
+from colabdesign.shared.utils import copy_dict, update_dict, softmax, Key
 from colabdesign.shared.prep import rewire
 from colabdesign.af.alphafold.common import residue_constants
 
@@ -55,9 +56,9 @@ class design_model:
     
     # initialize bias
     if bias is None:
-      b, set_bias = jnp.zeros(20), False
+      b, set_bias = np.zeros(20), False
     else:
-      b, set_bias = jnp.asarray(bias), True
+      b, set_bias = np.asarray(bias), True
     
     # disable certain amino acids
     if rm_aa is not None:
@@ -67,58 +68,93 @@ class design_model:
 
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
-      wt_seq = jax.nn.one_hot(self._wt_aatype,20)
+      wt_seq = np.eye(20)[self._wt_aatype]
       if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
-        seq = jnp.zeros(shape).at[...,self.opt["pos"],:].set(wt_seq)
+        seq = np.zeros(shape).at[...,self.opt["pos"],:].set(wt_seq)
       else:
         seq = wt_seq
     
     # initialize sequence
     if seq is None:
       if hasattr(self,"key"):
-        x = 0.01 * jax.random.normal(self.key(),shape)
+        x = 0.01 * np.random.normal(size=shape)
       else:
-        x = jnp.zeros(shape)
+        x = np.zeros(shape)
     else:
       if isinstance(seq, str):
         seq = [seq]
       if isinstance(seq, list):
         if isinstance(seq[0], str):
-          seq = jnp.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
+          seq = np.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
         else:
-          seq = jnp.asarray(seq)
+          seq = np.asarray(seq)
       else:
-        seq = jnp.asarray(seq)
+        seq = np.asarray(seq)
 
-      if jnp.issubdtype(seq.dtype, jnp.integer):
-        seq = jax.nn.one_hot(seq,20)
+      if np.issubdtype(seq.dtype, np.integer):
+        seq = np.eye(20)[seq]
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
         set_bias = True
       
-      x = jnp.broadcast_to(seq,shape)
+      x = np.broadcast_to(seq,shape)
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)
       if "soft" in mode:
-        y = jax.nn.softmax(x + b + y_gumbel)
+        y = softmax(x + b + y_gumbel)
       elif "alpha" in self.opt:
         y = x + y_gumbel / self.opt["alpha"]
       else:
         y = x + y_gumbel
       
-      x = jnp.where(x.sum(-1,keepdims=True) == 1, x, y)      
+      x = np.where(x.sum(-1,keepdims=True) == 1, x, y)      
 
     # set seq/bias/state
     self._params["seq"] = x
     
     if set_bias:
       self.opt["bias"] = b 
-    
-    if set_state and hasattr(self,"_init_fun"):
-      self._state = self._init_fun(self._params)
 
+  def _norm_seq_grad(self):
+    g = self.aux["grad"]["seq"]
+    eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
+    gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
+    self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
+
+  def set_optimizer(self, optimizer=None, learning_rate=None, norm_seq_grad=None, **kwargs):
+    '''
+    set/reset optimizer
+    ----------------------------------
+    supported optimizers include: [adabelief, adafactor, adagrad, adam, adamw, 
+    fromage, lamb, lars, noisy_sgd, dpsgd, radam, rmsprop, sgd, sm3, yogi]
+    '''
+    optimizers = {'adabelief':optax.adabelief,'adafactor':optax.adafactor,
+                  'adagrad':optax.adagrad,'adam':optax.adam,
+                  'adamw':optax.adamw,'fromage':optax.fromage,
+                  'lamb':optax.lamb,'lars':optax.lars,
+                  'noisy_sgd':optax.noisy_sgd,'dpsgd':optax.dpsgd,
+                  'radam':optax.radam,'rmsprop':optax.rmsprop,
+                  'sgd':optax.sgd,'sm3':optax.sm3,'yogi':optax.yogi}
+    
+    if optimizer is not None: self._args["optimizer"] = optimizer
+    o = optimizers[self._args["optimizer"]](1.0, **kwargs)
+    self._state = o.init(self._params)
+    self.opt["learning_rate"] = 0.1 if learning_rate is None else learning_rate
+    if norm_seq_grad is not None:
+      self.opt["norm_seq_grad"] = norm_seq_grad
+
+    def update_grad(state, grad):
+      updates, state = o.update(grad, state)
+      grad = jax.tree_map(lambda x:-x, updates)
+      return state, grad
+    self._optimizer = jax.jit(update_grad)
+
+  def set_seed(self, seed=None):
+    np.random.seed(seed=seed)
+    self.key = Key(seed=seed).get
+    
   def get_seq(self, get_best=True):
     '''
     get sequences as strings
@@ -164,9 +200,5 @@ def soft_seq(x, opt, key=None):
 
   # create pseudo sequence
   seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-  
-  # key, sub_key = jax.random.split(key)
-  # hard_mask = jax.random.bernoulli(sub_key, opt["hard"], seq["hard"].shape[:-1] + (1,))
-  hard_mask = opt["hard"]
-  seq["pseudo"] = hard_mask * seq["hard"] + (1-hard_mask) * seq["pseudo"]
+  seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
   return seq

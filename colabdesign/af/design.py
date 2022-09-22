@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical
 
 ####################################################
 # AF_DESIGN - design functions
@@ -24,7 +24,6 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 class _af_design:
 
   def restart(self, seed=None, opt=None, weights=None,
-              optimizer=None, learning_rate=None,
               seq=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
@@ -43,19 +42,19 @@ class _af_design:
     if not keep_history:
       # initialize trajectory
       self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {"state":{}}
+      self._best, self._tmp = {}, {}
 
     # update options/settings (if defined)
     self.set_opt(opt)
     self.set_weights(weights)
-
-    # setup optimizer
-    self.set_args(optimizer=optimizer, learning_rate=learning_rate)
   
     # initialize sequence
     self.set_seed(seed)
     self.set_seq(seq=seq, **kwargs)
+
+    # reset optimizer
     self._k = 0
+    self.set_optimizer()
 
   def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
@@ -72,10 +71,11 @@ class _af_design:
     if sample_models and m != len(ns):
       ns = np.array(ns)
 
-      model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
+      model_nums = np.random.choice(ns,(m,),replace=False)
       model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
+
     return model_nums    
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
@@ -170,7 +170,8 @@ class _af_design:
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)
       mask = [0] * cycles
-      if mode == "sample":  mask[jax.random.randint(self.key(),[],0,cycles)] = 1
+
+      if mode == "sample":  mask[np.random.randint(0,cycles)] = 1
       if mode == "average": mask = [1/cycles] * cycles
       if mode == "last":    mask[-1] = 1
       if mode == "first":   mask[0] = 1
@@ -200,25 +201,9 @@ class _af_design:
              models=models, backprop=backprop, callback=callback)
 
     # modify gradients    
-    if self.opt["norm_seq_grad"]:
-      g = self.aux["grad"]["seq"]
-      eff_L = (np.square(g).sum(-1,keepdims=True) > 0).sum(-2,keepdims=True)
-      gn = np.linalg.norm(g,axis=(-1,-2),keepdims=True)
-      self.aux["grad"]["seq"] = g * np.sqrt(eff_L) / (gn + 1e-7)  
-
-    if self._args["optimizer"] == "adam":
-      (b1, b2, eps) = (0.9, 0.999, 1e-8)
-      for k,g in self.aux["grad"].items():
-        gg = np.square(g)
-        s = self._tmp["state"].get(k,{"i":0,"m":0,"v":0})
-        i = s["i"] = s["i"] + 1
-        m = s["m"] = b1 * s["m"] + (1-b1) * g
-        v = s["v"] = b2 * s["v"] + (1-b2) * gg
-        m_ = m / (1 - b1 ** i)
-        v_ = v / (1 - b2 ** i)
-        self._tmp["state"][k] = s
-        self.aux["grad"][k] = m_/(np.sqrt(v_) + eps)
-
+    if self.opt["norm_seq_grad"]: self._norm_seq_grad()
+    self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"])
+  
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
@@ -380,30 +365,34 @@ class _af_design:
 
   def _mutate(self, seq, plddt=None, logits=None, mutation_rate=1):
     '''mutate random position'''
+    seq = np.array(seq)
     N,L = seq.shape
 
     # fix some positions
-    i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
+    i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
     if "fix_pos" in self.opt:
-      seq_oh, p = self._fix_pos(jax.nn.one_hot(seq,20), return_p=True)
-      seq = seq_oh.argmax(-1)
-      i_prob = i_prob.at[p].set(0)
+      if "pos" in self.opt:
+        p = self.opt["pos"][self.opt["fix_pos"]]
+        seq[...,p] = self._wt_aatype_sub
+      else:
+        p = self.opt["fix_pos"]
+        seq[...,p] = self._wt_aatype[...,p]
+      i_prob[p] = 0
     
     for m in range(mutation_rate):
       # sample position
       # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-      i = jax.random.choice(self.key(),jnp.arange(L),[],p=i_prob/i_prob.sum())
+      i = np.random.choice(np.arange(L),p=i_prob/i_prob.sum())
 
       # sample amino acid
       logits = np.array(0 if logits is None else logits)
-      if logits.ndim == 3:   b = logits[:,i]
-      elif logits.ndim == 2: b = logits[i]
-      else:                  b = logits
-      a_logits = b - jax.nn.one_hot(seq[:,i],20) * 1e8
-      a = jax.random.categorical(self.key(),a_logits)
+      if logits.ndim == 3: logits = logits[:,i]
+      elif logits.ndim == 2: logits = logits[i]
+      a_logits = logits - np.eye(20)[seq[:,i]] * 1e8
+      a = categorical(softmax(a_logits))
 
       # return mutant
-      seq = seq.at[:,i].set(a)
+      seq[:,i] = a
     
     return seq
 
@@ -513,7 +502,7 @@ class _af_design:
   
       # decide
       delta = loss - current_loss
-      if i == 0 or delta < 0 or jax.random.uniform(self.key(),[]) < np.exp( -delta / T):
+      if i == 0 or delta < 0 or np.random.uniform() < np.exp( -delta / T):
 
         # accept
         (current_seq,current_loss) = (mut_seq,loss)

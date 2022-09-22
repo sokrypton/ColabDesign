@@ -200,15 +200,16 @@ model.set_opt(i_con=dict(...))
 ```
 
 #### Optax Optimizers
-By default, we use normalized stochastic gradient descent. See [full list](https://optax.readthedocs.io/en/latest/api.html) of Optax optimizers available.
-
-To use the default ADAM use:
+By default, we use stochastic gradient descent `set_optimizer(optimizer="sgd", learning_rate=0.1, norm_seq_grad=True)` for optimization. This seems to work quite well for the default problems. But if you want to try other optimizers, ColabDesign is now fully integrated with all [Optax optimizers](https://optax.readthedocs.io/en/latest/api.html).
+Example how to change optimizer:
 ```python
 model = mk_afdesign_model(optimizer="adam", learning_rate=0.1)
-# and/or for more control (note: optimizer/learning_rate etc. can change after model has been initialized)
+```
+Or for more control (or to change settings after model initialization), use:
+```python
 model.set_optimizer(optimizer="adam", learning_rate=0.1, b1=0.9, b2=0.999)
 ```
-Note: By default, the gradients for the sequence parameters are normalized. We find this helps with convergence. To disable:
+By default, the gradients for the sequence parameters are normalized. We find this helps with convergence. To disable:
 ```python
 model.set_opt(norm_seq_grad=False)
 ```

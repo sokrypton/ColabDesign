@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical
 
 ####################################################
 # AF_DESIGN - design functions
@@ -368,11 +368,15 @@ class _af_design:
     N,L = seq.shape
 
     # fix some positions
-    i_prob = jnp.ones(L) if plddt is None else jax.nn.relu(1-plddt)
+    i_prob = np.ones(L) if plddt is None else np.minimum(1-plddt,0)
     if "fix_pos" in self.opt:
-      seq_oh, p = self._fix_pos(jax.nn.one_hot(seq,20), return_p=True)
-      seq = seq_oh.argmax(-1)
-      i_prob = i_prob.at[p].set(0)
+      if "pos" in self.opt:
+        p = self.opt["pos"][self.opt["fix_pos"]]
+        seq[...,p] = self._wt_aatype_sub
+      else:
+        p = self.opt["fix_pos"]
+        seq[...,p] = self._wt_aatype[...,p]
+      i_prob[p] = 0
     
     for m in range(mutation_rate):
       # sample position
@@ -381,14 +385,13 @@ class _af_design:
 
       # sample amino acid
       logits = np.array(0 if logits is None else logits)
-      b = logits
-      if logits.ndim == 3: b = logits[:,i]
-      if logits.ndim == 2: b = logits[i]
-      a_logits = b - jax.nn.one_hot(seq[:,i],20) * 1e8
-      a = jax.random.categorical(self.key(),a_logits)
+      if logits.ndim == 3: logits = logits[:,i]
+      elif logits.ndim == 2: logits = logits[i]
+      a_logits = logits - np.eye(20)[seq[:,i]] * 1e8
+      a = categorical(softmax(a_logits))
 
       # return mutant
-      seq = seq.at[:,i].set(a)
+      seq[:,i] = a
     
     return seq
 

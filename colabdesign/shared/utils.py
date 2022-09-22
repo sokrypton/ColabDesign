@@ -103,3 +103,6 @@ def softmax(x, axis=-1):
   x = x - x.max(axis,keepdims=True)
   x = np.exp(x)
   return x / x.sum(axis,keepdims=True)
+
+def categorical(p):
+  return (p.cumsum(-1) >= np.random.uniform(size=p.shape[:-1])[..., None]).argmax(-1)

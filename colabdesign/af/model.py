@@ -111,9 +111,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial][idx]
     self._get_loss   = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial][idx]
 
-    # extras
-    self.random = Random(backend="cpu")
-
   def _get_model(self, cfg, callback=None):
 
     a = self._args

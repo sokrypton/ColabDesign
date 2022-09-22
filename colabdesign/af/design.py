@@ -71,7 +71,7 @@ class _af_design:
     if sample_models and m != len(ns):
       ns = np.array(ns)
 
-      model_nums = self.random.choice(self.key(),ns,(m,),replace=False)
+      model_nums = jax.random.choice(self.key(),ns,(m,),replace=False)
       model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
@@ -170,7 +170,7 @@ class _af_design:
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)
       mask = [0] * cycles
-      if mode == "sample":  mask[self.random.randint(self.key(),[],0,cycles)] = 1
+      if mode == "sample":  mask[jax.random.randint(self.key(),[],0,cycles)] = 1
       if mode == "average": mask = [1/cycles] * cycles
       if mode == "last":    mask[-1] = 1
       if mode == "first":   mask[0] = 1
@@ -376,7 +376,7 @@ class _af_design:
     for m in range(mutation_rate):
       # sample position
       # https://www.biorxiv.org/content/10.1101/2021.08.24.457549v1
-      i = self.random.choice(self.key(),np.arange(L),[],p=i_prob/i_prob.sum())
+      i = jax.random.choice(self.key(),np.arange(L),[],p=i_prob/i_prob.sum())
 
       # sample amino acid
       logits = np.array(0 if logits is None else logits)
@@ -384,7 +384,7 @@ class _af_design:
       elif logits.ndim == 2: b = logits[i]
       else:                  b = logits
       a_logits = b - jax.nn.one_hot(seq[:,i],20) * 1e8
-      a = self.random.categorical(self.key(),a_logits)
+      a = jax.random.categorical(self.key(),a_logits)
 
       # return mutant
       seq = seq.at[:,i].set(a)
@@ -497,7 +497,7 @@ class _af_design:
   
       # decide
       delta = loss - current_loss
-      if i == 0 or delta < 0 or self.random.uniform(self.key(),[]) < np.exp( -delta / T):
+      if i == 0 or delta < 0 or jax.random.uniform(self.key(),[]) < np.exp( -delta / T):
 
         # accept
         (current_seq,current_loss) = (mut_seq,loss)

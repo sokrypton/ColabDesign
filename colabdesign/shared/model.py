@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
-from colabdesign.shared.utils import copy_dict, update_dict, softmax
+from colabdesign.shared.utils import copy_dict, update_dict, softmax, Key
 from colabdesign.shared.prep import rewire
 from colabdesign.af.alphafold.common import residue_constants
 
@@ -77,7 +77,7 @@ class design_model:
     # initialize sequence
     if seq is None:
       if hasattr(self,"key"):
-        x = 0.01 * self.random.normal(self.key(),shape)
+        x = 0.01 * np.asarray(jax.random.normal(self.key(),shape))
       else:
         x = np.zeros(shape)
     else:
@@ -101,7 +101,7 @@ class design_model:
       x = np.broadcast_to(seq,shape)
 
     if "gumbel" in mode:
-      y_gumbel = self.random.gumbel(self.key(),shape)
+      y_gumbel = np.asarray(jax.random.gumbel(self.key(),shape))
       if "soft" in mode:
         y = softmax(x + b + y_gumbel)
       elif "alpha" in self.opt:
@@ -150,7 +150,7 @@ class design_model:
     self._optimizer = jax.jit(update_grad, backend='cpu')
 
   def set_seed(self, seed=None):
-    self.key = Key(seed=seed, backend="cpu").get
+    self.key = Key(seed=seed).get
     
   def get_seq(self, get_best=True):
     '''
@@ -197,9 +197,5 @@ def soft_seq(x, opt, key=None):
 
   # create pseudo sequence
   seq["pseudo"] = opt["soft"] * seq["soft"] + (1-opt["soft"]) * seq["input"]
-  
-  # key, sub_key = jax.random.split(key)
-  # hard_mask = jax.random.bernoulli(sub_key, opt["hard"], seq["hard"].shape[:-1] + (1,))
-  hard_mask = opt["hard"]
-  seq["pseudo"] = hard_mask * seq["hard"] + (1-hard_mask) * seq["pseudo"]
+  seq["pseudo"] = opt["hard"] * seq["hard"] + (1-opt["hard"]) * seq["pseudo"]
   return seq

@@ -18,7 +18,7 @@ from colabdesign.af.alphafold.common import protein
 class mk_tr_model(design_model):
   def __init__(self, protocol="fixbb", num_models=1,
                sample_models=True, data_dir="params/tr",
-               optimizer="sgd", learning_rate=0.1
+               optimizer="sgd", learning_rate=0.1,
                loss_callback=None):
     
     assert protocol in ["fixbb","hallucination","partial"]
@@ -41,8 +41,6 @@ class mk_tr_model(design_model):
     # setup model
     self._model = self._get_model()
     self._model_params = [get_model_params(f"{self._data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
-
-    self.random = Random(backend="cpu")
 
     if protocol in ["hallucination","partial"]:
       self._bkg_model = TrRosetta(bkg_model=True)
@@ -216,7 +214,7 @@ class mk_tr_model(design_model):
     ns = np.arange(5)
     m = min(self.opt["num_models"],len(ns))
     if self.opt["sample_models"] and m != len(ns):
-      model_num = self.random.choice(self.key(),ns,(m,),replace=False)
+      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()
@@ -240,9 +238,8 @@ class mk_tr_model(design_model):
     self.aux["model_num"] = model_num
 
 
-  def step(self, models=None, backprop=True,
-           callback=None, save_best=True, verbose=1):
-    self.run(models=models, backprop=backprop)
+  def step(self, backprop=True, callback=None, save_best=True, verbose=1):
+    self.run(backprop=backprop)
     if callback is not None: callback(self)
 
     # modify gradients    
@@ -270,7 +267,7 @@ class mk_tr_model(design_model):
     self.set_opt(dropout=False)
     if seq is not None:
       self.set_seq(seq=seq, set_state=False)
-    self.run(models=models, backprop=False)
+    self.run(backprop=False)
 
   def design(self, iters=100, opt=None, weights=None, save_best=True, verbose=1):
     self.set_opt(opt)

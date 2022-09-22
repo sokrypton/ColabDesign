@@ -77,7 +77,7 @@ class design_model:
     # initialize sequence
     if seq is None:
       if hasattr(self,"key"):
-        x = 0.01 * np.asarray(jax.random.normal(self.key(),shape))
+        x = 0.01 * np.random.normal(size=shape)
       else:
         x = np.zeros(shape)
     else:
@@ -101,7 +101,7 @@ class design_model:
       x = np.broadcast_to(seq,shape)
 
     if "gumbel" in mode:
-      y_gumbel = np.asarray(jax.random.gumbel(self.key(),shape))
+      y_gumbel = jax.random.gumbel(self.key(),shape)
       if "soft" in mode:
         y = softmax(x + b + y_gumbel)
       elif "alpha" in self.opt:
@@ -147,9 +147,10 @@ class design_model:
       updates, state = o.update(grad, state)
       grad = jax.tree_map(lambda x:-x, updates)
       return state, grad
-    self._optimizer = jax.jit(update_grad, backend='cpu')
+    self._optimizer = jax.jit(update_grad)
 
   def set_seed(self, seed=None):
+    np.random.seed(seed=seed)
     self.key = Key(seed=seed).get
     
   def get_seq(self, get_best=True):

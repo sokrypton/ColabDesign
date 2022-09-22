@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
-from colabdesign.shared.utils import copy_dict, update_dict, Key, Random, dict_to_str
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str
 from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model, soft_seq
@@ -214,7 +214,7 @@ class mk_tr_model(design_model):
     ns = np.arange(5)
     m = min(self.opt["num_models"],len(ns))
     if self.opt["sample_models"] and m != len(ns):
-      model_num = jax.random.choice(self.key(),ns,(m,),replace=False)
+      model_num = np.random.choice(ns,(m,),replace=False)
     else:
       model_num = ns[:m]
     model_num = np.array(model_num).tolist()

@@ -7,7 +7,7 @@ from inspect import signature
 from colabdesign.af.alphafold.model import data, config, model, all_atom
 
 from colabdesign.shared.model import design_model
-from colabdesign.shared.utils import Key, Random
+from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
 from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss, get_mlm_loss

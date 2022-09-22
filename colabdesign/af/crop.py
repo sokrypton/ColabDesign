@@ -21,15 +21,15 @@ class _af_crop:
         self._tmp["cmap"] = self._dist < self.opt["cmap_cutoff"]
     
       if mode == "slide":
-        i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
+        i = np.random.randint(0,(L-max_L)+1)
         p = np.arange(i,i+max_L)      
 
       if mode == "roll":
-        i = jax.random.randint(self.key(),[],0,L)
+        i = np.random.randint(0,L)
         p = np.sort(np.roll(np.arange(L),L-i)[:max_L])
 
       if mode == "dist":
-        i = jax.random.randint(self.key(),[],0,(L-max_L)+1)
+        i = np.random.randint(0,(L-max_L)+1)
         p = np.sort(self._dist[i].argsort()[1:][:max_L])
 
       if mode == "pair":
@@ -38,16 +38,16 @@ class _af_crop:
 
         # pick first crop
         i_range = np.append(np.arange(0,(L-2*max_L)+1),np.arange(max_L,(L-max_L)+1))
-        i = jax.random.choice(self.key(),i_range,[])
+        i = np.random.choice(i_range)
         
         # pick second crop
         j_range = np.append(np.arange(0,(i-max_L)+1),np.arange(i+max_L,(L-max_L)+1))
         if "cmap" in self._tmp:
           # if contact map defined, bias to interacting pairs
           w = np.array([self._tmp["cmap"][i:i+max_L,j:j+max_L].sum() for j in j_range]) + 1e-8
-          j = jax.random.choice(self.key(), j_range, [], p=w/w.sum())
+          j = np.random.choice(j_range, p=w/w.sum())
         else:
-          j = jax.random.choice(self.key(), j_range, [])
+          j = np.random.choice(j_range)
              
         p = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))
 

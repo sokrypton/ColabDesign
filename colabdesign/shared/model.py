@@ -63,7 +63,7 @@ class design_model:
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
-        b = b.at[...,aa_order[aa]].add(-1e6)
+        b[...,aa_order[aa]] -= 1e6
       set_bias = True
 
     # use wildtype sequence

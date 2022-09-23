@@ -138,7 +138,10 @@ CONFIG = ml_collections.ConfigDict({
                 'true_msa': [NUM_MSA_SEQ, NUM_RES],
                 'asym_id': [NUM_RES],
                 'sym_id': [NUM_RES],
-                'entity_id': [NUM_RES]
+                'entity_id': [NUM_RES],
+                'prev_pos': [NUM_RES, None, None],
+                'prev_pair': [NUM_RES, NUM_RES, None],
+                'prev_msa_first_row': [NUM_RES, None]
             },
         },
     },

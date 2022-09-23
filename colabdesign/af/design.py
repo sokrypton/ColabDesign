@@ -110,7 +110,6 @@ class _af_design:
     callbacks = []
     append(callbacks, callback)
     append(callbacks, self._callbacks["design"])
-    if self._args["use_crop"]: append(callbacks, self._crop())
     for callback in callbacks: callback(self)
 
     # update log
@@ -160,7 +159,6 @@ class _af_design:
     
     else:
       L = self._inputs["residue_index"].shape[0]
-      if self._args["use_crop"]: L = self.opt["crop_pos"].shape[0]
       
       # intialize previous
       self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
@@ -265,8 +263,7 @@ class _af_design:
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq)    
 
-    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
-                 use_crop=False, use_pssm=False)
+    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, use_pssm=False)
     # run
     aux = self.run(num_recycles=num_recycles, num_models=num_models,
                    sample_models=sample_models, models=models, backprop=False,

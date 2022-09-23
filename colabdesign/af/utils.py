@@ -39,9 +39,8 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric", "use_crop","crop_mode","crop_len"]:
-      if k in kwargs:
-        self._args[k] = kwargs.pop(k)
+    for k in ["best_metric"]:
+      if k in kwargs: self._args[k] = kwargs.pop(k)
             
     if "recycle_mode" in kwargs:
       ok_recycle_mode_swap = ["average","sample","first","last"]

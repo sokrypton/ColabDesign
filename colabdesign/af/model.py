@@ -14,27 +14,24 @@ from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map,
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
-from colabdesign.af.crop   import _af_crop, crop_feat
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils, _af_crop):
+class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
                use_openfold=False, use_alphafold=True,
-               use_multimer=False,
-               use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
+               use_multimer=False, use_mlm=False,               
                pre_callback=None, post_callback=None, design_callback=None,
                loss_callback=None, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
-    assert crop_mode in ["slide","roll","pair","dist"]
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
@@ -46,8 +43,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
-                  "optimizer":optimizer, "best_metric":best_metric,
-                  "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
+                  "optimizer":optimizer, "best_metric":best_metric}
 
     self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
@@ -155,10 +151,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
-      
-      # experimental - crop inputs
-      if a["use_crop"] and opt["crop_pos"].shape[0] < L:
-          inputs = crop_feat(inputs, opt["crop_pos"])    
 
       if "batch" not in inputs:
         inputs["batch"] = None
@@ -191,12 +183,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "cmap":  get_contact_map(outputs, opt["cmap_cutoff"]),
                   "prev": outputs["prev"]})
 
-      # experimental - uncrop outputs
-      if a["use_crop"] and opt["crop_pos"].shape[0] < L:
-        p = opt["crop_pos"]
-        aux["cmap"] = jnp.zeros((L,L)).at[p[:,None],p[None,:]].set(aux["cmap"])
-        aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
-            
       #######################################################################
       # LOSS
       #######################################################################

@@ -57,20 +57,20 @@ class _af_prep:
     ---------------------------------------------------
     '''    
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
-                   offsets=kwargs.pop("pdb_offsets",None),
-                   lengths=kwargs.pop("pdb_lengths",None))
+    self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
+                         offsets=kwargs.pop("pdb_offsets",None),
+                         lengths=kwargs.pop("pdb_lengths",None))
 
-    self._len = pdb["residue_index"].shape[0]
+    self._len = self._pdb["residue_index"].shape[0]
     self._lengths = [self._len]
 
     # feat dims
     num_seq = self._num
-    res_idx = pdb["residue_index"]
+    res_idx = self._pdb["residue_index"]
     
     # get [pos]itions of interests    
     if fix_pos is not None:
-      self._pos_info = prep_pos(fix_pos, **pdb["idx"])
+      self._pos_info = prep_pos(fix_pos, **self._pdb["idx"])
       self.opt["fix_pos"] = self._pos_info["pos"]
 
     if homooligomer and chain is not None and copies == 1:
@@ -99,12 +99,12 @@ class _af_prep:
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat
     else:
-      self._lengths = pdb["lengths"]
+      self._lengths = self._pdb["lengths"]
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
-    self._inputs["batch"] = make_fixed_size(pdb["batch"], num_res=sum(self._lengths))
+    self._inputs["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
@@ -116,16 +116,10 @@ class _af_prep:
     for n,x in [["rm_seq",rm_template_seq],["rm_sc",rm_template_sc]]:
       rm[n] = np.full(L,False)
       if isinstance(x,str):
-        rm[n][prep_pos(x,**pdb["idx"])["pos"]] = True
+        rm[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
       else:
         rm[n][:] = x
     self.opt["template"].update({"rm_ic":rm_template_ic, **rm})
-
-    # undocumented: dist cropping (for Shihao)
-    if self._args["use_crop"]:
-      cb_atoms = pdb["cb_feat"]["atoms"]
-      cb_atoms[pdb["cb_feat"]["mask"] == 0,:] = np.nan
-      self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
   
     self._prep_model(**kwargs)
     
@@ -201,14 +195,14 @@ class _af_prep:
     im = [True] * len(chain.split(",")) 
     if redesign: im += [ignore_missing] * len(binder_chain.split(","))
 
-    pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=im)
-    res_idx = pdb["residue_index"]
+    self._pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=im)
+    res_idx = self._pdb["residue_index"]
 
     if redesign:
-      self._target_len = sum([(pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
-      self._binder_len = self._len = sum([(pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      self._target_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
+      self._binder_len = self._len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
     else:
-      self._target_len = pdb["residue_index"].shape[0]
+      self._target_len = self._pdb["residue_index"].shape[0]
       self._binder_len = self._len = binder_len
       res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
     self._lengths = [self._target_len, self._binder_len]
@@ -221,7 +215,7 @@ class _af_prep:
       rm[n] = np.full(L,False)
       for m,y in x.items():
         if isinstance(y,str):
-          rm[n][prep_pos(y,**pdb["idx"])["pos"]] = True
+          rm[n][prep_pos(y,**self._pdb["idx"])["pos"]] = True
         else:
           if m == "target": rm[n][:T] = y
           if m == "binder": rm[n][T:] = y
@@ -232,22 +226,22 @@ class _af_prep:
 
     # gather hotspot info
     if hotspot is not None:
-      self.opt["hotspot"] = prep_pos(hotspot, **pdb["idx"])["pos"]
+      self.opt["hotspot"] = prep_pos(hotspot, **self._pdb["idx"])["pos"]
 
     if redesign:
       # binder redesign
-      self._wt_aatype = pdb["batch"]["aatype"][self._target_len:]
+      self._wt_aatype = self._pdb["batch"]["aatype"][self._target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
                                   "con":0.0, "i_con":0.0, "i_pae":0.0})
     else:
       # binder hallucination
-      pdb["batch"] = make_fixed_size(pdb["batch"], num_res=sum(self._lengths))
+      self._pdb["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
       self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
     self._inputs["residue_index"] = res_idx
-    self._inputs["batch"] = pdb["batch"]
+    self._inputs["batch"] = self._pdb["batch"]
     self._inputs.update(get_multi_id(self._lengths))
 
     self._prep_model(**kwargs)
@@ -271,13 +265,13 @@ class _af_prep:
     self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc,"rm_ic":rm_template_ic})
 
     # prep features
-    pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
+    self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
                    offsets=kwargs.pop("pdb_offsets",None),
                    lengths=kwargs.pop("pdb_lengths",None))
 
-    pdb["len"] = sum(pdb["lengths"])
+    self._pdb["len"] = sum(self._pdb["lengths"])
 
-    self._len = pdb["len"] if length is None else length
+    self._len = self._pdb["len"] if length is None else length
     self._lengths = [self._len]
 
     # feat dims
@@ -286,11 +280,11 @@ class _af_prep:
     
     # get [pos]itions of interests
     if pos is None:
-      self.opt["pos"] = pdb["pos"] = np.arange(pdb["len"])
-      self._pos_info = {"length":np.array([pdb["len"]]), "pos":pdb["pos"]}    
+      self.opt["pos"] = self._pdb["pos"] = np.arange(self._pdb["len"])
+      self._pos_info = {"length":np.array([self._pdb["len"]]), "pos":self._pdb["pos"]}    
     else:
-      self._pos_info = prep_pos(pos, **pdb["idx"])
-      self.opt["pos"] = pdb["pos"] = self._pos_info["pos"]
+      self._pos_info = prep_pos(pos, **self._pdb["idx"])
+      self.opt["pos"] = self._pdb["pos"] = self._pos_info["pos"]
 
     if homooligomer and chain is not None and copies == 1:
       copies = len(chain.split(","))
@@ -300,11 +294,11 @@ class _af_prep:
       
       if repeat or homooligomer:
         self._len = self._len // copies
-        pdb["len"] = pdb["len"] // copies
-        self.opt["pos"] = pdb["pos"][pdb["pos"] < pdb["len"]]
+        self._pdb["len"] = self._pdb["len"] // copies
+        self.opt["pos"] = self._pdb["pos"][self._pdb["pos"] < self._pdb["len"]]
 
         # repeat positions across copies
-        pdb["pos"] = repeat_pos(self.opt["pos"], copies, pdb["len"])
+        self._pdb["pos"] = repeat_pos(self.opt["pos"], copies, self._pdb["len"])
 
       if repeat:
         self._lengths = [self._len * copies]
@@ -325,12 +319,12 @@ class _af_prep:
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
-    self._inputs["batch"] = jax.tree_map(lambda x:x[pdb["pos"]], pdb["batch"])     
+    self._inputs["batch"] = jax.tree_map(lambda x:x[self._pdb["pos"]], self._pdb["batch"])     
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0}) 
-    self._wt_aatype = pdb["batch"]["aatype"][self.opt["pos"]]
+    self._wt_aatype = self._pdb["batch"]["aatype"][self.opt["pos"]]
 
     # configure sidechains
     self._args["use_sidechains"] = use_sidechains
@@ -345,12 +339,12 @@ class _af_prep:
       sub_fix_pos = []
       sub_i = []
       pos = self.opt["pos"].tolist()
-      for i in prep_pos(fix_pos, **pdb["idx"])["pos"]:
+      for i in prep_pos(fix_pos, **self._pdb["idx"])["pos"]:
         if i in pos:
           sub_i.append(i)
           sub_fix_pos.append(pos.index(i))
       self.opt["fix_pos"] = np.array(sub_fix_pos)
-      self._wt_aatype_sub = pdb["batch"]["aatype"][sub_i]
+      self._wt_aatype_sub = self._pdb["batch"]["aatype"][sub_i]
       
     elif kwargs.pop("fix_seq",False):
       self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])

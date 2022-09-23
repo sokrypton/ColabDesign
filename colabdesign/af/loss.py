@@ -20,7 +20,7 @@ class _af_loss:
     # rmsd loss
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
     if self._args["realign"]:
-      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"]
+      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
     
     # supervised losses
     aux["losses"].update({
@@ -78,7 +78,7 @@ class _af_loss:
       align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
 
     if self._args["realign"]:
-      aux["atom_positions"] = align_fn(aux["atom_positions"]) * aux["atom_mask"]
+      aux["atom_positions"] = align_fn(aux["atom_positions"]) * aux["atom_mask"][...,None]
 
   def _loss_partial(self, inputs, outputs, aux):
     '''get losses'''    
@@ -137,7 +137,7 @@ class _af_loss:
 
     # align final atoms
     if self._args["realign"]:
-      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"]
+      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
 
   def _loss_hallucination(self, inputs, outputs, aux):
     # unsupervised losses

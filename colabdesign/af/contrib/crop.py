@@ -67,7 +67,13 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
                 "pae": uncrop_feat(aux["pae"],  p, full=jnp.nan, pair=True),
                 "prev":{"prev_pos":  uncrop_feat(x["prev_pos"],  p),
                         "prev_pair": uncrop_feat(x["prev_pair"], p, pair=True),
-                        "prev_msa_first_row": uncrop_feat(x["prev_msa_first_row"], p)}}
+                        "prev_msa_first_row": uncrop_feat(x["prev_msa_first_row"], p)},
+                }
+    if self.protocol == "fixbb":
+      full_aux.update({
+        "atom_positions":uncrop_feat(aux["atom_positions"],  p),
+        "plddt":uncrop_feat(aux["plddt"], p)})
+
     aux.update(full_aux)
 
   # function to apply during design
@@ -122,15 +128,35 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
     
     if crop:
       # function to apply after run
-      cmap, pae = (np.array(self.aux[k]) for k in ["cmap","pae"])
-      mask = np.isnan(pae)
-      b = 0.9        
+      cmap, pae, atoms, plddt = (self.aux[k] for k in ["cmap","pae", "atom_positions", "plddt"])
+      pae_mask = np.isnan(pae)
+      b = 0.5  
+
+      # update pae      
       _pae = self._tmp.get("pae",np.full_like(pae, 31.0))
-      self._tmp["pae"] = np.where(mask, _pae, (1-b)*pae + b*_pae)
+      self._tmp["pae"] = np.where(pae_mask, _pae, (1-b)*pae + b*_pae)
+
+      if self.protocol == "fixbb" and self._args["realign"]:
+        # update atoms
+        #if "atom_positions" not in self._tmp:
+        #  mu = self._inputs["batch"]["all_atom_positions"]
+        #  mu_mask = self._inputs["batch"]["all_atom_mask"][...,None]
+        #  mu = (mu * mu_mask).sum(0) / (1e-8 + mu_mask.sum(0))
+
+        #  mu = self._inputs["batch"]["all_atom_positions"] - mu
+        #  mu = (mu * mu_mask).sum(0) / (1e-8 + mu_mask.sum(0))
+
+        #  self._tmp["atom_positions"] = np.broadcast_to(mu, atoms.shape)
+        #_atoms = self._tmp["atom_positions"]
+        #self._tmp["atom_positions"] = np.where(atoms == 0, _atoms, (1-b)*atoms + b*_atoms)
+
+        _plddt = self._tmp.get("plddt",np.zeros_like(plddt))
+        self._tmp["plddt"] = np.where(plddt == 0, _plddt, (1-b)*plddt + b*_plddt)
       
       if self.protocol == "hallucination":
+        # update contact map
         _cmap = self._tmp.get("cmap",np.zeros_like(cmap))
-        self._tmp["cmap"] = np.where(mask, _cmap, (1-b)*cmap + b*_cmap)
+        self._tmp["cmap"] = np.where(pae_mask, _cmap, (1-b)*cmap + b*_cmap)
       
       self.aux.update(self._tmp)
 

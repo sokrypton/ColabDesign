@@ -14,7 +14,6 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
 
   # definite initial crop_pos
   self._opt["crop_pos"] = self.opt["crop_pos"] = np.arange(crop_len)
-  self._opt["full_len"] = self.opt["full_len"] = sum(self._lengths)
 
   # add distances
   if self.protocol == "fixbb":
@@ -46,28 +45,30 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
       return new_feat
 
     p = opt["crop_pos"]
-    inputs = crop_feat(inputs, p)
+    inputs.update(crop_feat(inputs, p))
 
   # function to apply to outputs
   def post_callback(aux, opt):
     '''uncrop features'''
-
-    def uncrop_feat(x, pos, length, full=0.0):
-      if pair:
-         p1,p2 = pos[:,None],pos[None,:]
-        return jnp.full((length,length) + x.shape[2:], full).at[p1,p2].set(x)
-      else:
-        return jnp.full((length,) + x.shape[1:], full).at[pos].set(x)
-
-    p,l = opt["crop_pos"],opt["full_len"]
-    pl = {"pos":p,"length":length}
     # TODO uncrop all
-    aux["cmap"] = uncrop(aux["cmap"], **pl, pair=True)
-    aux["pae"] =  uncrop(aux["pae"],  **pl, full=np.nan, pair=True)
+
+    length = sum(self._lengths)
+
+    def uncrop_feat(x, pos, full=0.0, pair=False):
+      if pair:
+        p1, p2 = pos[:,None], pos[None,:]
+        return jnp.full((length,length)+x.shape[2:],full).at[p1,p2].set(x)
+      else:
+        return jnp.full((length,)+x.shape[1:],full).at[pos].set(x)
+
+    p = opt["crop_pos"]
     x = aux["prev"]
-    aux["prev"] = {"prev_pos":  uncrop(x["prev_pos"],  **pl),
-                   "prev_pair": uncrop(x["prev_pair"], **pl, pair=True),
-                   "prev_msa_first_row": uncrop(x["prev_msa_first_row"], **pl)}
+    full_aux = {"cmap":uncrop_feat(aux["cmap"], p, pair=True),
+                "pae": uncrop_feat(aux["pae"],  p, full=jnp.nan, pair=True),
+                "prev":{"prev_pos":  uncrop_feat(x["prev_pos"],  p),
+                        "prev_pair": uncrop_feat(x["prev_pair"], p, pair=True),
+                        "prev_msa_first_row": uncrop_feat(x["prev_msa_first_row"], p)}}
+    aux.update(full_aux)
 
   # function to apply during design
   def design_callback(self):

@@ -63,16 +63,20 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
 
     p = opt["crop_pos"]
     x = aux["prev"]
-    full_aux = {"cmap":uncrop_feat(aux["cmap"], p, pair=True),
-                "pae": uncrop_feat(aux["pae"],  p, full=jnp.nan, pair=True),
-                "prev":{"prev_pos":  uncrop_feat(x["prev_pos"],  p),
-                        "prev_pair": uncrop_feat(x["prev_pair"], p, pair=True),
-                        "prev_msa_first_row": uncrop_feat(x["prev_msa_first_row"], p)},
-                }
+    full_aux = {
+      "cmap":uncrop_feat(aux["cmap"], p, pair=True),
+      "pae": uncrop_feat(aux["pae"],  p, full=jnp.nan, pair=True),
+      "prev":{
+        "prev_pos":  uncrop_feat(x["prev_pos"],  p),
+        "prev_pair": uncrop_feat(x["prev_pair"], p, pair=True),
+        "prev_msa_first_row": uncrop_feat(x["prev_msa_first_row"], p)
+      },
+    }
     if self.protocol == "fixbb":
       full_aux.update({
-        "atom_positions":uncrop_feat(aux["atom_positions"],  p),
-        "plddt":uncrop_feat(aux["plddt"], p)})
+        "atom_positions":uncrop_feat(aux["atom_positions"], p, full=jnp.nan),
+        "plddt":uncrop_feat(aux["plddt"], p)
+      })
 
     aux.update(full_aux)
 
@@ -138,17 +142,14 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
 
       if self.protocol == "fixbb" and self._args["realign"]:
         # update atoms
-        #if "atom_positions" not in self._tmp:
-        #  mu = self._inputs["batch"]["all_atom_positions"]
-        #  mu_mask = self._inputs["batch"]["all_atom_mask"][...,None]
-        #  mu = (mu * mu_mask).sum(0) / (1e-8 + mu_mask.sum(0))
+        if "atom_positions" not in self._tmp:
+          ca = self._inputs["batch"]["all_atom_positions"][:,1]
+          ca_mask = self._inputs["batch"]["all_atom_mask"][:,1]
+          ca_mu = (ca * ca_mask[:,None]).sum(0) / ca_mask.sum()
+          self._tmp["atom_positions"] = np.broadcast_to(ca_mu, atoms.shape)
 
-        #  mu = self._inputs["batch"]["all_atom_positions"] - mu
-        #  mu = (mu * mu_mask).sum(0) / (1e-8 + mu_mask.sum(0))
-
-        #  self._tmp["atom_positions"] = np.broadcast_to(mu, atoms.shape)
-        #_atoms = self._tmp["atom_positions"]
-        #self._tmp["atom_positions"] = np.where(atoms == 0, _atoms, (1-b)*atoms + b*_atoms)
+        _atoms = self._tmp["atom_positions"]
+        self._tmp["atom_positions"] = np.where(np.isnan(atoms), _atoms, (1-b) * atoms + b * _atoms)
 
         _plddt = self._tmp.get("plddt",np.zeros_like(plddt))
         self._tmp["plddt"] = np.where(plddt == 0, _plddt, (1-b)*plddt + b*_plddt)

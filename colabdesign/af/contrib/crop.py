@@ -22,31 +22,54 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
     cb_atoms[self._pdb["cb_feat"]["mask"] == 0,:] = np.nan
     self._dist = np.sqrt(np.square(cb_atoms[:,None] - cb_atoms[None,:]).sum(-1))
 
-  # callback functions
+  # function to apply to inputs
   def pre_callback(inputs, opt):
     '''crop features'''
+
+    def crop_feat(feat, pos):  
+      '''crop features to specified [pos]itions'''
+      if feat is None: return None
+      def find(x,k):
+        i = []
+        for j,y in enumerate(x):
+          if y == k: i.append(j)
+        return i
+      shapes = config.CONFIG.data.eval.feat
+      NUM_RES = "num residues placeholder"
+      idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
+      new_feat = copy_dict(feat)
+      for k in new_feat.keys():
+        if k in ["batch","prev"]:
+          new_feat[k] = crop_feat(feat[k], pos)
+        if k in idx:
+          for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i)
+      return new_feat
+
     p = opt["crop_pos"]
     inputs = crop_feat(inputs, p)
 
+  # function to apply to outputs
   def post_callback(aux, opt):
     '''uncrop features'''
-    p,L = opt["crop_pos"],opt["full_len"]
-    p1,p2 = p[:,None],P[None,:]
-    
-    def uncrop(x, full=0.0, pair=False):
+
+    def uncrop_feat(x, pos, length, full=0.0):
       if pair:
-        return jnp.full((L,L) + x.shape[2:], full).at[p1,p2].set(x)
+         p1,p2 = pos[:,None],pos[None,:]
+        return jnp.full((length,length) + x.shape[2:], full).at[p1,p2].set(x)
       else:
-        return jnp.full((L,) + x.shape[1:], full).at[p].set(x)
+        return jnp.full((length,) + x.shape[1:], full).at[pos].set(x)
 
+    p,l = opt["crop_pos"],opt["full_len"]
+    pl = {"pos":p,"length":length}
     # TODO uncrop all
-    aux["cmap"] = uncrop(aux["cmap"], pair=True)
-    aux["pae"] =  uncrop(aux["pae"], np.nan, pair=True)
+    aux["cmap"] = uncrop(aux["cmap"], **pl, pair=True)
+    aux["pae"] =  uncrop(aux["pae"],  **pl, full=np.nan, pair=True)
     x = aux["prev"]
-    aux["prev"] = {"prev_pos":  uncrop(x["prev_pos"]),
-                   "prev_pair": uncrop(x["prev_pair"], pair=True),
-                   "prev_msa_first_row": uncrop(x["prev_msa_first_row"])}
+    aux["prev"] = {"prev_pos":  uncrop(x["prev_pos"],  **pl),
+                   "prev_pair": uncrop(x["prev_pair"], **pl, pair=True),
+                   "prev_msa_first_row": uncrop(x["prev_msa_first_row"], **pl)}
 
+  # function to apply during design
   def design_callback(self):
     (L, max_L, mode) = (sum(self._lengths), self._args["crop_len"], self._args["crop_mode"])
 
@@ -96,18 +119,19 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
     
     self.opt["crop_pos"] = p
     
-    # function to apply after run
-    cmap, pae = (np.array(self.aux[k]) for k in ["cmap","pae"])
-    mask = np.isnan(pae)
-    b = 0.9        
-    _pae = self._tmp.get("pae",np.full_like(pae, 31.0))
-    self._tmp["pae"] = np.where(mask, _pae, (1-b)*pae + b*_pae)
-    
-    if self.protocol == "hallucination":
-      _cmap = self._tmp.get("cmap",np.zeros_like(cmap))
-      self._tmp["cmap"] = np.where(mask, _cmap, (1-b)*cmap + b*_cmap)
-    
-    self.aux.update(self._tmp)
+    if crop:
+      # function to apply after run
+      cmap, pae = (np.array(self.aux[k]) for k in ["cmap","pae"])
+      mask = np.isnan(pae)
+      b = 0.9        
+      _pae = self._tmp.get("pae",np.full_like(pae, 31.0))
+      self._tmp["pae"] = np.where(mask, _pae, (1-b)*pae + b*_pae)
+      
+      if self.protocol == "hallucination":
+        _cmap = self._tmp.get("cmap",np.zeros_like(cmap))
+        self._tmp["cmap"] = np.where(mask, _cmap, (1-b)*cmap + b*_cmap)
+      
+      self.aux.update(self._tmp)
 
   # populate callbacks
   for k,v in self._callbacks.items():
@@ -117,22 +141,3 @@ def setup_crops(self, crop_len=32, crop_mode="slide"):
     if k == "post":   v.append(post_callback)
     if k == "design": v.append(design_callback)
     self._callbacks[k] = v
-    
-def crop_feat(feat, pos):  
-  '''crop features to specified [pos]itions'''
-  if feat is None: return None
-  def find(x,k):
-    i = []
-    for j,y in enumerate(x):
-      if y == k: i.append(j)
-    return i
-  shapes = config.CONFIG.data.eval.feat
-  NUM_RES = "num residues placeholder"
-  idx = {k:find(v,NUM_RES) for k,v in shapes.items()}
-  new_feat = copy_dict(feat)
-  for k in new_feat.keys():
-    if k in ["batch","prev"]:
-      new_feat[k] = crop_feat(feat[k], pos)
-    if k in idx:
-      for i in idx[k]: new_feat[k] = jnp.take(new_feat[k], pos, i)
-  return new_feat

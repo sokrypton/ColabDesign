@@ -139,17 +139,18 @@ class design_model:
                   'radam':optax.radam,'rmsprop':optax.rmsprop,
                   'sgd':optax.sgd,'sm3':optax.sm3,'yogi':optax.yogi}
     
-    if optimizer is not None: self._args["optimizer"] = optimizer
-    o = optimizers[self._args["optimizer"]](1.0, **kwargs)
+    if optimizer is None: optimizer = self._args["optimizer"]
+    if learning_rate is not None: self.opt["learning_rate"] = learning_rate
+    if norm_seq_grad is not None: self.opt["norm_seq_grad"] = norm_seq_grad
+
+    o = optimizers[optimizer](1.0, **kwargs)
     self._state = o.init(self._params)
-    self.opt["learning_rate"] = 0.1 if learning_rate is None else learning_rate
-    if norm_seq_grad is not None:
-      self.opt["norm_seq_grad"] = norm_seq_grad
 
     def update_grad(state, grad, params):
       updates, state = o.update(grad, state, params)
       grad = jax.tree_map(lambda x:-x, updates)
       return state, grad
+    
     self._optimizer = jax.jit(update_grad)
 
   def set_seed(self, seed=None):

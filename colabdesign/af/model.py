@@ -28,7 +28,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                use_openfold=False, use_alphafold=True,
                use_multimer=False, use_mlm=False,               
                pre_callback=None, post_callback=None, design_callback=None,
-               loss_callback=None, debug=False, data_dir="."):
+               loss_callback=None, traj_iter=1, traj_max=500, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
@@ -43,7 +43,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
-                  "optimizer":optimizer, "best_metric":best_metric}
+                  "optimizer":optimizer, "best_metric":best_metric, 
+                  "traj_iter":traj_iter, "traj_max":traj_max}
 
     self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                

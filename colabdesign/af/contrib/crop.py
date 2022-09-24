@@ -110,7 +110,9 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
               j = np.random.choice(j_range)               
             self.opt["crop_pos"] = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))    
         c["k"] += 1
-      
+    
+    #################################################################
+
     # definite initial crop_pos
     design_callback(self)
     self._opt["crop_pos"] = self.opt["crop_pos"]

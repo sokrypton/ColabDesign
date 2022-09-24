@@ -41,8 +41,8 @@ class _af_design:
       self.opt = copy_dict(self._opt)
     if not keep_history:
       # initialize trajectory
-      self._traj = {"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._log, self._best, self._tmp = [], {}, {}
+      self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
+                   "log":[],"best":{}}
 
     # update options/settings (if defined)
     self.set_opt(opt)
@@ -228,10 +228,8 @@ class _af_design:
                       print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
 
   def _save_results(self, aux=None, save_best=False, verbose=True):
-    if aux is None: aux = self.aux
-    
-    self._log.append(aux["log"])
-    
+    if aux is None: aux = self.aux    
+    self._tmp["log"].append(aux["log"])    
     if (self._k % self._args["traj_iter"]) == 0:
       # update traj
       traj = {"seq":   aux["seq"]["pseudo"],
@@ -239,16 +237,16 @@ class _af_design:
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
       for k,v in traj.items():
-        if len(self._traj[k]) == self._args["traj_max"]:
-          self._traj[k].pop(0)
-        self._traj[k].append(v)
+        if len(self._tmp["traj"][k]) == self._args["traj_max"]:
+          self._tmp["traj"][k].pop(0)
+        self._tmp["traj"][k].append(v)
 
     # save best
     if save_best:
       metric = aux["log"][self._args["best_metric"]]
-      if "metric" not in self._best or metric < self._best["metric"]:
-        self._best["aux"] = aux
-        self._best["metric"] = metric
+      if "metric" not in self._tmp["best"] or metric < self._tmp["best"]["metric"]:
+        self._tmp["best"]["aux"] = aux
+        self._tmp["best"]["metric"] = metric
 
     if verbose and (self._k % verbose) == 0:
       self._print_log(f"{self._k}", aux=aux)

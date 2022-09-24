@@ -118,13 +118,9 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
     self._opt["crop_pos"] = self.opt["crop_pos"]
 
     # populate callbacks
-    for k,v in self._callbacks.items():
-      if v is None: v = []
-      if not isinstance(v,list): v = [v]
-      if k == "pre":    v.append(pre_callback)
-      if k == "post":   v.append(post_callback)
-      if k == "design": v.append(design_callback)
-      self._callbacks[k] = v
+    self._callbacks["pre"].append(pre_callback)
+    self._callbacks["post"].append(post_callback)
+    self._callbacks["design"].append(design_callback)
 
 def crop_feat(feat, pos):  
   '''crop features to specified [pos]itions'''

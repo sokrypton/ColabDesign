@@ -59,7 +59,7 @@ class _af_utils:
 
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''
-    return np.array([loss[x] for loss in self._log])
+    return np.array([loss[x] for loss in self._tmp["log"]])
 
   def save_pdb(self, filename=None, get_best=True, renum_pdb=True, aux=None):
     '''
@@ -67,10 +67,10 @@ class _af_utils:
     - set get_best=False, to get the last sampled sequence
     '''
     if aux is None:
-      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+      aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
     
-    p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
+    p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}
     p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
 
     def to_pdb_str(x, n=None):
@@ -103,7 +103,7 @@ class _af_utils:
     - color_by = ["plddt","chain","rainbow"]
     '''
     if aux is None:
-      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+      aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
     
     if self.protocol in ["fixbb","binder"]:
@@ -111,7 +111,7 @@ class _af_utils:
       pos_ref[(pos_ref == 0).any(-1)] = np.nan
     else:
       pos_ref = aux["atom_positions"][0,:,1,:]
-    sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
+    sub_traj = {k:v[s:e] for k,v in self._tmp["traj"].items()}      
     
     align_xyz = self.protocol == "hallucination"
     return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,
@@ -171,7 +171,7 @@ class _af_utils:
     plt.show()
 
   def clear_best(self):
-    self._best = {}
+    self._tmp["best"] = {}
 
   def save_current_pdb(self, filename=None):
     '''save pdb coordinates (if filename provided, otherwise return as string)'''

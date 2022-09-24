@@ -37,8 +37,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._callbacks = {"pre":pre_callback, "post":post_callback, 
-                       "loss":loss_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
@@ -61,9 +59,17 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self._params = {}
     self._inputs = {}
-    self._tmp = {}
-    self._log = []
-    self._traj = {}
+    self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
+                 "log":[],"best":{}}
+
+    # collect callbacks
+    self._callbacks = {"pre":pre_callback, "post":post_callback, 
+                       "loss":loss_callback, "design":design_callback}
+    
+    for k,v in self._callbacks.items():
+      if v is None: v = []
+      if not isinstance(v,list): v = [v]
+      self._callbacks[k] = v
 
     #############################
     # configure AlphaFold

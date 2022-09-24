@@ -62,7 +62,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._params = {}
     self._inputs = {}
     self._tmp = {}
-    self._log = {}
+    self._log = []
     self._traj = {}
 
     #############################

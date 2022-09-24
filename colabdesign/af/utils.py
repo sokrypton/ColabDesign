@@ -95,11 +95,12 @@ class _af_utils:
   #-------------------------------------
   # plotting functions
   #-------------------------------------
-  def animate(self, s=0, e=None, dpi=100, get_best=True, aux=None):
+  def animate(self, s=0, e=None, dpi=100, get_best=True, aux=None, color_by="plddt"):
     '''
     animate the trajectory
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
+    - color_by = ["plddt","chain","rainbow"]
     '''
     if aux is None:
       aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
@@ -111,11 +112,10 @@ class _af_utils:
     else:
       pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
-        
-    if self.protocol == "hallucination":
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, dpi=dpi)
-    else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi) 
+    
+    align_xyz = self.protocol == "hallucination"
+    return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,
+                          color_by=color_by, align_xyz=align_xyz, dpi=dpi) 
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), animate=False,

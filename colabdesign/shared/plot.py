@@ -161,7 +161,7 @@ def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
 def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    losses=None, pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
-                   length=None, align_xyz=True, **kwargs):
+                   length=None, align_xyz=True, color_by="plddt", **kwargs):
 
   def nankabsch(a,b,**kwargs):
     ok = np.isfinite(a).all(axis=1) & np.isfinite(b).all(axis=1)
@@ -259,10 +259,15 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   for k in range(len(seq)):
     ims.append([])
     if xyz is not None:
-      if plddt is None:
-        ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      flags = dict(ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max)
+      if color_by == "plddt" and plddt is not None:
+        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, **flags))
+      elif color_by == "chain":
+        c = np.concatenate([[n]*L for n,L in enumerate(length)])
+        ims[-1].append(plot_pseudo_3D(pos[k], c=c, cmap=pymol_cmap, cmin=0, cmax=39, **flags))
       else:
-        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+        L = pos[k].shape[0]
+        ims[-1].append(plot_pseudo_3D(pos[k], c=np.arange(L)[::-1], cmin=0, cmax=L, **flags))  
     else:
       L = con[k].shape[0]
       ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1, extent=(0, L, L, 0)))

@@ -164,7 +164,7 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    length=None, align_xyz=True, **kwargs):
 
   def nankabsch(a,b,**kwargs):
-    ok = np.isfinite(a).all(axis=1) or np.isfinite(b).all(axis=1)
+    ok = np.isfinite(a).all(axis=1) & np.isfinite(b).all(axis=1)
     a,b = a[ok],b[ok]
     return _np_kabsch(a,b,**kwargs)
   

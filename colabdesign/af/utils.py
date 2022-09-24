@@ -105,7 +105,11 @@ class _af_utils:
       aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
     aux = aux["all"]
     
-    pos_ref = aux["atom_positions"][0,:,1,:]
+    if self.protocol in ["fixbb","binder"]:
+      pos_ref = self._inputs["batch"]["all_atom_positions"][:,1]
+      pos_ref[(pos_ref == 0).any(-1)] = np.nan
+    else:
+      pos_ref = aux["atom_positions"][0,:,1,:]
     sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
         
     if self.protocol == "hallucination":

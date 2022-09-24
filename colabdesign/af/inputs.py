@@ -60,8 +60,8 @@ class _af_inputs:
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      rm_seq = jnp.broadcast_to(o["rm_seq"],L)
-      rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(o["rm_sc"],L))
+      rm_seq = jnp.broadcast_to(inputs["rm_template_seq"],L)
+      rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs["rm_template_sc"],L))
 
       # aatype = is used to define template's CB coordinates (CA in case of glycine)
       # template_aatype = is used as template's sequence

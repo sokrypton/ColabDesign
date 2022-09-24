@@ -108,7 +108,8 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
           if k not in self._tmp["crop"]:
             self._tmp["crop"][k] = v
           w = self._tmp["crop"][k]
-          self._tmp["crop"][k] = np.where(np.isnan(w),v,(v+w)/2)        
+          w = np.where(np.isnan(w),v,w)
+          self._tmp["crop"][k] = np.where(np.isnan(v),w,(v+w)/2)
         self.aux.update(self._tmp["crop"])
 
   # definite initial crop_pos

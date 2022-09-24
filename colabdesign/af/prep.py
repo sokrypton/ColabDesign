@@ -113,13 +113,15 @@ class _af_prep:
 
     # configure template [opt]ions
     rm,L = {},sum(self._lengths)
-    for n,x in [["rm_seq",rm_template_seq],["rm_sc",rm_template_sc]]:
+    for n,x in [["rm_template_seq",rm_template_seq],
+                ["rm_template_sc", rm_template_sc]]:
       rm[n] = np.full(L,False)
       if isinstance(x,str):
         rm[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
       else:
         rm[n][:] = x
-    self.opt["template"].update({"rm_ic":rm_template_ic, **rm})
+    self.opt["template"]["rm_ic"] = rm_template_ic
+    self._inputs.update(rm)
   
     self._prep_model(**kwargs)
     
@@ -209,8 +211,8 @@ class _af_prep:
 
     # configure template rm masks
     (T,L,rm) = (self._lengths[0],sum(self._lengths),{})
-    rm_opt = {"rm_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
-              "rm_sc": {"target":rm_target_sc, "binder":rm_binder_sc}}
+    rm_opt = {"rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
+              "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}}
     for n,x in rm_opt.items():
       rm[n] = np.full(L,False)
       for m,y in x.items():
@@ -222,7 +224,8 @@ class _af_prep:
         
     # set template [opt]ions
     template_dropout = 0.0 if use_binder_template else 1.0
-    self.opt["template"].update({"rm_ic":rm_template_ic, "dropout":template_dropout, **rm})
+    self.opt["template"].update({"rm_ic":rm_template_ic, "dropout":template_dropout})
+    self._inputs.update(rm)
 
     # gather hotspot info
     if hotspot is not None:
@@ -262,8 +265,6 @@ class _af_prep:
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------    
     '''    
-    self.opt["template"].update({"rm_seq":rm_template_seq,"rm_sc":rm_template_sc,"rm_ic":rm_template_ic})
-
     # prep features
     self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
                    offsets=kwargs.pop("pdb_offsets",None),
@@ -349,6 +350,10 @@ class _af_prep:
     elif kwargs.pop("fix_seq",False):
       self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])
       self._wt_aatype_sub = self._wt_aatype
+
+    self.opt["template"].update({"rm_ic":rm_template_ic})
+    self._inputs.update({"rm_template_seq":rm_template_seq,
+                         "rm_template_sc":rm_template_sc})
   
     self._prep_model(**kwargs)
 

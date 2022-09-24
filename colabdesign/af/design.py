@@ -41,8 +41,8 @@ class _af_design:
       self.opt = copy_dict(self._opt)
     if not keep_history:
       # initialize trajectory
-      self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {}
+      self._traj = {"seq":[],"xyz":[],"plddt":[],"pae":[]}
+      self._log, self._best, self._tmp = {}, {}, {}
 
     # update options/settings (if defined)
     self.set_opt(opt)
@@ -229,13 +229,15 @@ class _af_design:
 
   def _save_results(self, aux=None, save_best=False, verbose=True):
     if aux is None: aux = self.aux
+    
+    self._log.append(aux["log"])
+    
     if (self._k % self._args["traj_iter"]) == 0:
       # update traj
       traj = {"seq":   aux["seq"]["pseudo"],
               "xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
-      traj["log"] = aux["log"]
       for k,v in traj.items():
         if len(self._traj[k]) == self._args["traj_max"]:
           self._traj[k].pop(0)

@@ -27,7 +27,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                model_names=None, optimizer="sgd", learning_rate=0.1,
                use_openfold=False, use_alphafold=True,
                use_multimer=False, use_mlm=False,               
-               pre_callback=None, post_callback=None, design_callback=None,
+               pre_callback=None, post_callback=None,
+               pre_design_callback=None, post_design_callback=None,
                loss_callback=None, traj_iter=1, traj_max=500, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
@@ -63,13 +64,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                  "log":[],"best":{}}
 
     # collect callbacks
-    self._callbacks = {"pre":pre_callback, "post":post_callback, 
-                       "loss":loss_callback, "design":design_callback}
+    self._callbacks = {"model":{"pre":pre_callback,"post":post_callback,"loss":loss_callback},
+                       "design":{"pre":pre_design_callback,"post":post_design_callback}}
     
-    for k,v in self._callbacks.items():
-      if v is None: v = []
-      if not isinstance(v,list): v = [v]
-      self._callbacks[k] = v
+    for m,n in self._callbacks.items():
+      for k,v in n.items()
+        if v is None: v = []
+        if not isinstance(v,list): v = [v]
+        self._callbacks[m][k] = v
 
     #############################
     # configure AlphaFold
@@ -165,14 +167,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         inputs["batch"] = None
 
       # pre callback
-      if self._callbacks["pre"] is not None:
-        fns = self._callbacks["pre"]
-        if not isinstance(fns, list): fns = [fns]
-        for fn in fns: 
-          fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
-                     "seq":seq, "key":key(), "params":params}
-          sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
-          fn(**sub_args)
+      for fn in self._callbacks["model"]["pre"]
+        fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
+                   "seq":seq, "key":key(), "params":params}
+        sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+        fn(**sub_args)
       
       #######################################################################
       # OUTPUTS
@@ -209,15 +208,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # run user defined callbacks
       for c in ["loss","post"]:
-        fns = self._callbacks[c]
-        if fns is not None:
-          if not isinstance(fns, list): fns = [fns]
-          for fn in fns:
-            fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
-                       "aux":aux, "seq":seq, "key":key(), "params":params}
-            sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
-            if c == "loss": aux["losses"].update(fn(**sub_args))
-            if c == "post": fn(**sub_args)
+        for fn in self._callbacks["model"][c]
+          fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
+                     "aux":aux, "seq":seq, "key":key(), "params":params}
+          sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+          if c == "loss": aux["losses"].update(fn(**sub_args))
+          if c == "post": fn(**sub_args)
 
       # save for debugging
       if a["debug"]: aux["debug"] = {"inputs":inputs,"outputs":outputs}

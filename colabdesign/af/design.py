@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list
 
 ####################################################
 # AF_DESIGN - design functions
@@ -76,12 +76,15 @@ class _af_design:
     else:
       model_nums = ns[:m]
 
-    return model_nums    
+    return model_nums   
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
           backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
     
+    # pre design callbacks
+    for fn in self._callbacks["design"]["pre"]: fn(self)
+
     # decide which model params to use
     if model_nums is None:
       model_nums = self._get_model_nums(num_models, sample_models, models)
@@ -103,14 +106,8 @@ class _af_design:
     self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
     self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
     
-    # design callbacks
-    def append(x,fns):
-      if not isinstance(fns,list): fns = [fns]
-      x += [fn for fn in fns if fn is not None]
-    callbacks = []
-    append(callbacks, callback)
-    append(callbacks, self._callbacks["design"])
-    for callback in callbacks: callback(self)
+    # post design callbacks
+    for fn in (self._callbacks["design"]["post"] + to_list(callback)): fn(self)
 
     # update log
     self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
@@ -131,7 +128,8 @@ class _af_design:
       self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
-    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]), "models":model_nums})
+    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
+                            "models":model_nums})
     
     if return_aux: return self.aux
 
@@ -206,11 +204,11 @@ class _af_design:
     lr = self.opt["learning_rate"] * lr_scale
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
-    # increment
-    self._k += 1
-
     # save results
     self._save_results(save_best=save_best, verbose=verbose)
+
+    # increment
+    self._k += 1
 
   def _print_log(self, print_str=None, aux=None):
     if aux is None: aux = self.aux

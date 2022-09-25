@@ -14,10 +14,9 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
     def set_crop(crop_len=128, crop_mode="slide", crop_iter=5):
       assert crop_mode in ["slide","roll","pair"]
       assert crop_len < sum(self._lengths)
+      assert self._args["copies"] == 1 or self._args["repeat"]
+      assert self.protocol in ["partial","binder"]
       self._args["crop"] = {"len":crop_len, "mode":crop_mode, "iter":crop_iter}
-
-    self.set_crop = set_crop
-    self.set_crop(crop_len, crop_mode, crop_iter)
 
     # add distances
     if self.protocol == "fixbb":
@@ -51,53 +50,20 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
       }
       aux.update(full_aux)
 
-    # function to apply during design
-    def design_callback(self):
-
-      def check():
-        if self._args["crop"]["len"] >= sum(self._lengths): return False
-        if self._args["copies"] > 1 and not self._args["repeat"]: return False
-        if self.protocol in ["partial","binder"]: return False
-        return True
-
-      def update_aux(accumulate=False):
-        # uncrop/accumulate features
-        L = sum(self._lengths)
-        def uncrop_feat(x, pos, pair=False):
-          if pair:
-            y = np.full((L,L)+x.shape[2:],np.nan)
-            y[pos[:,None],pos[None,:]] = x
-          else:
-            y = np.full((L,)+x.shape[1:],np.nan)
-            y[pos] = x
-          return y        
-        
-        # uncrop features
-        a, p = self.aux, self.opt["crop_pos"]
-        vs = {k:uncrop_feat(a[k],p,pair=True) for k in ["cmap","pae"]}
-        vs.update({k:uncrop_feat(a[k],p) for k in ["plddt","atom_positions"]})          
-        
-        if accumulate:
-          # accumulate features
-          for k,v in vs.items():
-            w = self._tmp["crop"].get(k,v)
-            w = np.where(np.isnan(w),v,w)
-            self._tmp["crop"][k] = np.where(np.isnan(v),w,(v+w)/2)
-          self.aux.update(self._tmp["crop"])
-        else:
-          self.aux.update(vs)
-    
+    # function(s) to apply during design  
+    def pre_design_callback(self):
       def update_pos():
         c = self._args["crop"]
+        L = sum(self._lengths)
         if c["mode"] == "slide":
-          i = np.random.randint(0,(L-max_L)+1)
-          self.opt["crop_pos"] = np.arange(i,i+max_L)      
+          i = np.random.randint(0,(L-c["len"])+1)
+          self.opt["crop_pos"] = np.arange(i,i+c["len"])      
         if c["mode"] == "roll":
           i = np.random.randint(0,L)
-          self.opt["crop_pos"] = np.sort(np.roll(np.arange(L),L-i)[:max_L])
+          self.opt["crop_pos"] = np.sort(np.roll(np.arange(L),L-i)[:c["len"]])
         if c["mode"] == "pair":
           # pick random pair of interactig crops
-          max_L = max_L // 2
+          max_L = c["len"] // 2
           # pick first crop
           i_range = np.append(np.arange(0,(L-2*max_L)+1),np.arange(max_L,(L-max_L)+1))
           i = np.random.choice(i_range)          
@@ -111,31 +77,49 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
             j = np.random.choice(j_range)               
           self.opt["crop_pos"] = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))
 
-      if check():
-        if "crop" not in self._tmp:
-          self._tmp["crop"] = {}
+      if self._k != self._tmp["crop"].get(k,None):        
+        if (self._k % self._args["crop"]["iter"]) == 0:
           update_pos()
-          self._args["crop"]["k"] = self._k
-        
-        elif self._k != self._args["crop"]["k"]:
-          update_aux(accumulate=True)
-          if (self._k % self._args["crop"]["iter"]) == 0:
-            update_pos()
-          self._args["crop"]["k"] = self._k      
-        
+
+        self._tmp["crop"]["k"] = self._k
+        if hasattr(self,"aux"):
+          for k in ["cmap","pae","plddt","atom_positions"]:
+            self._tmp["crop"][k] = self.aux[k]
+    
+    def post_design_callback(self):
+      # uncrop/accumulate features
+      L = sum(self._lengths)
+      def uncrop_feat(x, pos, pair=False):
+        if pair:
+          y = np.full((L,L)+x.shape[2:],np.nan)
+          y[pos[:,None],pos[None,:]] = x
         else:
-          update_aux()
+          y = np.full((L,)+x.shape[1:],np.nan)
+          y[pos] = x
+        return y        
+      
+      # uncrop features
+      a, p = self.aux, self.opt["crop_pos"]
+      vs = {k:uncrop_feat(a[k],p,pair=True) for k in ["cmap","pae"]}
+      vs.update({k:uncrop_feat(a[k],p) for k in ["plddt","atom_positions"]})          
+      
+      # accumulate features
+      for k,v in vs.items():
+        w = self._tmp["crop"].get(k,v)
+        w = np.where(np.isnan(w),v,w)
+        vs[k] = np.where(np.isnan(v),w,(v+w)/2)
+
+      self.aux.update(vs)
 
     #################################################################
-
-    # definite initial crop_pos
-    design_callback(self)
-    self._opt["crop_pos"] = self.opt["crop_pos"]
+    self.set_crop = set_crop
+    self.set_crop(crop_len, crop_mode, crop_iter)
 
     # populate callbacks
-    self._callbacks["pre"].append(pre_callback)
-    self._callbacks["post"].append(post_callback)
-    self._callbacks["design"].append(design_callback)
+    self._callbacks["model"]["pre"].append(pre_callback)
+    self._callbacks["model"]["post"].append(post_callback)
+    self._callbacks["design"]["pre"].append(pre_design_callback)
+    self._callbacks["design"]["post"].append(post_design_callback)
 
 def crop_feat(feat, pos):  
   '''crop features to specified [pos]itions'''

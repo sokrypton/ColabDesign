@@ -106,3 +106,7 @@ def softmax(x, axis=-1):
 
 def categorical(p):
   return (p.cumsum(-1) >= np.random.uniform(size=p.shape[:-1])[..., None]).argmax(-1)
+
+def to_list(xs):
+  if not isinstance(xs,list): xs = [xs]
+  return [x for x in xs if x is not None]

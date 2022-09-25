@@ -26,7 +26,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
                use_openfold=False, use_alphafold=True,
-               use_multimer=False, use_mlm=False,               
+               use_multimer=False, use_mlm=False,            
                pre_callback=None, post_callback=None,
                pre_design_callback=None, post_design_callback=None,
                loss_callback=None, traj_iter=1, traj_max=500, debug=False, data_dir="."):
@@ -68,7 +68,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                        "design":{"pre":pre_design_callback,"post":post_design_callback}}
     
     for m,n in self._callbacks.items():
-      for k,v in n.items()
+      for k,v in n.items():
         if v is None: v = []
         if not isinstance(v,list): v = [v]
         self._callbacks[m][k] = v
@@ -167,7 +167,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         inputs["batch"] = None
 
       # pre callback
-      for fn in self._callbacks["model"]["pre"]
+      for fn in self._callbacks["model"]["pre"]:
         fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
                    "seq":seq, "key":key(), "params":params}
         sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
@@ -180,16 +180,16 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs
-      aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
-                  "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
-                  "residue_index":inputs["residue_index"],
-                  "aatype":inputs["aatype"],
-                  "plddt": get_plddt(outputs),
-                  "pae":   get_pae(outputs), 
-                  "ptm":   get_ptm(inputs, outputs),
-                  "i_ptm": get_ptm(inputs, outputs, interface=True), 
-                  "cmap":  get_contact_map(outputs, opt["cmap_cutoff"]),
-                  "prev": outputs["prev"]})
+      aux.update({"atom_positions": outputs["structure_module"]["final_atom_positions"],
+                  "atom_mask":      outputs["structure_module"]["final_atom_mask"],                  
+                  "residue_index":  inputs["residue_index"],
+                  "aatype":         inputs["aatype"],
+                  "plddt":          get_plddt(outputs),
+                  "pae":            get_pae(outputs), 
+                  "ptm":            get_ptm(inputs, outputs),
+                  "i_ptm":          get_ptm(inputs, outputs, interface=True), 
+                  "cmap":           get_contact_map(outputs, opt["cmap_cutoff"]),
+                  "prev":           outputs["prev"]})
 
       #######################################################################
       # LOSS
@@ -208,7 +208,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # run user defined callbacks
       for c in ["loss","post"]:
-        for fn in self._callbacks["model"][c]
+        for fn in self._callbacks["model"][c]:
           fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
                      "aux":aux, "seq":seq, "key":key(), "params":params}
           sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}

@@ -66,23 +66,19 @@ class _af_design:
     if models is not None:
       models = models if isinstance(models,list) else [models]
       ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
-    
+
     m = min(num_models,len(ns))
     if sample_models and m != len(ns):
-      ns = np.array(ns)
-
       model_nums = np.random.choice(ns,(m,),replace=False)
-      model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
-
     return model_nums   
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
           backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
     
-    # pre design callbacks
+    # pre-design callbacks
     for fn in self._callbacks["design"]["pre"]: fn(self)
 
     # decide which model params to use
@@ -97,23 +93,23 @@ class _af_design:
       auxs.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
     auxs = jax.tree_map(lambda *x: np.stack(x), *auxs)
 
-    # update aux
-    self.aux = jax.tree_map(lambda x:x[0], auxs)
-    self.aux["all"] = auxs
+    # update aux (average outputs)
+    def avg_or_first(x):
+      if np.issubdtype(x.dtype, np.integer): return x[0]
+      else: return x.mean(0)
 
-    # average losses and gradients
-    self.aux["loss"] = auxs["loss"].mean()
-    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
-    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
+    self.aux = jax.tree_map(avg_or_first, auxs)
+    self.aux["atom_positions"] = auxs["atom_positions"][0]
+    self.aux["all"] = auxs
     
-    # post design callbacks
+    # post-design callbacks
     for fn in (self._callbacks["design"]["post"] + to_list(callback)): fn(self)
 
     # update log
-    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
-    self.aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
-    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+    self.aux["log"] = {**self.aux["losses"]}
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
+    for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
+    for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):

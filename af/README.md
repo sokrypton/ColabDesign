@@ -1,4 +1,4 @@
-# AfDesign (v1.0.8)
+# AfDesign (v1.0.9)
 ### Google Colab
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
@@ -15,6 +15,8 @@
 - **22Sept2022** - v1.0.8
   - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible. Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
   - adding support for [Optax optimizers](#optax-optimizers)
+- **24Sept2022** - v1.0.9
+  - adding [contrib section](/contrib/README.md) where user contributed modifications and protocols will go.
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git

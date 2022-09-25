@@ -370,6 +370,7 @@ class _af_design:
 
     # fix some positions
     i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
+    i_prob[np.isnan(i_prob)] = 0
     if "fix_pos" in self.opt:
       if "pos" in self.opt:
         p = self.opt["pos"][self.opt["fix_pos"]]
@@ -396,16 +397,20 @@ class _af_design:
     
     return seq
 
-  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
+  def design_semigreedy(self, iters=100, tries=10, dropout=False,
                         save_best=True, seq_logits=None, e_tries=None, **kwargs):
 
     '''semigreedy search'''    
     if e_tries is None: e_tries = tries
 
-    plddt = None
-    seq = self._params["seq"].argmax(-1)
+    seq = self._params["seq"].argmax(-1)    
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
+
+    # get current plddt
+    aux = self.predict(seq, return_aux=True, verbose=False, **model_flags, **kwargs)
+    plddt = self.aux["plddt"]
+    plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
     # optimize!
     if verbose: print("Running semigreedy optimization...")
@@ -428,9 +433,8 @@ class _af_design:
       self._save_results(save_best=save_best, verbose=verbose)
 
       # update plddt
-      if use_plddt:
-        plddt = best["aux"]["all"]["plddt"].mean(0)
-        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+      plddt = best["aux"]["plddt"]
+      plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
   def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10, e_tries=None,
                              ramp_recycles=True, ramp_models=True, **kwargs):
@@ -464,7 +468,7 @@ class _af_design:
   # ---------------------------------------------------------------------------------
 
   def _design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
-                   use_plddt=True, seq_logits=None, save_best=True, **kwargs):
+                   seq_logits=None, save_best=True, **kwargs):
     '''
     MCMC with simulated annealing
     ----------------------------------------
@@ -507,9 +511,8 @@ class _af_design:
         # accept
         (current_seq,current_loss) = (mut_seq,loss)
         
-        if use_plddt:
-          plddt = aux["all"]["plddt"].mean(0)
-          plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+        plddt = aux["all"]["plddt"].mean(0)
+        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
         
         if loss < best_loss:
           (best_loss, self._k) = (loss, i)

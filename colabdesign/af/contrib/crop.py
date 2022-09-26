@@ -91,8 +91,9 @@ def setup(self, crop_len=128, crop_mode="slide", crop_iter=5):
         self.opt["crop_pos"] = np.sort(np.append(np.arange(i,i+max_L),np.arange(j,j+max_L)))
 
     if "crop" not in self._tmp:
-      self._tmp["crop"] = {}
-    if self._k != self._tmp["crop"].get("k",None):        
+      self._tmp["crop"] = {"k":self._k}
+      update_pos()
+    if self._k != self._tmp["crop"]["k"]:        
       if (self._k % self._args["crop"]["iter"]) == 0:
         update_pos()
 

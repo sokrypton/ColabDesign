@@ -55,7 +55,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
-      self.opt["mlm_dropout"] = 0.05
+      self.opt["mlm_dropout"] = 0.0
       self.opt["weights"]["mlm"] = 0.1
 
     self._params = {}
@@ -136,7 +136,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # INPUTS
       #######################################################################
-
       L = inputs["aatype"].shape[0]
 
       # get sequence
@@ -145,7 +144,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
       if a["use_mlm"]:
-        mlm = jax.random.bernoulli(key(), opt["mlm_dropout"], (L,))
+        mlm = opt.get("mlm",jax.random.bernoulli(key(),opt["mlm_dropout"],(L,)))
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       else:
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
@@ -204,6 +203,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       
       # experimental masked-language-modeling
       if a["use_mlm"]:
+        aux["mlm"] = outputs["masked_msa"]["logits"]
         aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
 
       # run user defined callbacks

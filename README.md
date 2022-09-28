@@ -1,8 +1,5 @@
 # ColabDesign
 ### Making Protein Design accessible to all via Google Colab! 
-```bash
-pip install git+https://github.com/sokrypton/ColabDesign.git
-```
 - [TrDesign](/tr) - using TrRosetta for design (support for TrMRF coming soon)
 - [AfDesign](/af) - using AlphaFold for design
 

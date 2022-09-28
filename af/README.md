@@ -18,7 +18,7 @@
     - The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
   - adding support for [Optax optimizers](#optax-optimizers)
 - **24Sept2022** - v1.0.9
-  - adding [contrib section](/contrib/README.md) where user contributed modifications and protocols will go.
+  - adding [contrib section](https://github.com/sokrypton/ColabDesign/tree/v1.0.9/af/contrib) where user contributed modifications and protocols will go.
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git@v1.0.9

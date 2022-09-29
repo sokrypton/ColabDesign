@@ -189,19 +189,19 @@ def tied_featurize(batch, chain_dict,
     """ Pack and pad batch into torch tensors """
     alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
     B = len(batch)
-    lengths = np.array([len(b['seq']) for b in batch], dtype=np.int32) #sum of chain seq lengths
+    lengths = np.array([len(b['seq']) for b in batch], int) #sum of chain seq lengths
     L_max = max([len(b['seq']) for b in batch])
     X = np.zeros([B, L_max, 4, 3])
-    residue_idx = -100*np.ones([B, L_max], dtype=np.int32)
-    chain_M = np.zeros([B, L_max], dtype=np.int32) #1.0 for the bits that need to be predicted
-    pssm_coef_all = np.zeros([B, L_max], dtype=np.float32) #1.0 for the bits that need to be predicted
-    pssm_bias_all = np.zeros([B, L_max, 21], dtype=np.float32) #1.0 for the bits that need to be predicted
-    pssm_log_odds_all = 10000.0*np.ones([B, L_max, 21], dtype=np.float32) #1.0 for the bits that need to be predicted
-    chain_M_pos = np.zeros([B, L_max], dtype=np.int32) #1.0 for the bits that need to be predicted
-    bias_by_res_all = np.zeros([B, L_max, 21], dtype=np.float32)
-    chain_encoding_all = np.zeros([B, L_max], dtype=np.int32) #1.0 for the bits that need to be predicted
-    S = np.zeros([B, L_max], dtype=np.int32)
-    omit_AA_mask = np.zeros([B, L_max, len(alphabet)], dtype=np.int32)
+    residue_idx = -100*np.ones([B, L_max], int)
+    chain_M = np.zeros([B, L_max], int) #1.0 for the bits that need to be predicted
+    pssm_coef_all = np.zeros([B, L_max], float) #1.0 for the bits that need to be predicted
+    pssm_bias_all = np.zeros([B, L_max, 21], float) #1.0 for the bits that need to be predicted
+    pssm_log_odds_all = 10000.0*np.ones([B, L_max, 21], float) #1.0 for the bits that need to be predicted
+    chain_M_pos = np.zeros([B, L_max], int) #1.0 for the bits that need to be predicted
+    bias_by_res_all = np.zeros([B, L_max, 21], float)
+    chain_encoding_all = np.zeros([B, L_max], int) #1.0 for the bits that need to be predicted
+    S = np.zeros([B, L_max], int)
+    omit_AA_mask = np.zeros([B, L_max, len(alphabet)], int)
     # Build the batch
     letter_list_list = []
     visible_list_list = []
@@ -380,7 +380,7 @@ def tied_featurize(batch, chain_dict,
         bias_by_res_all[i,:] = bias_by_res_pad
 
         # Convert to labels
-        indices = np.asarray([alphabet.index(a) for a in all_sequence], dtype=np.int32)
+        indices = np.asarray([alphabet.index(a) for a in all_sequence], int)
         S[i, :l] = indices
         letter_list_list.append(letter_list)
         visible_list_list.append(visible_list)
@@ -389,31 +389,31 @@ def tied_featurize(batch, chain_dict,
 
 
     isnan = np.isnan(X)
-    mask = np.isfinite(np.sum(X,(2,3))).astype(np.float32)
+    mask = np.isfinite(np.sum(X,(2,3))).astype(float)
     X[isnan] = 0.
 
     # Conversion
-    pssm_coef_all = jnp.array(pssm_coef_all, dtype=jnp.float32)
-    pssm_bias_all = jnp.array(pssm_bias_all, dtype=jnp.float32)
-    pssm_log_odds_all = jnp.array(pssm_log_odds_all, dtype=jnp.float32)
+    pssm_coef_all = jnp.array(pssm_coef_all, float)
+    pssm_bias_all = jnp.array(pssm_bias_all, float)
+    pssm_log_odds_all = jnp.array(pssm_log_odds_all, float)
 
-    tied_beta = jnp.array(tied_beta, dtype=jnp.float32)
+    tied_beta = jnp.array(tied_beta, float)
 
-    jumps = ((residue_idx[:,1:]-residue_idx[:,:-1])==1).astype(np.float32)
-    bias_by_res_all = jnp.array(bias_by_res_all, dtype=jnp.float32)
+    jumps = ((residue_idx[:,1:]-residue_idx[:,:-1])==1).astype(float)
+    bias_by_res_all = jnp.array(bias_by_res_all, float)
     phi_mask = np.pad(jumps, [[0,0],[1,0]])
     psi_mask = np.pad(jumps, [[0,0],[0,1]])
     omega_mask = np.pad(jumps, [[0,0],[0,1]])
     dihedral_mask = np.concatenate([phi_mask[:,:,None], psi_mask[:,:,None], omega_mask[:,:,None]], -1) #[B,L,3]
-    dihedral_mask = jnp.array(dihedral_mask, dtype=jnp.float32)
-    residue_idx = jnp.array(residue_idx, dtype=jnp.int64)
-    S = jnp.array(S, dtype=jnp.int64)
-    X = jnp.array(X, dtype=jnp.float32)
-    mask = jnp.array(mask, dtype=jnp.float32)
-    chain_M = jnp.array(chain_M, dtype=jnp.float32)
-    chain_M_pos = jnp.array(chain_M_pos, dtype=jnp.float32)
-    omit_AA_mask = jnp.array(omit_AA_mask, dtype=jnp.float32)
-    chain_encoding_all = jnp.array(chain_encoding_all, dtype=jnp.int64)
+    dihedral_mask = jnp.array(dihedral_mask, float)
+    residue_idx = jnp.array(residue_idx, int)
+    S = jnp.array(S, int)
+    X = jnp.array(X, float)
+    mask = jnp.array(mask, float)
+    chain_M = jnp.array(chain_M, float)
+    chain_M_pos = jnp.array(chain_M_pos, float)
+    omit_AA_mask = jnp.array(omit_AA_mask, float)
+    chain_encoding_all = jnp.array(chain_encoding_all, int)
     return X, S, mask, lengths, chain_M, chain_encoding_all, letter_list_list, \
            visible_list_list, masked_list_list, masked_chain_length_list_list, \
            chain_M_pos, omit_AA_mask, residue_idx, dihedral_mask, tied_pos_list_of_lists_list, \

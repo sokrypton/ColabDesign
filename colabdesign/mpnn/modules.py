@@ -12,7 +12,7 @@ Gelu = functools.partial(jax.nn.gelu, approximate=False)
 # The following gather functions
 def gather_edges(edges, neighbor_idx):
     # Features [B,N,N,C] at Neighbor indices [B,N,K] => Neighbor features [B,N,K,C]
-    neighbors = jnp.expand_dims(neighbor_idx, -1).tile([1, 1, 1, edges.shape[-1]])
+    neighbors = jnp.tile(jnp.expand_dims(neighbor_idx, -1), [1, 1, 1, edges.shape[-1]])
     edge_features = jnp.take_along_axis(edges, neighbors, 2)
     return edge_features
 
@@ -20,7 +20,7 @@ def gather_nodes(nodes, neighbor_idx):
     # Features [B,N,C] at Neighbor indices [B,N,K] => [B,N,K,C]
     # Flatten and expand indices per batch [B,N,K] => [B,NK] => [B,NK,C]
     neighbors_flat = neighbor_idx.reshape([neighbor_idx.shape[0], -1])
-    neighbors_flat = jnp.expand_dims(neighbors_flat, -1).tile([1, 1, nodes.shape[2]])
+    neighbors_flat = jnp.tile(jnp.expand_dims(neighbors_flat, -1),[1, 1, nodes.shape[2]])
     # Gather and re-pack
     neighbor_features = jnp.take_along_axis(nodes, neighbors_flat, 1)
     neighbor_features = neighbor_features.reshape(list(neighbor_idx.shape[:3]) + [-1])
@@ -28,7 +28,7 @@ def gather_nodes(nodes, neighbor_idx):
 
 def gather_nodes_t(nodes, neighbor_idx):
     # Features [B,N,C] at Neighbor index [B,K] => Neighbor features[B,K,C]
-    idx_flat = jnp.expand_dims(neighbor_idx, -1).tile([1, 1, nodes.shape[2]])
+    idx_flat = jnp.tile(jnp.expand_dims(neighbor_idx, -1),[1, 1, nodes.shape[2]])
     neighbor_features = jnp.take_along_axis(nodes, idx_flat, 1)
     return neighbor_features
 
@@ -86,7 +86,7 @@ class EncLayer(hk.Module):
         """ Parallel computation of full transformer layer """
 
         h_EV = cat_neighbors_nodes(h_V, h_E, E_idx)
-        h_V_expand = jnp.expand_dims(h_V, -2).tile([1, 1, h_EV.shape[-2], 1])
+        h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, 1, h_EV.shape[-2], 1])
         h_EV = jnp.concatenate([h_V_expand, h_EV], -1)
 
         h_message = self.W3(self.act(self.W2(self.act(self.W1(h_EV)))))
@@ -102,7 +102,7 @@ class EncLayer(hk.Module):
             h_V = mask_V * h_V
 
         h_EV = cat_neighbors_nodes(h_V, h_E, E_idx)
-        h_V_expand = jnp.expand_dims(h_V, -2).tile([1, 1, h_EV.shape[-2], 1])
+        h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, 1, h_EV.shape[-2], 1])
         h_EV = jnp.concatenate([h_V_expand, h_EV], -1)
         h_message = self.W13(self.act(self.W12(self.act(self.W11(h_EV)))))
         h_E = self.norm3(h_E + self.dropout3(h_message))
@@ -136,7 +136,7 @@ class DecLayer(hk.Module):
         """ Parallel computation of full transformer layer """
 
         # Concatenate h_V_i to h_E_ij
-        h_V_expand = jnp.expand_dims(h_V, -2).tile([1, 1, h_E.shape[-2], 1])
+        h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, 1, h_E.shape[-2], 1])
         h_EV = jnp.concatenate([h_V_expand, h_E], -1)
 
         h_message = self.W3(self.act(self.W2(self.act(self.W1(h_EV)))))

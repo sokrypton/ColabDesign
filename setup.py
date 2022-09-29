@@ -7,4 +7,5 @@ setup(
                       'chex','dm-haiku','dm-tree',
                       'immutabledict','jax','ml-collections',
                       'numpy','pandas','scipy','optax'],
+    include_package_data=True
 )

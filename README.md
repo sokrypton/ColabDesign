@@ -17,4 +17,4 @@
 - Sergey Ovchinnikov [@sokrypton](https://github.com/sokrypton)
 - Justas Dauparas [@dauparas](https://github.com/dauparas)
 - Weikun.Wu [@guyujun](https://github.com/guyujun) [Levinthal.bio](http://levinthal.bio/en/)
-- Shihao Feng
+- Shihao Feng [@JeffSHF](https://github.com/JeffSHF)

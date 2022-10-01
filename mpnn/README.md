@@ -1,4 +1,5 @@
 # ProteinMPNN in jax!
+**WARNING** This code is work-in-progress!
 
 
 <a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.0.9/mpnn/example.ipynb">

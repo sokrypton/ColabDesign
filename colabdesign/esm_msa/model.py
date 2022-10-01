@@ -17,7 +17,7 @@ from .modules import (
     LmHead,
 )
 
-from .prng import SafeKey
+from colabdesign.shared.prng import SafeKey
 
 class MSATransformer(hk.Module):
     def __init__(self, alphabet, config):

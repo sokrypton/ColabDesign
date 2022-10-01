@@ -9,8 +9,7 @@ import jax.numpy as jnp
 import haiku as hk
 from jax.nn import softmax
 
-from .prng import SafeKey
-#惊了，并不是出现if就一定不行，比如说依赖输入的shape的分支是允许的
+from colabdesign.shared.prng import SafeKey
 
 class RowSelfAttention(hk.Module):
     """Compute self-attention over rows of a 2D input."""

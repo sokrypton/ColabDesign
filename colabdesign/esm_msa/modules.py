@@ -10,7 +10,8 @@ import jax
 import jax.numpy as jnp
 
 from .axial_attention import ColumnSelfAttention, RowSelfAttention
-from .prng import SafeKey
+from colabdesign.shared.prng import SafeKey
+
 
 
 def symmetrize(x):

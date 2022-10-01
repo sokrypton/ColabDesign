@@ -222,6 +222,7 @@ class ProteinFeatures(hk.Module):
                  num_positional_embeddings=16,
                  num_rbf=16, top_k=30,
                  augment_eps=0., num_chain_embeddings=16):
+
         """ Extract protein features """
         super(ProteinFeatures, self).__init__()
         self.edge_features = edge_features
@@ -271,15 +272,23 @@ class ProteinFeatures(hk.Module):
             self.safe_key, use_key = self.safe_key.split()
             X = X + self.augment_eps * jax.random.normal(use_key, X.shape)
         
+        ##########################
+        # get atoms
+        ##########################
         # N,Ca,C,O
-        Y = X.transpose((2,0,1,3))
-        
+        Y = X.transpose((2,0,1,3))        
         # add Cb
         b,c = (Y[1]-Y[0]),(Y[2]-Y[1])
         Cb = -0.58273431*jnp.cross(b,c) + 0.56802827*b - 0.54067466*c + Y[1]
         Y = jnp.concatenate([Y,Cb[None]],0)
 
+        ##########################
+        # gather edge features
+        ##########################
+        # get edge indices (based on ca-ca distances)
         E_idx = self._get_edge_idx(Y[1], mask)
+
+        # rbf encode distances between atoms
         edges = jnp.array([[1,1],[0,0],[2,2],[3,3],[4,4],
                            [1,0],[1,2],[1,3],[1,4],[0,2],
                            [0,3],[0,4],[4,2],[4,3],[3,2],
@@ -289,12 +298,21 @@ class ProteinFeatures(hk.Module):
         RBF_all = RBF_all.transpose((1,2,3,0,4))
         RBF_all = RBF_all.reshape(RBF_all.shape[:-2]+(-1,))
 
-        offset = residue_idx[:,:,None] - residue_idx[:,None,:]
-        offset = gather_edges(offset[:,:,:,None], E_idx)[:,:,:,0] #[B, L, K]
+        ##########################
+        # position embedding
+        ##########################
+        # residue index offset
+        offset = (residue_idx[...,:,None] - residue_idx[...,None,:]).astype(int)
+        offset = gather_edges(offset[...,None], E_idx)[...,0] #[B, L, K]
 
-        d_chains = ((chain_labels[:, :, None] - chain_labels[:,None,:]) == 0)
-        E_chains = gather_edges(d_chains.astype(int)[:,:,:,None], E_idx)[:,:,:,0]
-        E_positional = self.embeddings(offset.astype(int), E_chains)
+        # chain index offset
+        d_chains = (chain_labels[...,:,None] == chain_labels[...,None,:]).astype(int)
+        E_chains = gather_edges(d_chains[...,None], E_idx)[...,0]
+        E_positional = self.embeddings(offset, E_chains)
+
+        ##########################
+        # define edges
+        ##########################
         E = jnp.concatenate((E_positional, RBF_all), -1)
         E = self.edge_embedding(E)
         E = self.norm_edges(E)
@@ -318,8 +336,8 @@ class EmbedToken(hk.Module):
         return jnp.tensordot(one_hot, self.embeddings, 1)
 
 class ProteinMPNN(hk.Module):
-    def __init__(self, num_letters, node_features, 
-                 edge_features, hidden_dim,
+    def __init__(self, num_letters,
+                 node_features, edge_features, hidden_dim,
                  num_encoder_layers=3, num_decoder_layers=3,
                  vocab=21, k_neighbors=64,
                  augment_eps=0.05, dropout=0.1):
@@ -331,8 +349,8 @@ class ProteinMPNN(hk.Module):
         self.hidden_dim = hidden_dim
 
         # Featurization layers
-        self.features = ProteinFeatures(node_features,
-                                        edge_features,
+        self.features = ProteinFeatures(edge_features,
+                                        node_features,
                                         top_k=k_neighbors,
                                         augment_eps=augment_eps)
 
@@ -420,13 +438,13 @@ class ProteinMPNN(hk.Module):
         h_E = self.W_e(E)
 
         # Encoder is unmasked self-attention
-        mask_attend = gather_nodes(jnp.expand_dims(mask, -1),  E_idx).squeeze(-1)
-        mask_attend = jnp.expand_dims(mask, -1) * mask_attend
+        mask_attend = gather_nodes(mask[...,None], E_idx)[...,0]
+        mask_attend = mask[...,None] * mask_attend
         for layer in self.encoder_layers:
             h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 
         # Decoder uses masked self-attention
-        chain_mask = chain_mask*chain_M_pos*mask #update chain_M to include missing regions
+        chain_mask = chain_mask * chain_M_pos * mask #update chain_M to include missing regions
         decoding_order = jnp.argsort((chain_mask+0.0001)*(jnp.abs(randn))) #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
         mask_size = E_idx.shape[1]
         permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)

@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from .modules import RunModel
 from .utils import parse_PDB, StructureDatasetPDB, tied_featurize, _S_to_seq
-from .prng import SafeKey
+from colabdesign.shared.prng import SafeKey
 
 
 class MPNN_wrapper:  

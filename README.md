@@ -1,11 +1,12 @@
 # ColabDesign
 ### Making Protein Design accessible to all via Google Colab! 
 - P(structure | sequence)
-  - [TrDesign](/tr) - using TrRosetta for design (support for TrMRF coming soon)
+  - [TrDesign](/tr) - using TrRosetta for design
   - [AfDesign](/af) - using AlphaFold for design
   - [WIP] [RfDesign](https://github.com/RosettaCommons/RFDesign) - using RoseTTAFold for design
 - P(sequence | structure)
   - [WIP] [ProteinMPNN](/mpnn)
+  - [WIP] TrMRF
 - P(sequence)
   - [WIP] [MSA_transformer](/esm_msa)
   - [WIP] [SEQ](/seq) - (GREMLIN, mfDCA, arDCA, plmDCA, bmDCA, etc)

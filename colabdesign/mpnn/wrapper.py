@@ -55,9 +55,9 @@ class MPNN_wrapper:
         seed = jax.random.PRNGKey(seed)
         self.safe_key = SafeKey(seed)
     
-    def prep_input(self, pdb_path,
-                   target_chain, fixed_chain=None,
-                   ishomomer=False, omit_AAs='X'):
+    def prep_inputs(self, pdb_path,
+                    target_chain, fixed_chain=None,
+                    ishomomer=False, omit_AAs='X'):
         """generate input for score and sampling function
 
         Args:
@@ -129,11 +129,11 @@ class MPNN_wrapper:
                 'pssm_bias_flag': pssm_bias_flag,
                }
     
-    def score(self, input, seq=None, order=None, key=None):
+    def score(self, inputs, seq=None, order=None, key=None):
         """get the output of MPNN
 
         Args:
-            input (dict): output of the prep_input function
+            inputs (dict): output of the prep_input function
             seq (str, optional): the input sequence.
                                  If not provided, the original sequence will be used.
                                  Defaults to None.
@@ -146,16 +146,16 @@ class MPNN_wrapper:
             logits
             log_probs
         """        
-        protein = input['dataset_valid'][0]
+        protein = inputs['dataset_valid'][0]
         batch_clones = [copy.deepcopy(protein)]
         (X, S, mask, lengths, chain_M, chain_encoding_all, chain_list_list,
          visible_list_list, masked_list_list, masked_chain_length_list_list,
          chain_M_pos, omit_AA_mask, residue_idx, dihedral_mask,
          tied_pos_list_of_lists_list, pssm_coef, pssm_bias,
          pssm_log_odds_all, bias_by_res_all, tied_beta) = tied_featurize(batch_clones,
-                                                                         input['chain_id_dict'], input['fixed_positions_dict'],
-                                                                         input['omit_AA_dict'], input['tied_positions_dict'],
-                                                                         input['pssm_dict'], input['bias_by_res_dict'])
+                                                                         inputs['chain_id_dict'], inputs['fixed_positions_dict'],
+                                                                         inputs['omit_AA_dict'], inputs['tied_positions_dict'],
+                                                                         inputs['pssm_dict'], inputs['bias_by_res_dict'])
         score_input = {'X': X,
                        'S': S,
                        'mask': mask,
@@ -178,13 +178,13 @@ class MPNN_wrapper:
         self.safe_key, used_key = self.safe_key.split()
         return self.model.score(self.model.params, used_key.get(), score_input)
    
-    def sampling(self, input,
+    def sampling(self, inputs,
                  sample_num, batch_size,
                  sampling_temp=0.1, order=None, key=None):
         """sample sequences from the given protein structure
 
         Args:
-            input (dict): output of the prep_input function
+            inputs (dict): output of the prep_input function
             sample_num (int): number of sequences you want to generate
             batch_size (int): size of one batch
             sampling_temp (float, optional): sampling temperature. Defaults to 0.1.
@@ -201,17 +201,17 @@ class MPNN_wrapper:
         if key is not None:
             self.safe_key = SafeKey(key)
 
-        protein = input['dataset_valid'][0]
+        protein = inputs['dataset_valid'][0]
         batch_clones = [copy.deepcopy(protein) for i in range(BATCH_COPIES)]
         (X, S, mask, lengths, chain_M, chain_encoding_all, chain_list_list,
          visible_list_list, masked_list_list, masked_chain_length_list_list,
          chain_M_pos, omit_AA_mask, residue_idx, dihedral_mask,
          tied_pos_list_of_lists_list, pssm_coef, pssm_bias,
          pssm_log_odds_all, bias_by_res_all, tied_beta) = tied_featurize(batch_clones,
-                                                                         input['chain_id_dict'], input['fixed_positions_dict'],
-                                                                         input['omit_AA_dict'], input['tied_positions_dict'],
-                                                                         input['pssm_dict'], input['bias_by_res_dict'])
-        pssm_log_odds_mask = jax.lax.convert_element_type((pssm_log_odds_all > input['pssm_threshold']),
+                                                                         inputs['chain_id_dict'], inputs['fixed_positions_dict'],
+                                                                         inputs['omit_AA_dict'], inputs['tied_positions_dict'],
+                                                                         inputs['pssm_dict'], inputs['bias_by_res_dict'])
+        pssm_log_odds_mask = jax.lax.convert_element_type((pssm_log_odds_all > inputs['pssm_threshold']),
                                                           jnp.float32)  # 1.0 for true, 0.0 for false
 
         if order is None:
@@ -228,16 +228,16 @@ class MPNN_wrapper:
                         'residue_idx': residue_idx,
                         'mask': mask,
                         'temperature': sampling_temp,
-                        'omit_AAs_np': input['omit_AAs_np'],
-                        'bias_AAs_np': input['bias_AAs_np'],
+                        'omit_AAs_np': inputs['omit_AAs_np'],
+                        'bias_AAs_np': inputs['bias_AAs_np'],
                         'chain_M_pos': chain_M_pos,
                         'omit_AA_mask': omit_AA_mask,
                         'pssm_coef': pssm_coef,
                         'pssm_bias': pssm_bias,
-                        'pssm_multi': input['pssm_multi'],
-                        'pssm_log_odds_flag': bool(input['pssm_log_odds_flag']),
+                        'pssm_multi': inputs['pssm_multi'],
+                        'pssm_log_odds_flag': bool(inputs['pssm_log_odds_flag']),
                         'pssm_log_odds_mask': pssm_log_odds_mask,
-                        'pssm_bias_flag': bool(input['pssm_bias_flag']),
+                        'pssm_bias_flag': bool(inputs['pssm_bias_flag']),
                         'bias_by_res': bias_by_res_all
                         }
         seq_gen = []
@@ -246,7 +246,7 @@ class MPNN_wrapper:
             sample_input.update({'key': used_key.get()})
 
             self.safe_key, used_key = self.safe_key.split()
-            if input['tied_positions_dict'] is None:
+            if inputs['tied_positions_dict'] is None:
                 sample_dict = self.model.sample(self.model.params, used_key.get(), sample_input)
             else:
                 sample_input.update({'tied_pos': tied_pos_list_of_lists_list[0],

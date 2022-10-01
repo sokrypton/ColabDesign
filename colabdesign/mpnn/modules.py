@@ -46,7 +46,6 @@ def scatter(input, dim, index, src):
     a = jnp.moveaxis(a, 0, -1).reshape((-1, dim_num))
     return input.at[tuple(a.T)].set(src[tuple(idx.T)])
 
-
 class dropout_cust(hk.Module):
     def __init__(self, rate) -> None:
         super().__init__()
@@ -188,7 +187,7 @@ class PositionalEncodings(hk.Module):
         d = jnp.clip(offset + self.max_relative_feature, 0, 2*self.max_relative_feature) * mask + \
             (1 - mask) * (2*self.max_relative_feature + 1)
         d_onehot = jax.nn.one_hot(d, 2*self.max_relative_feature + 1 + 1)
-        E = self.linear(jax.lax.convert_element_type(d_onehot, jnp.float32))
+        E = self.linear(d_onehot)
         return E
 
 
@@ -239,89 +238,67 @@ class ProteinFeatures(hk.Module):
 
         self.safe_key = SafeKey(hk.next_rng_key())
 
-    def _dist(self, X, mask, eps=1E-6):
-        mask_2D = jnp.expand_dims(mask, 1) * jnp.expand_dims(mask, 2)
-        dX = jnp.expand_dims(X, 1) - jnp.expand_dims(X, 2)
-        D = mask_2D * jnp.sqrt(jnp.sum(dX**2, 3) + eps)
-        D_max = jnp.max(D, -1, keepdims=True)
-        D_adjust = D + (1. - mask_2D) * D_max
-        sampled_top_k = self.top_k
-        D_neighbors, E_idx = jax.lax.approx_min_k(D_adjust,
-                                                  np.minimum(self.top_k, X.shape[1]),
-                                                  reduction_dimension=-1)
-        return D_neighbors, E_idx
+    def _get_edge_idx(self, X, mask, eps=1E-6):
+        ''' get edge index
+        input: mask.shape = (...,L), X.shape = (...,L,3)
+        return: (...,L,k)
+        '''
+        mask_2D = mask[...,None,:] * mask[...,:,None] 
+        dX = X[...,None,:,:] - X[...,:,None,:]
+        D = jnp.sqrt(jnp.square(dX).sum(-1) + eps)
+        D_masked = jnp.where(mask_2D,D,D.max(-1,keepdims=True))
+        k = min(self.top_k, X.shape[-2])
+        _, E_idx = jax.lax.approx_min_k(D_masked, k, reduction_dimension=-1)
+        return E_idx
 
     def _rbf(self, D):
+        ''' radial basis function (RBF)
+        input: (...,L,k)
+        output: (...,L,k,?)
+        '''
         D_min, D_max, D_count = 2., 22., self.num_rbf
         D_mu = jnp.linspace(D_min, D_max, D_count)
-        D_mu = D_mu.reshape([1,1,1,-1])
-        D_sigma = (D_max - D_min) / D_count
-        D_expand = jnp.expand_dims(D, -1)
-        RBF = jnp.exp(-((D_expand - D_mu) / D_sigma)**2)
-        return RBF
+        D_sigma = (D_max - D_min) / D_count        
+        return jnp.exp(-((D[...,None] - D_mu) / D_sigma)**2)
 
     def _get_rbf(self, A, B, E_idx):
-        D_A_B = jnp.sqrt(jnp.sum((A[:,:,None,:] - B[:,None,:,:])**2, -1) + 1e-6) #[B, L, L]
-        D_A_B_neighbors = gather_edges(D_A_B[:,:,:,None], E_idx)[:,:,:,0] #[B,L,K]
-        RBF_A_B = self._rbf(D_A_B_neighbors)
-        return RBF_A_B
+        D = jnp.sqrt(jnp.square(A[...,:,None,:] - B[...,None,:,:]).sum(-1) + 1e-6)
+        D_neighbors = gather_edges(D[:,:,:,None], E_idx)[:,:,:,0] #[B,L,K]
+        return self._rbf(D_neighbors)
 
     def __call__(self, X, mask, residue_idx, chain_labels):
         if self.augment_eps > 0:
             self.safe_key, use_key = self.safe_key.split()
             X = X + self.augment_eps * jax.random.normal(use_key, X.shape)
         
-        b = X[:,:,1,:] - X[:,:,0,:]
-        c = X[:,:,2,:] - X[:,:,1,:]
-        a = jnp.cross(b, c)
-        Cb = -0.58273431*a + 0.56802827*b - 0.54067466*c + X[:,:,1,:]
-        Ca = X[:,:,1,:]
-        N = X[:,:,0,:]
-        C = X[:,:,2,:]
-        O = X[:,:,3,:]
+        # N,Ca,C,O
+        Y = X.transpose((2,0,1,3))
+        
+        # add Cb
+        b,c = (Y[1]-Y[0]),(Y[2]-Y[1])
+        Cb = -0.58273431*jnp.cross(b,c) + 0.56802827*b - 0.54067466*c + Y[1]
+        Y = jnp.concatenate([Y,Cb[None]],0)
 
-        D_neighbors, E_idx = self._dist(Ca, mask)
-
-        RBF_all = []
-        RBF_all.append(self._rbf(D_neighbors)) #Ca-Ca
-        RBF_all.append(self._get_rbf(N, N, E_idx)) #N-N
-        RBF_all.append(self._get_rbf(C, C, E_idx)) #C-C
-        RBF_all.append(self._get_rbf(O, O, E_idx)) #O-O
-        RBF_all.append(self._get_rbf(Cb, Cb, E_idx)) #Cb-Cb
-        RBF_all.append(self._get_rbf(Ca, N, E_idx)) #Ca-N
-        RBF_all.append(self._get_rbf(Ca, C, E_idx)) #Ca-C
-        RBF_all.append(self._get_rbf(Ca, O, E_idx)) #Ca-O
-        RBF_all.append(self._get_rbf(Ca, Cb, E_idx)) #Ca-Cb
-        RBF_all.append(self._get_rbf(N, C, E_idx)) #N-C
-        RBF_all.append(self._get_rbf(N, O, E_idx)) #N-O
-        RBF_all.append(self._get_rbf(N, Cb, E_idx)) #N-Cb
-        RBF_all.append(self._get_rbf(Cb, C, E_idx)) #Cb-C
-        RBF_all.append(self._get_rbf(Cb, O, E_idx)) #Cb-O
-        RBF_all.append(self._get_rbf(O, C, E_idx)) #O-C
-        RBF_all.append(self._get_rbf(N, Ca, E_idx)) #N-Ca
-        RBF_all.append(self._get_rbf(C, Ca, E_idx)) #C-Ca
-        RBF_all.append(self._get_rbf(O, Ca, E_idx)) #O-Ca
-        RBF_all.append(self._get_rbf(Cb, Ca, E_idx)) #Cb-Ca
-        RBF_all.append(self._get_rbf(C, N, E_idx)) #C-N
-        RBF_all.append(self._get_rbf(O, N, E_idx)) #O-N
-        RBF_all.append(self._get_rbf(Cb, N, E_idx)) #Cb-N
-        RBF_all.append(self._get_rbf(C, Cb, E_idx)) #C-Cb
-        RBF_all.append(self._get_rbf(O, Cb, E_idx)) #O-Cb
-        RBF_all.append(self._get_rbf(C, O, E_idx)) #C-O
-        RBF_all = jnp.concatenate(tuple(RBF_all), axis=-1)
+        E_idx = self._get_edge_idx(Y[1], mask)
+        edges = jnp.array([[1,1],[0,0],[2,2],[3,3],[4,4],
+                           [1,0],[1,2],[1,3],[1,4],[0,2],
+                           [0,3],[0,4],[4,2],[4,3],[3,2],
+                           [0,1],[2,1],[3,1],[4,1],[2,0],
+                           [3,0],[4,0],[2,4],[3,4],[2,3]])
+        RBF_all = jax.vmap(lambda x:self._get_rbf(Y[x[0]],Y[x[1]],E_idx))(edges)
+        RBF_all = RBF_all.transpose((1,2,3,0,4))
+        RBF_all = RBF_all.reshape(RBF_all.shape[:-2]+(-1,))
 
         offset = residue_idx[:,:,None] - residue_idx[:,None,:]
         offset = gather_edges(offset[:,:,:,None], E_idx)[:,:,:,0] #[B, L, K]
 
-        d_chains = (chain_labels[:, :, None] - chain_labels[:,None,:])==0
-        d_chains = jax.lax.convert_element_type(d_chains, jnp.int64)
-        E_chains = gather_edges(d_chains[:,:,:,None], E_idx)[:,:,:,0]
-        E_positional = self.embeddings(jax.lax.convert_element_type(offset, jnp.int64), E_chains)
+        d_chains = ((chain_labels[:, :, None] - chain_labels[:,None,:]) == 0)
+        E_chains = gather_edges(d_chains.astype(int)[:,:,:,None], E_idx)[:,:,:,0]
+        E_positional = self.embeddings(offset.astype(int), E_chains)
         E = jnp.concatenate((E_positional, RBF_all), -1)
         E = self.edge_embedding(E)
         E = self.norm_edges(E)
         return E, E_idx 
-
 
 class EmbedToken(hk.Module):
     def __init__(self, vocab_size, embed_dim):
@@ -408,8 +385,7 @@ class ProteinMPNN(hk.Module):
             #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
             decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
         mask_size = E_idx.shape[1]
-        permutation_matrix_reverse = jax.lax.convert_element_type(jax.nn.one_hot(decoding_order, mask_size),
-                                                                  jnp.float32)
+        permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
         order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
                                          (1 - jnp.triu(jnp.ones([mask_size, mask_size]))),
                                          permutation_matrix_reverse,
@@ -454,8 +430,7 @@ class ProteinMPNN(hk.Module):
         chain_mask = chain_mask*chain_M_pos*mask #update chain_M to include missing regions
         decoding_order = jnp.argsort((chain_mask+0.0001)*(jnp.abs(randn))) #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
         mask_size = E_idx.shape[1]
-        permutation_matrix_reverse = jax.lax.convert_element_type(jax.nn.one_hot(decoding_order, mask_size),
-                                                                  jnp.float32)
+        permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
         order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
                                          (1 - jnp.triu(jnp.ones([mask_size, mask_size]))),
                                          permutation_matrix_reverse,
@@ -468,7 +443,7 @@ class ProteinMPNN(hk.Module):
 
         N_batch, N_nodes = X.shape[0], X.shape[1]
         log_probs = jnp.zeros((N_batch, N_nodes, 21))
-        all_probs = jnp.zeros((N_batch, N_nodes, 21), dtype=jnp.float32)
+        all_probs = jnp.zeros((N_batch, N_nodes, 21))
         h_S = jnp.zeros_like(h_V,)
         S = jnp.zeros((N_batch, N_nodes), dtype=jnp.int32)
         h_V_stack = [h_V] + [jnp.zeros_like(h_V) for _ in range(len(self.decoder_layers))]
@@ -521,11 +496,9 @@ class ProteinMPNN(hk.Module):
                 S_t = jax.vmap(lambda key, input, prob: jax.random.choice(key, input, p=prob),
                                in_axes=(0, 0, 0), out_axes=0)(used_key, input, probs)
                 all_probs = scatter(all_probs, 1, jnp.tile(t[:,None,None], [1,1,21]),
-                                    jax.lax.convert_element_type((chain_mask_gathered[:,:,None,]*probs[:,None,:]),
-                                                                 jnp.float32))
+                    (chain_mask_gathered[:,:,None,]*probs[:,None,:]))
             S_true_gathered = jnp.take_along_axis(S_true, t[:,None], 1)
-            S_t = jax.lax.convert_element_type((S_t*chain_mask_gathered+S_true_gathered*(1.0-chain_mask_gathered)),
-                                               jnp.int64)
+            S_t = (S_t*chain_mask_gathered+S_true_gathered*(1.0-chain_mask_gathered)).astype(int)
             temp1 = self.W_s(S_t)
             h_S = scatter(h_S, 1, jnp.tile(t[:,None,None], [1,1,temp1.shape[-1]]), temp1)
             S = scatter(S, 1, t[:,None], S_t)
@@ -567,8 +540,7 @@ class ProteinMPNN(hk.Module):
         decoding_order = jnp.tile(jnp.array(list(itertools.chain(*new_decoding_order)))[None,], [X.shape[0], 1])
 
         mask_size = E_idx.shape[1]
-        permutation_matrix_reverse = jax.lax.convert_element_type(jax.nn.one_hot(decoding_order, num_classes=mask_size),
-                                                                  jnp.float32)
+        permutation_matrix_reverse = jax.nn.one_hot(decoding_order, num_classes=mask_size)
         order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
                                          (1-jnp.triu(jnp.ones([mask_size,mask_size]))),
                                          permutation_matrix_reverse,
@@ -580,7 +552,7 @@ class ProteinMPNN(hk.Module):
 
         N_batch, N_nodes = X.shape[0], X.shape[1]
         log_probs = jnp.zeros((N_batch, N_nodes, 21))
-        all_probs = jnp.zeros((N_batch, N_nodes, 21), dtype=jnp.float32)
+        all_probs = jnp.zeros((N_batch, N_nodes, 21))
         h_S = jnp.zeros_like(h_V)
         S = jnp.zeros((N_batch, N_nodes), dtype=jnp.int32)
         h_V_stack = [h_V] + [jnp.zeros_like(h_V) for _ in range(len(self.decoder_layers))]
@@ -645,6 +617,6 @@ class ProteinMPNN(hk.Module):
                 for t in t_list:
                     h_S = h_S.at[:,t,:].set(self.W_s(S_t_repeat))
                     S = S.at[:,t].set(S_t_repeat)
-                    all_probs = all_probs.at[:,t,:].set(jax.lax.convert_element_type(probs, jnp.float32))
+                    all_probs = all_probs.at[:,t,:].set(probs)
         output_dict = {"S": S, "probs": all_probs, "decoding_order": decoding_order}
         return output_dict

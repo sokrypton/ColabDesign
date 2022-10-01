@@ -6,7 +6,7 @@ import joblib
 import numpy as np
 import itertools
 
-from colabdesign.mpnn.lib.prng import SafeKey
+from colabdesign.shared.prng import SafeKey
 
 Gelu = functools.partial(jax.nn.gelu, approximate=False)
 

@@ -15,6 +15,6 @@
 
 ### Contributors:
 - Sergey Ovchinnikov [@sokrypton](https://github.com/sokrypton)
+- Shihao Feng [@JeffSHF](https://github.com/JeffSHF)
 - Justas Dauparas [@dauparas](https://github.com/dauparas)
-- Weikun.Wu [@guyujun](https://github.com/guyujun) [Levinthal.bio](http://levinthal.bio/en/)
-- Shihao Feng
+- Weikun.Wu [@guyujun](https://github.com/guyujun) (from [Levinthal.bio](http://levinthal.bio/en/))

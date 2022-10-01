@@ -12,7 +12,6 @@ class StructureDatasetPDB():
             'too_long': 0,
             'bad_seq_length': 0
         }
-
         self.data = []
 
         start = time.time()
@@ -42,6 +41,12 @@ class StructureDatasetPDB():
 
     def __getitem__(self, idx):
         return self.data[idx]
+
+
+def _S_to_seq(S, mask):
+    alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
+    seq = ''.join([alphabet[c] for c, m in zip(S.tolist(), mask.tolist()) if m > 0])
+    return seq
 
 
 def parse_PDB_biounits(x, atoms=['N', 'CA', 'C'], chain=None):

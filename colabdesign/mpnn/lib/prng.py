@@ -1,6 +1,6 @@
 import jax
 
-
+# adopted from https://github.com/deepmind/alphafold/blob/main/alphafold/model/prng.py
 class SafeKey:
     """Safety wrapper for PRNG keys."""
 

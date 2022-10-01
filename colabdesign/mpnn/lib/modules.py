@@ -211,7 +211,7 @@ class RunModel:
         def _forward_tsample(input):
             model = ProteinMPNN(**self.config)
             return model.tied_sample(**input)
-        self.tie_sample = hk.transform(_forward_tsample).apply
+        self.tied_sample = hk.transform(_forward_tsample).apply
         self.init_tsample = hk.transform(_forward_tsample).init
 
     def load_params(self, path):
@@ -546,8 +546,8 @@ class ProteinMPNN(hk.Module):
         E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
         h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
         h_E = self.W_e(E)
-        # Encoder is unmasked self-attention
-        mask_attend = gather_nodes(mask.unsqueeze(-1),  E_idx).squeeze(-1)
+        # Encoder is unmasked self-attention 
+        mask_attend = gather_nodes(jnp.expand_dims(mask, -1),  E_idx).squeeze(-1)
         mask_attend = jnp.expand_dims(mask, -1) * mask_attend
         for layer in self.encoder_layers:
             h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
@@ -613,7 +613,8 @@ class ProteinMPNN(hk.Module):
                         h_ESV_decoder_t = cat_neighbors_nodes(h_V_stack[l], h_ES_t, E_idx_t)
                         h_V_t = h_V_stack[l][:,t:t+1,:]
                         h_ESV_t = mask_bw[:,t:t+1,:,:] * h_ESV_decoder_t + h_EXV_encoder_t
-                        h_V_stack[l+1][:,t,:] = layer(h_V_t, h_ESV_t, mask_V=mask_t).squeeze(1)
+                        h_V_stack[l+1] = h_V_stack[l+1].at[:,t,:].set(layer(h_V_t, h_ESV_t, mask_V=mask_t).squeeze(1))
+                        # h_V_stack[l+1][:,t,:] = layer(h_V_t, h_ESV_t, mask_V=mask_t).squeeze(1)
                     h_V_t = h_V_stack[-1][:,t,:]
                     logit_list.append((self.W_out(h_V_t) / temperature)/len(t_list))
                     logits += tied_beta[t]*(self.W_out(h_V_t) / temperature)/len(t_list)
@@ -621,7 +622,7 @@ class ProteinMPNN(hk.Module):
                 pass
             else:
                 bias_by_res_gathered = bias_by_res[:,t,:] #[B, 21]
-                probs = jax.nn.softmax(logits-constant[None,:]*1e8+constant_bias[None,:]/temperature+bias_by_res_gathered/temperature, dim=-1)
+                probs = jax.nn.softmax(logits-constant[None,:]*1e8+constant_bias[None,:]/temperature+bias_by_res_gathered/temperature, axis=-1)
                 if pssm_bias_flag:
                     pssm_coef_gathered = pssm_coef[:,t]
                     pssm_bias_gathered = pssm_bias[:,t]
@@ -642,8 +643,8 @@ class ProteinMPNN(hk.Module):
                                       in_axes=(0, 0, 0), out_axes=0)(used_key, input, probs)
 
                 for t in t_list:
-                    h_S[:,t,:] = self.W_s(S_t_repeat)
-                    S[:,t] = S_t_repeat
-                    all_probs[:,t,:] = probs.float()
+                    h_S = h_S.at[:,t,:].set(self.W_s(S_t_repeat))
+                    S = S.at[:,t].set(S_t_repeat)
+                    all_probs = all_probs.at[:,t,:].set(jax.lax.convert_element_type(probs, jnp.float32))
         output_dict = {"S": S, "probs": all_probs, "decoding_order": decoding_order}
         return output_dict

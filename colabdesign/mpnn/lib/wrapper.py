@@ -64,7 +64,7 @@ class MPNN_wrapper:
             pdb_path (str): the path of the pdb file
             target_chain (str): chain ID of the protein sequence
             fixed_chain (str, optional): chain ID of the protein sequence that should be fixed. Defaults to None.
-            ishomomer (bool, optional): for tie sampling. Currently not tested. Defaults to False.
+            ishomomer (bool, optional): for tie sampling. Defaults to False.
             omit_AAs (str, optional): aas should not be generated in sampling. Defaults to 'X'.
 
         Returns:

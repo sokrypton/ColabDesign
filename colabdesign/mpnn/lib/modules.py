@@ -483,51 +483,51 @@ class ProteinMPNN(hk.Module):
         for t_ in range(N_nodes):
             t = decoding_order[:, t_]  # [B]
             chain_mask_gathered = jnp.take_along_axis(chain_mask, t[:,None], 1)  # [B]
-            bias_by_res_gathered = jnp.take_along_axis(bias_by_res, t[:,None, None].tile([1,1,21]), 1)[:,0,:]  # [B, 21]
+            bias_by_res_gathered = jnp.take_along_axis(bias_by_res, jnp.tile(t[:,None, None], [1,1,21]), 1)[:,0,:]  # [B, 21]
             if jnp.equal(chain_mask_gathered, 0).all():
                 S_t = jnp.take_along_axis(S_true, t[:,None], 1)
             else:
                 # Hidden layers
-                E_idx_t = jnp.take_along_axis(E_idx, t[:,None,None].tile([1,1,E_idx.shape[-1]]), 1)
-                h_E_t = jnp.take_along_axis(h_E, t[:,None,None,None].tile([1,1,h_E.shape[-2], h_E.shape[-1]]), 1)
+                E_idx_t = jnp.take_along_axis(E_idx, jnp.tile(t[:,None,None], [1,1,E_idx.shape[-1]]), 1)
+                h_E_t = jnp.take_along_axis(h_E, jnp.tile(t[:,None,None,None], [1,1,h_E.shape[-2], h_E.shape[-1]]), 1)
                 h_ES_t = cat_neighbors_nodes(h_S, h_E_t, E_idx_t)
-                h_EXV_encoder_t = jnp.take_along_axis(h_EXV_encoder_fw, t[:,None,None,None].tile([1,1,h_EXV_encoder_fw.shape[-2], h_EXV_encoder_fw.shape[-1]]), 1)
+                h_EXV_encoder_t = jnp.take_along_axis(h_EXV_encoder_fw, jnp.tile(t[:,None,None,None], [1,1,h_EXV_encoder_fw.shape[-2], h_EXV_encoder_fw.shape[-1]]), 1)
                 mask_t = jnp.take_along_axis(mask, t[:,None], 1)
                 for l, layer in enumerate(self.decoder_layers):
                     # Updated relational features for future states
                     h_ESV_decoder_t = cat_neighbors_nodes(h_V_stack[l], h_ES_t, E_idx_t)
-                    h_V_t = jnp.take_along_axis(h_V_stack[l], t[:,None,None].tile([1,1,h_V_stack[l].shape[-1]]), 1)
-                    h_ESV_t = jnp.take_along_axis(mask_bw, t[:,None,None,None].tile([1,1,mask_bw.shape[-2], mask_bw.shape[-1]]), 1) * h_ESV_decoder_t + h_EXV_encoder_t
-                    h_V_stack[l+1] = scatter(h_V_stack[l+1], 1, t[:,None,None].tile([1,1,h_V.shape[-1]]), layer(h_V_t, h_ESV_t, mask_V=mask_t))
+                    h_V_t = jnp.take_along_axis(h_V_stack[l], jnp.tile(t[:,None,None], [1,1,h_V_stack[l].shape[-1]]), 1)
+                    h_ESV_t = jnp.take_along_axis(mask_bw, jnp.tile(t[:,None,None,None], [1,1,mask_bw.shape[-2], mask_bw.shape[-1]]), 1) * h_ESV_decoder_t + h_EXV_encoder_t
+                    h_V_stack[l+1] = scatter(h_V_stack[l+1], 1, jnp.tile(t[:,None,None], [1,1,h_V.shape[-1]]), layer(h_V_t, h_ESV_t, mask_V=mask_t))
                 # Sampling step
-                h_V_t = jnp.take_along_axis(h_V_stack[-1], t[:,None,None].tile([1,1,h_V_stack[-1].shape[-1]]), 1)[:,0]
+                h_V_t = jnp.take_along_axis(h_V_stack[-1], jnp.tile(t[:,None,None], [1,1,h_V_stack[-1].shape[-1]]), 1)[:,0]
                 logits = self.W_out(h_V_t) / temperature
                 probs = jax.nn.softmax(logits-constant[None,:]*1e8+constant_bias[None,:]/temperature+bias_by_res_gathered/temperature, axis=-1)
                 if pssm_bias_flag:
                     pssm_coef_gathered = jnp.take_along_axis(pssm_coef, t[:,None], 1)[:,0]
-                    pssm_bias_gathered = jnp.take_along_axis(pssm_bias, t[:,None,None].tile([1,1,pssm_bias.shape[-1]]), 1)[:,0]
+                    pssm_bias_gathered = jnp.take_along_axis(pssm_bias, jnp.tile(t[:,None,None], [1,1,pssm_bias.shape[-1]]), 1)[:,0]
                     probs = (1-pssm_multi*pssm_coef_gathered[:,None])*probs + pssm_multi*pssm_coef_gathered[:,None]*pssm_bias_gathered
                 if pssm_log_odds_flag:
-                    pssm_log_odds_mask_gathered = jnp.take_along_axis(pssm_log_odds_mask, t[:,None, None].tile([1,1,pssm_log_odds_mask.shape[-1]]), 1)[:,0] #[B, 21]
+                    pssm_log_odds_mask_gathered = jnp.take_along_axis(pssm_log_odds_mask, jnp.tile(t[:,None, None], [1,1,pssm_log_odds_mask.shape[-1]]), 1)[:,0] #[B, 21]
                     probs_masked = probs*pssm_log_odds_mask_gathered
                     probs_masked += probs * 0.001
                     probs = probs_masked/jnp.sum(probs_masked, axis=-1, keepdims=True) #[B, 21]
                 if omit_AA_mask_flag:
-                    omit_AA_mask_gathered = jnp.take_along_axis(omit_AA_mask, t[:,None, None].tile([1,1,omit_AA_mask.shape[-1]]), 1)[:,0] #[B, 21]
+                    omit_AA_mask_gathered = jnp.take_along_axis(omit_AA_mask, jnp.tile(t[:,None, None], [1,1,omit_AA_mask.shape[-1]]), 1)[:,0] #[B, 21]
                     probs_masked = probs*(1.0-omit_AA_mask_gathered)
                     probs = probs_masked/jnp.sum(probs_masked, axis=-1, keepdims=True) #[B, 21]
                 used_key = jax.random.split(key, probs.shape[0])
-                input = jnp.arange(probs.shape[1])[None].tile([probs.shape[0], 1])
+                input = jnp.tile(jnp.arange(probs.shape[1])[None], [probs.shape[0], 1])
                 S_t = jax.vmap(lambda key, input, prob: jax.random.choice(key, input, p=prob),
                                in_axes=(0, 0, 0), out_axes=0)(used_key, input, probs)
-                all_probs = scatter(all_probs, 1, t[:,None,None].tile([1,1,21]),
+                all_probs = scatter(all_probs, 1, jnp.tile(t[:,None,None], [1,1,21]),
                                     jax.lax.convert_element_type((chain_mask_gathered[:,:,None,]*probs[:,None,:]),
                                                                  jnp.float32))
             S_true_gathered = jnp.take_along_axis(S_true, t[:,None], 1)
             S_t = jax.lax.convert_element_type((S_t*chain_mask_gathered+S_true_gathered*(1.0-chain_mask_gathered)),
                                                jnp.int64)
             temp1 = self.W_s(S_t)
-            h_S = scatter(h_S, 1, t[:,None,None].tile([1,1,temp1.shape[-1]]), temp1)
+            h_S = scatter(h_S, 1, jnp.tile(t[:,None,None], [1,1,temp1.shape[-1]]), temp1)
             S = scatter(S, 1, t[:,None], S_t)
         output_dict = {"S": S, "probs": all_probs, "decoding_order": decoding_order}
         return output_dict
@@ -564,7 +564,7 @@ class ProteinMPNN(hk.Module):
                     new_decoding_order.append(list_a[0])
                 else:
                     new_decoding_order.append([t_dec])
-        decoding_order = jnp.array(list(itertools.chain(*new_decoding_order)))[None,].tile([X.shape[0], 1])
+        decoding_order = jnp.tile(jnp.array(list(itertools.chain(*new_decoding_order)))[None,], [X.shape[0], 1])
 
         mask_size = E_idx.shape[1]
         permutation_matrix_reverse = jax.lax.convert_element_type(jax.nn.one_hot(decoding_order, num_classes=mask_size),
@@ -638,7 +638,7 @@ class ProteinMPNN(hk.Module):
                     probs = probs_masked/jnp.sum(probs_masked, axis=-1, keepdims=True) #[B, 21]
                 
                 used_key = jax.random.split(key, probs.shape[0])
-                input = jnp.arange(probs.shape[1])[None].tile([probs.shape[0], 1])
+                input = jnp.tile(jnp.arange(probs.shape[1])[None], [probs.shape[0], 1])
                 S_t_repeat = jax.vmap(lambda key, input, prob: jax.random.choice(key, input, p=prob),
                                       in_axes=(0, 0, 0), out_axes=0)(used_key, input, probs)
 

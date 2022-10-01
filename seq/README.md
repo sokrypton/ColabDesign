@@ -7,4 +7,3 @@ This page will eventually contain the following implementations:
 - LEARN_MSA (parameter-free model that just fits an "MSA" to match known stats)
 - MRF (aka. GREMLIN, plmDCA, mfDCA, arDCA, bmDCA)
 - V/AE (autoencoders)
-- MSA Transformers

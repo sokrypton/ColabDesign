@@ -263,7 +263,7 @@ class ProteinFeatures(hk.Module):
 
     def _get_rbf(self, A, B, E_idx):
         D = jnp.sqrt(jnp.square(A[...,:,None,:] - B[...,None,:,:]).sum(-1) + 1e-6)
-        D_neighbors = gather_edges(D[:,:,:,None], E_idx)[:,:,:,0] #[B,L,K]
+        D_neighbors = gather_edges(D[...,None], E_idx)[...,0] #[...,L,K]
         return self._rbf(D_neighbors)
 
     def __call__(self, X, mask, residue_idx, chain_labels):
@@ -316,7 +316,6 @@ class EmbedToken(hk.Module):
     def __call__(self, arr):
         one_hot = jax.nn.one_hot(arr, self.vocab_size)
         return jnp.tensordot(one_hot, self.embeddings, 1)
-
 
 class ProteinMPNN(hk.Module):
     def __init__(self, num_letters, node_features, 

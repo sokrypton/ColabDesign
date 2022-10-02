@@ -56,10 +56,10 @@ class design_model:
     
     # initialize bias
     if bias is None:
-      b = np.zeros(shape[1:])
+      b = self.opt.get("bias",np.zeros(shape[1:]))
     else:
       b = np.array(np.broadcast_to(bias, shape[1:]))
-    
+
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
@@ -77,9 +77,9 @@ class design_model:
     # initialize sequence
     if seq is None:
       if hasattr(self,"key"):
-        x = 0.01 * np.random.normal(size=shape)
+        x = self._params.get("seq", 0.01 * np.random.normal(size=shape))
       else:
-        x = np.zeros(shape)
+        x = self._params.get("seq", np.zeros(shape))
     else:
       if isinstance(seq, str):
         seq = [seq]
@@ -97,7 +97,7 @@ class design_model:
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
       
-      x = np.broadcast_to(seq,shape)
+      x = np.broadcast_to(seq, shape)
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)

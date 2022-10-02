@@ -337,7 +337,8 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     self.W_out = hk.Linear(num_letters, with_bias=True, name='W_out')
 
   def __call__(self, X, mask, residue_idx, chain_encoding_all,
-         S=None, chain_M=None, randn=None, use_input_decoding_order=False, decoding_order=None):
+               S=None, chain_M=None, randn=None,
+               use_input_decoding_order=False, decoding_order=None):
     """ Graph-conditioned sequence model """
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)

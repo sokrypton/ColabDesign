@@ -11,11 +11,45 @@ from .modules import RunModel
 from .utils import parse_PDB, StructureDatasetPDB, tied_featurize, _S_to_seq
 from colabdesign.shared.prng import SafeKey
 
+class MPNN_logits:
+  def __init__(self,
+         params_path="/content/colabdesign/mpnn/jax_weights",
+         model_name="v_48_020", verbose=False):
+
+    backbone_noise = 0.00  # Standard deviation of Gaussian noise to add to backbone atoms
+    hidden_dim = 128
+    num_layers = 3 
+
+    path = os.path.join(params_path, f'{model_name}.pkl')
+    checkpoint = joblib.load(path)
+    params = jax.tree_util.tree_map(jnp.array, checkpoint['model_state_dict'])
+    if verbose:
+      print('Number of edges:', checkpoint['num_edges'])
+      noise_level_print = checkpoint['noise_level']
+      print(f'Training noise level: {noise_level_print}A')
+
+    config = {'num_letters': 21,
+              'node_features': hidden_dim,
+              'edge_features': hidden_dim,
+              'hidden_dim': hidden_dim,
+              'num_encoder_layers': num_layers,
+              'num_decoder_layers': num_layers,
+              'augment_eps': backbone_noise,
+              'k_neighbors': checkpoint['num_edges'],
+              'dropout': 0.0}
+    self.model = RunModel(config)
+    self.model.params = params
+
+  def get(X, mask, residue_idx, chain_encoding_all, key=None)
+    score_input = {'X': X, 'mask': mask,
+                   'residue_idx': residue_idx,
+                   'chain_encoding_all': chain_encoding_all}
+    return self.model.score(self.model.params, key, score_input)[0]
 
 class MPNN_wrapper:  
   def __init__(self,
          params_path="/content/colabdesign/mpnn/jax_weights",
-         model_name="v_48_002"):
+         model_name="v_48_020", verbose=False):
     self.params_path = params_path
     self.model_name = model_name
 
@@ -23,15 +57,14 @@ class MPNN_wrapper:
     hidden_dim = 128
     num_layers = 3 
 
-    if self.params_path[-1] != '/':
-      self.params_path += '/'
-    checkpoint_path = self.params_path + f'{self.model_name}.pkl'
-
-    checkpoint = joblib.load(checkpoint_path)
+    path = os.path.join(params_path, f'{model_name}.pkl')
+    checkpoint = joblib.load(path)
     params = jax.tree_util.tree_map(jnp.array, checkpoint['model_state_dict'])
-    print('Number of edges:', checkpoint['num_edges'])
-    noise_level_print = checkpoint['noise_level']
-    print(f'Training noise level: {noise_level_print}A')
+
+    if verbose:
+      print('Number of edges:', checkpoint['num_edges'])
+      noise_level_print = checkpoint['noise_level']
+      print(f'Training noise level: {noise_level_print}A')
 
     config = {'num_letters': 21,
           'node_features': hidden_dim,

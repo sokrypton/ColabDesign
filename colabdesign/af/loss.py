@@ -506,7 +506,7 @@ def get_seq_ent_loss(inputs):
 def get_bias_loss(inputs):
   bias = jax.nn.log_softmax(inputs["opt"]["bias"])
   seq = inputs["seq"]["hard"]
-  return {"bias":-(seq * bias).sum(-1).mean()}
+  return {"seq_bias":-(seq * bias).sum(-1).mean()}
 
 def get_mlm_loss(outputs, mask, truth=None):
   x = outputs["masked_msa"]["logits"][...,:20]

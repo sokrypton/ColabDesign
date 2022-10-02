@@ -82,7 +82,6 @@ class EncLayer(hk.Module):
     h_E = self.norm3(h_E + self.dropout3(h_message))
     return h_V, h_E
 
-
 class DecLayer(hk.Module):
   def __init__(self, num_hidden, num_in,
          dropout=0.1, num_heads=None,
@@ -178,7 +177,6 @@ class RunModel:
 
   def load_params(self, path):
     self.params = joblib.load(path)
-
 
 class ProteinFeatures(hk.Module):
   def __init__(self, edge_features, node_features,
@@ -354,16 +352,17 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     for layer in self.encoder_layers:
       h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 
+    # Build encoder embeddings
+    h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_V), h_E, E_idx)
+    h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
+
     if S is None:  
       ##########################################
       # unconditional_probs
       ##########################################
 
-      # Build encoder embeddings
-      h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_V), h_E, E_idx)
-      h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
-
       order_mask_backward = jnp.zeros([X.shape[0], X.shape[1], X.shape[1]])
+
       mask_attend = jnp.take_along_axis(order_mask_backward, E_idx, 2)[...,None]
       mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
       mask_bw = mask_1D * mask_attend
@@ -382,22 +381,17 @@ class ProteinMPNN(hk.Module, mpnn_sample):
       h_S = self.W_s(S)
       h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
-      # Build encoder embeddings
-      h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
-      h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
-
       if not self.use_input_decoding_order:
         # update chain_M to include missing regions
         chain_M = chain_M * mask
         #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
         decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
       
+      # make an autogressive mask
       mask_size = E_idx.shape[1]
-      permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
-      order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
-                       (1 - jnp.triu(jnp.ones([mask_size, mask_size]))),
-                       permutation_matrix_reverse,
-                       permutation_matrix_reverse)
+      permute_mtx_rev = jax.nn.one_hot(decoding_order, mask_size)
+      ar_mask = jnp.tri(mask_size, k=-1)
+      order_mask_backward = jnp.einsum('ij, biq, bjp->bqp', ar_mask, permute_mtx_rev, permute_mtx_rev)
               
       mask_attend = jnp.take_along_axis(order_mask_backward, E_idx, 2)[...,None]
       mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])

@@ -43,7 +43,7 @@ class mk_mpnn_model:
     self.model.params = params
 
   def get_logits(self, X, mask, residue_idx, chain_encoding_all,
-                 key, S=None, fix_alphabet=True):
+                 key, S=None, decoding_order=None, fix_alphabet=True):
     old = 'ACDEFGHIKLMNPQRSTVWYX'
     new = "ARNDCQEGHILKMFPSTWYVX"
     inputs = {'X': X, 'S':S, 'mask': mask,
@@ -54,7 +54,11 @@ class mk_mpnn_model:
         one_hot = np.eye(21)[S]
         one_hot[S == -1] = 0
         inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]
-      inputs["decoding_order"] = np.argsort(residue_idx,-1)
+      if decoding_order is None:
+        inputs["decoding_order"] = np.argsort(residue_idx,-1)
+      else:
+        inputs["decoding_order"] = decoding_order
+
     logits = self.model.score(self.model.params, key, inputs)[0]
     if fix_alphabet:
       logits = logits[...,tuple(old.index(k) for k in new)]

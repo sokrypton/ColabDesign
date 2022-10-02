@@ -55,7 +55,10 @@ class design_model:
     shape = (self._num, self._len, 20)
     
     # initialize bias
-    b = np.zeros((self._len, 20))
+    if bias is None:
+      b = np.zeros(shape[1:])
+    else:
+      b = np.broadcast_to(bias, shape[1:])
     
     # disable certain amino acids
     if rm_aa is not None:

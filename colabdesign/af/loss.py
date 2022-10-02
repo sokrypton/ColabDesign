@@ -489,7 +489,7 @@ def _get_sc_rmsd_loss(true, pred, sc):
   rmsd = jnp.sqrt(msd + 1e-8)
   return {"rmsd":rmsd, "align":align_fn}
 
-def get_seq_ent_loss(inputs, outputs):
+def get_seq_ent_loss(inputs):
   opt = inputs["opt"]
   x = inputs["seq"]["logits"] / opt["temp"]
   ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
@@ -502,6 +502,11 @@ def get_seq_ent_loss(inputs, outputs):
     mask = mask.at[p].set(0)
   ent = (ent * mask).sum() / (mask.sum() + 1e-8)
   return {"seq_ent":ent.mean()}
+
+def get_bias_loss(inputs):
+  bias = jax.nn.log_softmax(inputs["opt"]["bias"])
+  seq = inputs["seq"]["hard"]
+  return {"bias":-(seq * bias).sum(-1).mean()}
 
 def get_mlm_loss(outputs, mask, truth=None):
   x = outputs["masked_msa"]["logits"][...,:20]

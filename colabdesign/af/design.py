@@ -201,7 +201,6 @@ class _af_design:
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # save results
-    self._save_results(save_best=save_best, verbose=verbose)
 
     # increment
     self._k += 1
@@ -209,7 +208,7 @@ class _af_design:
   def _print_log(self, print_str=None, aux=None):
     if aux is None: aux = self.aux
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "seq_ent","mlm","pae","i_pae","exp_res","con","i_con",
+            "seq_ent","seq_bias","mlm","pae","i_pae","exp_res","con","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]
     
     if "i_ptm" in aux["log"]:

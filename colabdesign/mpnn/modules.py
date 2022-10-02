@@ -383,8 +383,8 @@ class ProteinMPNN(hk.Module):
         h_E = self.W_e(E)
 
         # Encoder is unmasked self-attention
-        mask_attend = gather_nodes(jnp.expand_dims(mask, -1),  E_idx).squeeze(-1)
-        mask_attend = jnp.expand_dims(mask, -1) * mask_attend
+        mask_attend = gather_nodes(mask[...,None],E_idx)[...,0]
+        mask_attend = mask[...,None] * mask_attend
         for layer in self.encoder_layers:
             h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 
@@ -401,6 +401,7 @@ class ProteinMPNN(hk.Module):
         if not use_input_decoding_order:
             #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
             decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
+        
         mask_size = E_idx.shape[1]
         permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
         order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
@@ -537,8 +538,8 @@ class ProteinMPNN(hk.Module):
         h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
         h_E = self.W_e(E)
         # Encoder is unmasked self-attention 
-        mask_attend = gather_nodes(jnp.expand_dims(mask, -1),  E_idx).squeeze(-1)
-        mask_attend = jnp.expand_dims(mask, -1) * mask_attend
+        mask_attend = gather_nodes(mask[...,None],E_idx)[...,0]
+        mask_attend = mask[...,None] * mask_attend
         for layer in self.encoder_layers:
             h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 

@@ -201,6 +201,7 @@ class _af_design:
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # save results
+    self._save_results(save_best=save_best, verbose=verbose)
 
     # increment
     self._k += 1

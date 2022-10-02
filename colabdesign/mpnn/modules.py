@@ -163,7 +163,6 @@ class DecLayer(hk.Module):
             h_V = mask_V * h_V
         return h_V 
 
-
 class PositionWiseFeedForward(hk.Module):
     def __init__(self, num_hidden, num_ff, name=None):
         super(PositionWiseFeedForward, self).__init__()
@@ -174,7 +173,6 @@ class PositionWiseFeedForward(hk.Module):
         h = self.act(self.W_in(h_V), approximate=False)
         h = self.W_out(h)
         return h
-
 
 class PositionalEncodings(hk.Module):
     def __init__(self, num_embeddings, max_relative_feature=32):
@@ -371,10 +369,8 @@ class ProteinMPNN(hk.Module):
         ]
         self.W_out = hk.Linear(num_letters, with_bias=True, name='W_out')
 
-    def __call__(self, X, S,
-                 mask, chain_M,
-                 residue_idx, chain_encoding_all,
-                 randn, use_input_decoding_order=False,
+    def __call__(self, X, mask, residue_idx, chain_encoding_all,
+                 S=None, chain_M=None, randn=None, use_input_decoding_order=False,
                  decoding_order=None):
         """ Graph-conditioned sequence model """
         # Prepare node and edge embeddings
@@ -388,38 +384,62 @@ class ProteinMPNN(hk.Module):
         for layer in self.encoder_layers:
             h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 
-        # Concatenate sequence embeddings for autoregressive decoder
-        h_S = self.W_s(S)
-        h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
+        if S is None:        
+            ##########################################
+            # unconditional_probs
+            ##########################################
 
-        # Build encoder embeddings
-        h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
-        h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
+            # Build encoder embeddings
+            h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_V), h_E, E_idx)
+            h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
-        # update chain_M to include missing regions
-        chain_M = chain_M * mask
-        if not use_input_decoding_order:
-            #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-            decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
-        
-        mask_size = E_idx.shape[1]
-        permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
-        order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
-                                         (1 - jnp.triu(jnp.ones([mask_size, mask_size]))),
-                                         permutation_matrix_reverse,
-                                         permutation_matrix_reverse)
-                      
-        mask_attend = jnp.expand_dims(jnp.take_along_axis(order_mask_backward, E_idx, 2), -1)
-        mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
-        mask_bw = mask_1D * mask_attend
-        mask_fw = mask_1D * (1. - mask_attend)
+            order_mask_backward = jnp.zeros([X.shape[0], X.shape[1], X.shape[1]])
+            mask_attend = gather_nodes(order_mask_backward[...,None], E_idx)[...,0]
+            mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
+            mask_bw = mask_1D * mask_attend
+            mask_fw = mask_1D * (1. - mask_attend)
 
-        h_EXV_encoder_fw = mask_fw * h_EXV_encoder
-        for layer in self.decoder_layers:
-            # Masked positions attend to encoder information, unmasked see. 
-            h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
-            h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
-            h_V = layer(h_V, h_ESV, mask)
+            h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+            for layer in self.decoder_layers:
+                h_V = layer(h_V, h_EXV_encoder_fw, mask)
+
+        else:
+            ##########################################
+            # conditional_probs
+            ##########################################
+
+            # Concatenate sequence embeddings for autoregressive decoder
+            h_S = self.W_s(S)
+            h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
+
+            # Build encoder embeddings
+            h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
+            h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
+
+            # update chain_M to include missing regions
+            chain_M = chain_M * mask
+            if not use_input_decoding_order:
+                #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+                decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
+            
+            mask_size = E_idx.shape[1]
+            permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
+            order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
+                                             (1 - jnp.triu(jnp.ones([mask_size, mask_size]))),
+                                             permutation_matrix_reverse,
+                                             permutation_matrix_reverse)
+                          
+            mask_attend = jnp.expand_dims(jnp.take_along_axis(order_mask_backward, E_idx, 2), -1)
+            mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
+            mask_bw = mask_1D * mask_attend
+            mask_fw = mask_1D * (1. - mask_attend)
+
+            h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+            for layer in self.decoder_layers:
+                # Masked positions attend to encoder information, unmasked see. 
+                h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
+                h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
+                h_V = layer(h_V, h_ESV, mask)
 
         logits = self.W_out(h_V)
         log_probs = jax.nn.log_softmax(logits, axis=-1)

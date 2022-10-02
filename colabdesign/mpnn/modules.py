@@ -296,7 +296,10 @@ class EmbedToken(hk.Module):
                 init=self.w_init)
 
   def __call__(self, arr):
-    one_hot = jax.nn.one_hot(arr, self.vocab_size)
+    if jnp.issubdtype(arr.dtype, jnp.integer):
+      one_hot = jax.nn.one_hot(arr, self.vocab_size)
+    else:
+      one_hot = arr
     return jnp.tensordot(one_hot, self.embeddings, 1)
 
 class ProteinMPNN(hk.Module, mpnn_sample):
@@ -383,9 +386,9 @@ class ProteinMPNN(hk.Module, mpnn_sample):
       h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
       h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
-      # update chain_M to include missing regions
-      chain_M = chain_M * mask
       if not use_input_decoding_order:
+        # update chain_M to include missing regions
+        chain_M = chain_M * mask
         #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
         decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
       

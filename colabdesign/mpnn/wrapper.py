@@ -42,14 +42,24 @@ class mk_mpnn_model:
     self.model.params = params
 
   def get_logits(self, X, mask, residue_idx, chain_encoding_all,
-                 key, fix_alphabet=True):
-    score_input = {'X': X, 'mask': mask,
-                   'residue_idx': residue_idx,
-                   'chain_encoding_all': chain_encoding_all}
-    logits = self.model.score(self.model.params, key, score_input)[0]
+                 key, S=None, fix_alphabet=True):
+    old = 'ACDEFGHIKLMNPQRSTVWYX'
+    new = "ARNDCQEGHILKMFPSTWYVX"
+    inputs = {'X': X, 'S':S, 'mask': mask,
+              'residue_idx': residue_idx,
+              'chain_encoding_all': chain_encoding_all}
+    if S is not None:
+      if fix_alphabet:
+        if np.issubdtype(S.dtype, np.integer):
+          one_hot = np.eye(20)[S]
+          one_hot[S == -1] = 0
+        else:
+          one_hot = S
+        inputs["S"] = S[...,tuple(one_hot.index(k) for k in old)]
+      inputs["use_input_decoding_order"] = True
+      inputs["decoding_order"] = residue_idx
+    logits = self.model.score(self.model.params, key, inputs)[0]
     if fix_alphabet:
-      old = 'ACDEFGHIKLMNPQRSTVWYX'
-      new = "ARNDCQEGHILKMFPSTWYVX"
       logits = logits[...,tuple(old.index(k) for k in new)]
     return logits
 

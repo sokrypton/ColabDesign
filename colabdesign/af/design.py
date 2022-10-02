@@ -209,7 +209,7 @@ class _af_design:
   def _print_log(self, print_str=None, aux=None):
     if aux is None: aux = self.aux
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "seq_ent","seq_bias","mlm","pae","i_pae","exp_res","con","i_con",
+            "seq_ent","mlm","pae","i_pae","exp_res","con","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]
     
     if "i_ptm" in aux["log"]:

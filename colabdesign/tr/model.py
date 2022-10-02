@@ -31,7 +31,7 @@ class mk_tr_model(design_model):
     # set default options
     self.opt = {"temp":1.0, "soft":1.0, "hard":1.0, "dropout":False,
                 "num_models":num_models,"sample_models":sample_models,
-                "weights":{}, "lr":1.0, "bias":0.0, "alpha":1.0,
+                "weights":{}, "lr":1.0, "alpha":1.0,
                 "learning_rate":learning_rate, "use_pssm":False,
                 "norm_seq_grad":True}
                 
@@ -85,7 +85,7 @@ class mk_tr_model(design_model):
     def _model(params, model_params, inputs, key):
       inputs["params"] = params
       opt = inputs["opt"]
-      seq = soft_seq(params["seq"], opt)
+      seq = soft_seq(params["seq"], inputs["bias"], opt)
       if "fix_pos" in opt:
         if "pos" in self.opt:
           seq_ref = jax.nn.one_hot(inputs["batch"]["aatype_sub"],20)

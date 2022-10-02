@@ -56,7 +56,7 @@ class design_model:
     
     # initialize bias
     if bias is None:
-      b = self.opt.get("bias",np.zeros(shape[1:]))
+      b = np.zeros(shape[1:])
     else:
       b = np.array(np.broadcast_to(bias, shape[1:]))
 
@@ -77,9 +77,9 @@ class design_model:
     # initialize sequence
     if seq is None:
       if hasattr(self,"key"):
-        x = self._params.get("seq", 0.01 * np.random.normal(size=shape))
+        x = 0.01 * np.random.normal(size=shape)
       else:
-        x = self._params.get("seq", np.zeros(shape))
+        x = np.zeros(shape)
     else:
       if isinstance(seq, str):
         seq = [seq]
@@ -112,7 +112,7 @@ class design_model:
 
     # set seq/bias/state
     self._params["seq"] = x
-    self.opt["bias"] = b 
+    self._inputs["bias"] = b 
 
   def _norm_seq_grad(self):
     g = self.aux["grad"]["seq"]
@@ -180,7 +180,7 @@ class design_model:
     # make default
     if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
-def soft_seq(x, opt, key=None):
+def soft_seq(x, bias, opt, key=None):
   seq = {"input":x}
   # shuffle msa (randomly pick which sequence is query)
   if x.ndim == 3 and x.shape[0] > 1 and key is not None:
@@ -189,7 +189,8 @@ def soft_seq(x, opt, key=None):
     seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
   # straight-through/reparameterization
-  seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
+  seq["logits"] = seq["input"] * opt["alpha"]
+  if bias is not None: seq["logits"] = seq["logits"] + bias
   seq["pssm"] = jax.nn.softmax(seq["logits"])
   seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
   seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)

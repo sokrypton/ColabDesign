@@ -15,7 +15,7 @@ class _af_inputs:
   def _get_seq(self, inputs, aux, key):
     params, opt = inputs["params"], inputs["opt"]
     '''get sequence features'''
-    seq = soft_seq(params["seq"], opt, key)
+    seq = soft_seq(params["seq"], inputs["bias"], opt, key)
     seq = self._fix_pos(seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     

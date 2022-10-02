@@ -209,24 +209,6 @@ class _af_prep:
       res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
     self._lengths = [self._target_len, self._binder_len]
 
-    # configure template rm masks
-    (T,L,rm) = (self._lengths[0],sum(self._lengths),{})
-    rm_opt = {"rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
-              "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}}
-    for n,x in rm_opt.items():
-      rm[n] = np.full(L,False)
-      for m,y in x.items():
-        if isinstance(y,str):
-          rm[n][prep_pos(y,**self._pdb["idx"])["pos"]] = True
-        else:
-          if m == "target": rm[n][:T] = y
-          if m == "binder": rm[n][T:] = y
-        
-    # set template [opt]ions
-    template_dropout = 0.0 if use_binder_template else 1.0
-    self.opt["template"].update({"rm_ic":rm_template_ic, "dropout":template_dropout})
-    self._inputs.update(rm)
-
     # gather hotspot info
     if hotspot is not None:
       self.opt["hotspot"] = prep_pos(hotspot, **self._pdb["idx"])["pos"]
@@ -246,6 +228,24 @@ class _af_prep:
     self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = self._pdb["batch"]
     self._inputs.update(get_multi_id(self._lengths))
+
+    # configure template rm masks
+    (T,L,rm) = (self._lengths[0],sum(self._lengths),{})
+    rm_opt = {"rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
+              "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}}
+    for n,x in rm_opt.items():
+      rm[n] = np.full(L,False)
+      for m,y in x.items():
+        if isinstance(y,str):
+          rm[n][prep_pos(y,**self._pdb["idx"])["pos"]] = True
+        else:
+          if m == "target": rm[n][:T] = y
+          if m == "binder": rm[n][T:] = y
+        
+    # set template [opt]ions
+    template_dropout = 0.0 if use_binder_template else 1.0
+    self.opt["template"].update({"rm_ic":rm_template_ic, "dropout":template_dropout})
+    self._inputs.update(rm)
 
     self._prep_model(**kwargs)
 

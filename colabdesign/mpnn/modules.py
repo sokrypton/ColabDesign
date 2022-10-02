@@ -158,21 +158,21 @@ class RunModel:
   def __init__(self, config) -> None:
     self.config = config
 
-    def _forward_score(input):
+    def _forward_score(inputs):
       model = ProteinMPNN(**self.config)
-      return model(**input)
+      return model(**inputs)
     self.score = jax.jit(hk.transform(_forward_score).apply)
     self.init_score = jax.jit(hk.transform(_forward_score).init)
 
-    def _forward_sample(input):
+    def _forward_sample(inputs):
       model = ProteinMPNN(**self.config)
-      return model.sample(**input)
+      return model.sample(**inputs)
     self.sample = hk.transform(_forward_sample).apply
     self.init_sample = hk.transform(_forward_sample).init
 
-    def _forward_tsample(input):
+    def _forward_tsample(inputs):
       model = ProteinMPNN(**self.config)
-      return model.tied_sample(**input)
+      return model.tied_sample(**inputs)
     self.tied_sample = hk.transform(_forward_tsample).apply
     self.init_tsample = hk.transform(_forward_tsample).init
 
@@ -307,13 +307,14 @@ class ProteinMPNN(hk.Module, mpnn_sample):
          node_features, edge_features, hidden_dim,
          num_encoder_layers=3, num_decoder_layers=3,
          vocab=21, k_neighbors=64,
-         augment_eps=0.05, dropout=0.1):
+         augment_eps=0.05, dropout=0.1, use_input_decoding_order=False):
     super(ProteinMPNN, self).__init__()
 
     # Hyperparameters
     self.node_features = node_features
     self.edge_features = edge_features
     self.hidden_dim = hidden_dim
+    self.use_input_decoding_order = use_input_decoding_order
 
     # Featurization layers
     self.features = ProteinFeatures(edge_features,
@@ -340,8 +341,7 @@ class ProteinMPNN(hk.Module, mpnn_sample):
 
   def __call__(self, X, mask, residue_idx, chain_encoding_all,
                S=None, chain_M=None, randn=None,
-               use_input_decoding_order=False, decoding_order=None,
-               fix_alphabet=False):
+               decoding_order=None):
     """ Graph-conditioned sequence model """
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -386,7 +386,7 @@ class ProteinMPNN(hk.Module, mpnn_sample):
       h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
       h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
-      if not use_input_decoding_order:
+      if not self.use_input_decoding_order:
         # update chain_M to include missing regions
         chain_M = chain_M * mask
         #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]

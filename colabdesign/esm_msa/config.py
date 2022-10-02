@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
 #
-#      http://www.apache.org/licenses/LICENSE-2.0
+#    http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -16,22 +16,22 @@
 import ml_collections
 
 CONFIG = ml_collections.ConfigDict({
-    'RowAtt': {
-        'embed_dim': 768,
-        'head_num': 12,
-
-    },
-    'ColAtt': {
-        'embed_dim': 768,
-        'head_num': 12,
-
-    },
-    'Ffn': {
-        'embed_dim': 3072,
-    },
-    'dropout': 0.0,
-    'max_tokens_per_msa': 2 ** 16,
-    'layer_num': 12,
+  'RowAtt': {
     'embed_dim': 768,
-    'max_position': 1024,
+    'head_num': 12,
+
+  },
+  'ColAtt': {
+    'embed_dim': 768,
+    'head_num': 12,
+
+  },
+  'Ffn': {
+    'embed_dim': 3072,
+  },
+  'dropout': 0.0,
+  'max_tokens_per_msa': 2 ** 16,
+  'layer_num': 12,
+  'embed_dim': 768,
+  'max_position': 1024,
 })

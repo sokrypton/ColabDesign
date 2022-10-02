@@ -37,7 +37,8 @@ class mk_mpnn_model:
               'num_decoder_layers': num_layers,
               'augment_eps': backbone_noise,
               'k_neighbors': checkpoint['num_edges'],
-              'dropout': 0.0}
+              'dropout': 0.0,
+              "use_input_decoding_order":True}
     self.model = RunModel(config)
     self.model.params = params
 
@@ -50,14 +51,10 @@ class mk_mpnn_model:
               'chain_encoding_all': chain_encoding_all}
     if S is not None:
       if fix_alphabet:
-        if np.issubdtype(S.dtype, np.integer):
-          one_hot = np.eye(20)[S]
-          one_hot[S == -1] = 0
-        else:
-          one_hot = S
-        inputs["S"] = S[...,tuple(one_hot.index(k) for k in old)]
-      inputs["use_input_decoding_order"] = True
-      inputs["decoding_order"] = residue_idx
+        one_hot = np.eye(21)[S]
+        one_hot[S == -1] = 0
+        inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]
+      inputs["decoding_order"] = np.argsort(residue_idx,-1)
     logits = self.model.score(self.model.params, key, inputs)[0]
     if fix_alphabet:
       logits = logits[...,tuple(old.index(k) for k in new)]

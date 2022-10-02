@@ -55,16 +55,12 @@ class design_model:
     shape = (self._num, self._len, 20)
     
     # initialize bias
-    if bias is None:
-      b, set_bias = np.zeros(20), False
-    else:
-      b, set_bias = np.asarray(bias), True
+    b = np.zeros((self._len, 20))
     
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
         b[...,aa_order[aa]] -= 1e6
-      set_bias = True
 
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
@@ -97,7 +93,6 @@ class design_model:
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
-        set_bias = True
       
       x = np.broadcast_to(seq,shape)
 
@@ -114,9 +109,7 @@ class design_model:
 
     # set seq/bias/state
     self._params["seq"] = x
-    
-    if set_bias:
-      self.opt["bias"] = b 
+    self.opt["bias"] = b 
 
   def _norm_seq_grad(self):
     g = self.aux["grad"]["seq"]

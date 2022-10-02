@@ -42,13 +42,13 @@ class mk_mpnn_model:
     self.model = RunModel(config)
     self.model.params = params
 
-  def get_logits(self, X, mask, residue_idx, chain_encoding_all,
+  def get_logits(self, X, mask, residue_idx, chain_idx,
                  key, S=None, decoding_order=None, fix_alphabet=True):
     old = 'ACDEFGHIKLMNPQRSTVWYX'
     new = "ARNDCQEGHILKMFPSTWYVX"
     inputs = {'X': X, 'S':S, 'mask': mask,
               'residue_idx': residue_idx,
-              'chain_encoding_all': chain_encoding_all}
+              'chain_encoding_all': chain_idx}
     if S is not None:
       if fix_alphabet:
         one_hot = np.eye(21)[S]
@@ -62,7 +62,7 @@ class mk_mpnn_model:
     logits = self.model.score(self.model.params, key, inputs)[0]
     if fix_alphabet:
       logits = logits[...,tuple(old.index(k) for k in new)]
-    return logits
+    return logits[...,:20]
 
 class MPNN_wrapper:  
   def __init__(self,

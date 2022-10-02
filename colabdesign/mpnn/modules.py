@@ -394,7 +394,7 @@ class ProteinMPNN(hk.Module):
             h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
             order_mask_backward = jnp.zeros([X.shape[0], X.shape[1], X.shape[1]])
-            mask_attend = gather_nodes(order_mask_backward[...,None], E_idx)[...,0]
+            mask_attend = jnp.take_along_axis(order_mask_backward, E_idx, 2)[...,None]
             mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1. - mask_attend)
@@ -429,7 +429,7 @@ class ProteinMPNN(hk.Module):
                                              permutation_matrix_reverse,
                                              permutation_matrix_reverse)
                           
-            mask_attend = jnp.expand_dims(jnp.take_along_axis(order_mask_backward, E_idx, 2), -1)
+            mask_attend = jnp.take_along_axis(order_mask_backward, E_idx, 2)[...,None]
             mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
             mask_bw = mask_1D * mask_attend
             mask_fw = mask_1D * (1. - mask_attend)

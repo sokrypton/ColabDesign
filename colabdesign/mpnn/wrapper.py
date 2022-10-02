@@ -5,16 +5,17 @@ import joblib
 import re
 import copy
 import random
+import os
 from tqdm import tqdm
 
 from .modules import RunModel
 from .utils import parse_PDB, StructureDatasetPDB, tied_featurize, _S_to_seq
 from colabdesign.shared.prng import SafeKey
 
-class MPNN_logits:
+class mk_mpnn_model:
   def __init__(self,
-         params_path="/content/colabdesign/mpnn/jax_weights",
-         model_name="v_48_020", verbose=False):
+    params_path="/content/colabdesign/mpnn/jax_weights",
+    model_name="v_48_020", verbose=False):
 
     backbone_noise = 0.00  # Standard deviation of Gaussian noise to add to backbone atoms
     hidden_dim = 128
@@ -40,10 +41,12 @@ class MPNN_logits:
     self.model = RunModel(config)
     self.model.params = params
 
-  def get(X, mask, residue_idx, chain_encoding_all, key=None)
+  def get_logits(self, X, mask, residue_idx, chain_encoding_all,
+                 key, fix_alphabet=True):
     score_input = {'X': X, 'mask': mask,
                    'residue_idx': residue_idx,
-                   'chain_encoding_all': chain_encoding_all}
+                   'chain_encoding_all': chain_encoding_all,
+                   'fix_alphabet':fix_alphabet}
     return self.model.score(self.model.params, key, score_input)[0]
 
 class MPNN_wrapper:  

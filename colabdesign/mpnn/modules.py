@@ -7,7 +7,6 @@ import numpy as np
 import itertools
 
 from colabdesign.shared.prng import SafeKey
-
 from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter
 from colabdesign.mpnn.sample import mpnn_sample
 
@@ -155,7 +154,6 @@ class PositionalEncodings(hk.Module):
     E = self.linear(d_onehot)
     return E
 
-
 class RunModel:
   def __init__(self, config) -> None:
     self.config = config
@@ -240,12 +238,13 @@ class ProteinFeatures(hk.Module):
     ##########################
     # get atoms
     ##########################
-    # N,Ca,C,O
-    Y = X.transpose((2,0,1,3))    
-    # add Cb
-    b,c = (Y[1]-Y[0]),(Y[2]-Y[1])
-    Cb = -0.58273431*jnp.cross(b,c) + 0.56802827*b - 0.54067466*c + Y[1]
-    Y = jnp.concatenate([Y,Cb[None]],0)
+    # N,Ca,C,O,Cb
+    Y = X.transpose((2,0,1,3))
+    if Y.shape[0] == 4:
+      # add Cb
+      b,c = (Y[1]-Y[0]),(Y[2]-Y[1])
+      Cb = -0.58273431*jnp.cross(b,c) + 0.56802827*b - 0.54067466*c + Y[1]
+      Y = jnp.concatenate([Y,Cb[None]],0)
 
     ##########################
     # gather edge features
@@ -338,7 +337,8 @@ class ProteinMPNN(hk.Module, mpnn_sample):
 
   def __call__(self, X, mask, residue_idx, chain_encoding_all,
                S=None, chain_M=None, randn=None,
-               use_input_decoding_order=False, decoding_order=None):
+               use_input_decoding_order=False, decoding_order=None,
+               fix_alphabet=False):
     """ Graph-conditioned sequence model """
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
@@ -409,5 +409,10 @@ class ProteinMPNN(hk.Module, mpnn_sample):
         h_V = layer(h_V, h_ESV, mask)
 
     logits = self.W_out(h_V)
+    if fix_alphabet:
+      old = 'ACDEFGHIKLMNPQRSTVWYX'
+      new = "ARNDCQEGHILKMFPSTWYVX"
+      logits = logits[...,tuple(old.index(k) for k in new)]
+
     log_probs = jax.nn.log_softmax(logits, axis=-1)
     return logits, log_probs

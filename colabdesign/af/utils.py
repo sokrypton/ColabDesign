@@ -150,7 +150,8 @@ class _af_utils:
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")
       ax1.plot(rmsd,color="black")
-      ax1_.plot(self.get_loss("seqid"),color="green",label="seqid")
+      seqid = self.get_loss("seqid")
+      ax1_.plot(seqid,color="green",label="seqid")
       # axes labels
       ax1.set_yscale("log")
       ticks = [0.25,0.5,1,2,4,8,16,32,64]
@@ -158,7 +159,7 @@ class _af_utils:
       ax1.set_yticks(ticks); ax1.set_yticklabels(ticks)
       ax1.set_ylabel("RMSD",color="black");ax1_.set_ylabel("seqid",color="green")
       ax1.set_ylim(0.25,64)
-      ax1_.set_ylim(0,0.4)
+      ax1_.set_ylim(0,min(0.4,seqid.max()))
       # extras
       ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
       ax2.plot(self.get_loss("temp"),color="orange",label="temp")

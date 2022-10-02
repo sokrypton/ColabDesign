@@ -206,7 +206,7 @@ class mk_tr_model(design_model):
     self.set_optimizer()
 
     # clear previous best
-    self._best = {}
+    self._tmp = {"best":{}}
     
   def run(self, backprop=True):
     '''run model to get outputs, losses and gradients'''
@@ -255,8 +255,8 @@ class mk_tr_model(design_model):
     self._k += 1
 
     # save results
-    if save_best and "aux" in self._best and self.aux["loss"] < self._best["aux"]["loss"]:
-      self._best["aux"] = self.aux
+    if save_best and "aux" in self._tmp["best"] and self.aux["loss"] < self._tmp["best"]["aux"]["loss"]:
+      self._tmp["best"]["aux"] = self.aux
 
     # print
     if verbose and (self._k % verbose) == 0:
@@ -281,7 +281,7 @@ class mk_tr_model(design_model):
 
     assert mode in ["preds","feats","bkg_feats"]
     if mode == "preds":
-      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+      aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
       x = aux["outputs"]
     elif mode == "feats":
       x = self._inputs["6D"]
@@ -299,7 +299,7 @@ class mk_tr_model(design_model):
     plt.show()
     
   def get_loss(self, k=None, get_best=True):
-    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+    aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     if k is None:
       return {k:self.get_loss(k, get_best=get_best) for k in aux["losses"].keys()}
     losses = aux["losses"][k]

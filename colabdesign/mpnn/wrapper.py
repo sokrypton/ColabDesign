@@ -129,7 +129,7 @@ class MPNN_wrapper:
                 'pssm_bias_flag': pssm_bias_flag,
                }
     
-    def score(self, inputs, seq=None, order=None, key=None):
+    def score(self, inputs, seq=None, order=None, key=None, unconditional=False):
         """get the output of MPNN
 
         Args:
@@ -163,17 +163,20 @@ class MPNN_wrapper:
                        'residue_idx': residue_idx,
                        'chain_encoding_all': chain_encoding_all}
 
-        if seq is not None:
-            S = np.asarray([self.alphabet.index(a) for a in seq], dtype=np.int32)
-            S = S[None, :]
-            score_input['S'] = jnp.array(S)
+        if unconditional:
+            score_input["S"] = None
+        else:
+            if seq is not None:
+                S = np.asarray([self.alphabet.index(a) for a in seq], dtype=np.int32)
+                S = S[None, :]
+                score_input['S'] = jnp.array(S)
 
-        if order is None:
-            if key is not None:
-                self.safe_key = SafeKey(key)
-            self.safe_key, used_key = self.safe_key.split()
-            order = jax.random.normal(used_key.get(), (chain_M.shape[1],))
-        score_input['randn'] = jnp.expand_dims(order, 0)
+            if order is None:
+                if key is not None:
+                    self.safe_key = SafeKey(key)
+                self.safe_key, used_key = self.safe_key.split()
+                order = jax.random.normal(used_key.get(), (chain_M.shape[1],))
+            score_input['randn'] = jnp.expand_dims(order, 0)
              
         self.safe_key, used_key = self.safe_key.split()
         return self.model.score(self.model.params, used_key.get(), score_input)

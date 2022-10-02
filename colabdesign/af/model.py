@@ -203,7 +203,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       aux["losses"].update(get_seq_ent_loss(inputs))
 
       # add sequence bias loss
-      aux["losses"].udpate(get_bias_loss(inputs))
+      aux["losses"].update(get_bias_loss(inputs))
       
       # experimental masked-language-modeling
       if a["use_mlm"]:

@@ -409,10 +409,5 @@ class ProteinMPNN(hk.Module, mpnn_sample):
         h_V = layer(h_V, h_ESV, mask)
 
     logits = self.W_out(h_V)
-    if fix_alphabet:
-      old = 'ACDEFGHIKLMNPQRSTVWYX'
-      new = "ARNDCQEGHILKMFPSTWYVX"
-      logits = logits[...,tuple(old.index(k) for k in new)]
-
     log_probs = jax.nn.log_softmax(logits, axis=-1)
     return logits, log_probs

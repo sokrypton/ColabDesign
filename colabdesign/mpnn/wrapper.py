@@ -45,9 +45,13 @@ class mk_mpnn_model:
                  key, fix_alphabet=True):
     score_input = {'X': X, 'mask': mask,
                    'residue_idx': residue_idx,
-                   'chain_encoding_all': chain_encoding_all,
-                   'fix_alphabet':fix_alphabet}
-    return self.model.score(self.model.params, key, score_input)[0]
+                   'chain_encoding_all': chain_encoding_all}
+    logits = self.model.score(self.model.params, key, score_input)[0]
+    if fix_alphabet:
+      old = 'ACDEFGHIKLMNPQRSTVWYX'
+      new = "ARNDCQEGHILKMFPSTWYVX"
+      logits = logits[...,tuple(old.index(k) for k in new)]
+    return logits
 
 class MPNN_wrapper:  
   def __init__(self,

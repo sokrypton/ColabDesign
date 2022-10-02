@@ -159,7 +159,7 @@ class _af_utils:
       ax1.set_yticks(ticks); ax1.set_yticklabels(ticks)
       ax1.set_ylabel("RMSD",color="black");ax1_.set_ylabel("seqid",color="green")
       ax1.set_ylim(0.25,64)
-      ax1_.set_ylim(0,max(0.4,seqid.max()))
+      ax1_.set_ylim(0,0.8)
       # extras
       ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
       ax2.plot(self.get_loss("temp"),color="orange",label="temp")

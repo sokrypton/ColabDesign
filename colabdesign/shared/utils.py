@@ -110,3 +110,10 @@ def categorical(p):
 def to_list(xs):
   if not isinstance(xs,list): xs = [xs]
   return [x for x in xs if x is not None]
+
+def copy_missing(a,b):
+  for i,v in a.items():
+    if i not in b:
+      b[i] = v
+    elif isinstance(v,dict):
+      copy_missing(v,b[i])

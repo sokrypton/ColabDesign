@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list, copy_missing
 
 ####################################################
 # AF_DESIGN - design functions
@@ -38,7 +38,9 @@ class _af_design:
     '''
     # reset [opt]ions
     if reset_opt and not keep_history:
+      copy_missing(self.opt, self._opt)
       self.opt = copy_dict(self._opt)
+    
     if not keep_history:
       # initialize trajectory
       self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},

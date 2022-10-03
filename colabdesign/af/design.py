@@ -24,7 +24,7 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 class _af_design:
 
   def restart(self, seed=None, opt=None, weights=None,
-              seq=None, keep_history=False, reset_opt=True, **kwargs):   
+              seq=None, mode=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
     ------------
@@ -52,7 +52,7 @@ class _af_design:
   
     # initialize sequence
     self.set_seed(seed)
-    self.set_seq(seq=seq, **kwargs)
+    self.set_seq(seq=seq, mode=mode, **kwargs)
 
     # reset optimizer
     self._k = 0

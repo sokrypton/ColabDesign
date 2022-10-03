@@ -51,11 +51,10 @@ class mk_mpnn_model:
               'chain_encoding_all': chain_idx}
     if S is not None:
       if fix_alphabet:
-        one_hot = np.eye(21)[S]
-        one_hot[S == -1] = 0
+        one_hot = jax.nn.one_hot(S,21)
         inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]
       if decoding_order is None:
-        inputs["decoding_order"] = np.argsort(residue_idx,-1)
+        inputs["decoding_order"] = jnp.argsort(residue_idx,-1)
       else:
         inputs["decoding_order"] = decoding_order
 

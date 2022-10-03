@@ -107,7 +107,7 @@ class _af_utils:
     aux = aux["all"]
     
     if self.protocol in ["fixbb","binder"]:
-      pos_ref = self._inputs["batch"]["all_atom_positions"][:,1]
+      pos_ref = self._inputs["batch"]["all_atom_positions"][:,1].copy()
       pos_ref[(pos_ref == 0).any(-1)] = np.nan
     else:
       pos_ref = aux["atom_positions"][0,:,1,:]

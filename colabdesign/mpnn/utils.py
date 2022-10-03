@@ -39,6 +39,13 @@ def scatter(input, dim, index, src):
   a = jnp.moveaxis(a, 0, -1).reshape((-1, dim_num))
   return input.at[tuple(a.T)].set(src[tuple(idx.T)])
 
+def get_ar_mask(order):
+  '''compute autoregressive mask, given order of positions'''
+  L = order.shape[-1]
+  oh_order = jax.nn.one_hot(order, L)
+  tri = jnp.tri(L, k=-1)
+  return jnp.einsum('ij,...iq,...jp->...qp', tri, oh_order, oh_order)
+
 class StructureDatasetPDB():
   def __init__(self, pdb_dict_list, verbose=True, truncate=None, max_length=100,
     alphabet='ACDEFGHIKLMNPQRSTVWYX-'):

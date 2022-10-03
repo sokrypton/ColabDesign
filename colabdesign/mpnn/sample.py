@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import itertools
 
-from colabdesign.mpnn.utils import gather_nodes, cat_neighbors_nodes, scatter
+from colabdesign.mpnn.utils import gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
 
 class mpnn_sample:
   def sample(self, key, X, randn, S_true,
@@ -28,14 +28,10 @@ class mpnn_sample:
     # Decoder uses masked self-attention
     chain_mask = chain_mask * chain_M_pos * mask #update chain_M to include missing regions
     decoding_order = jnp.argsort((chain_mask+0.0001)*(jnp.abs(randn))) #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-    mask_size = E_idx.shape[1]
-    permutation_matrix_reverse = jax.nn.one_hot(decoding_order, mask_size)
-    order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
-                     (1 - jnp.triu(jnp.ones([mask_size, mask_size]))),
-                     permutation_matrix_reverse,
-                     permutation_matrix_reverse)
 
-    mask_attend = jnp.expand_dims(jnp.take_along_axis(order_mask_backward, E_idx, 2), -1)
+    ar_mask = get_ar_mask(decoding_order)
+
+    mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
     mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
     mask_bw = mask_1D * mask_attend
     mask_fw = mask_1D * (1. - mask_attend)
@@ -138,13 +134,9 @@ class mpnn_sample:
           new_decoding_order.append([t_dec])
     decoding_order = jnp.tile(jnp.array(list(itertools.chain(*new_decoding_order)))[None,], [X.shape[0], 1])
 
-    mask_size = E_idx.shape[1]
-    permutation_matrix_reverse = jax.nn.one_hot(decoding_order, num_classes=mask_size)
-    order_mask_backward = jnp.einsum('ij, biq, bjp->bqp',
-                     (1-jnp.triu(jnp.ones([mask_size,mask_size]))),
-                     permutation_matrix_reverse,
-                     permutation_matrix_reverse)
-    mask_attend = jnp.expand_dims(jnp.take_along_axis(order_mask_backward, E_idx, 2), -1)
+    ar_mask = get_ar_mask(decoding_order)
+
+    mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
     mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
     mask_bw = mask_1D * mask_attend
     mask_fw = mask_1D * (1. - mask_attend)

@@ -7,7 +7,7 @@ import numpy as np
 import itertools
 
 from colabdesign.shared.prng import SafeKey
-from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter
+from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
 from colabdesign.mpnn.sample import mpnn_sample
 
 Gelu = functools.partial(jax.nn.gelu, approximate=False)
@@ -361,9 +361,10 @@ class ProteinMPNN(hk.Module, mpnn_sample):
       # unconditional_probs
       ##########################################
 
-      order_mask_backward = jnp.zeros([X.shape[0], X.shape[1], X.shape[1]])
+      # make an autogressive mask
+      ar_mask = jnp.zeros([X.shape[0], X.shape[1], X.shape[1]])
 
-      mask_attend = jnp.take_along_axis(order_mask_backward, E_idx, 2)[...,None]
+      mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
       mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
       mask_bw = mask_1D * mask_attend
       mask_fw = mask_1D * (1. - mask_attend)
@@ -388,12 +389,9 @@ class ProteinMPNN(hk.Module, mpnn_sample):
         decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
       
       # make an autogressive mask
-      mask_size = E_idx.shape[1]
-      permute_mtx_rev = jax.nn.one_hot(decoding_order, mask_size)
-      ar_mask = jnp.tri(mask_size, k=-1)
-      order_mask_backward = jnp.einsum('ij, biq, bjp->bqp', ar_mask, permute_mtx_rev, permute_mtx_rev)
+      ar_mask = get_ar_mask(decoding_order)
               
-      mask_attend = jnp.take_along_axis(order_mask_backward, E_idx, 2)[...,None]
+      mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
       mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
       mask_bw = mask_1D * mask_attend
       mask_fw = mask_1D * (1. - mask_attend)

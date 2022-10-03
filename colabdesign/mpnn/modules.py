@@ -305,14 +305,13 @@ class ProteinMPNN(hk.Module, mpnn_sample):
          node_features, edge_features, hidden_dim,
          num_encoder_layers=3, num_decoder_layers=3,
          vocab=21, k_neighbors=64,
-         augment_eps=0.05, dropout=0.1, use_input_decoding_order=False):
+         augment_eps=0.05, dropout=0.1):
     super(ProteinMPNN, self).__init__()
 
     # Hyperparameters
     self.node_features = node_features
     self.edge_features = edge_features
     self.hidden_dim = hidden_dim
-    self.use_input_decoding_order = use_input_decoding_order
 
     # Featurization layers
     self.features = ProteinFeatures(edge_features,
@@ -321,8 +320,7 @@ class ProteinMPNN(hk.Module, mpnn_sample):
                     augment_eps=augment_eps)
 
     self.W_e = hk.Linear(hidden_dim, with_bias=True, name='W_e')
-    self.W_s = EmbedToken(vocab_size=vocab,
-                embed_dim=hidden_dim)
+    self.W_s = EmbedToken(vocab_size=vocab, embed_dim=hidden_dim)
 
     # Encoder layers
     self.encoder_layers = [
@@ -337,12 +335,12 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     ]
     self.W_out = hk.Linear(num_letters, with_bias=True, name='W_out')
 
-  def __call__(self, X, mask, residue_idx, chain_encoding_all,
+  def __call__(self, X, mask, residue_idx, chain_idx,
                S=None, chain_M=None, randn=None,
-               decoding_order=None):
+               ar_mask=None, decoding_order=None):
     """ Graph-conditioned sequence model """
     # Prepare node and edge embeddings
-    E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
+    E, E_idx = self.features(X, mask, residue_idx, chain_idx)
     h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
     h_E = self.W_e(E)
 
@@ -382,14 +380,15 @@ class ProteinMPNN(hk.Module, mpnn_sample):
       h_S = self.W_s(S)
       h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
-      if not self.use_input_decoding_order:
-        # update chain_M to include missing regions
-        chain_M = chain_M * mask
-        #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-        decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
-      
-      # make an autogressive mask
-      ar_mask = get_ar_mask(decoding_order)
+      if ar_mask is None:
+        if decoding_order is None:
+          # update chain_M to include missing regions
+          chain_M = chain_M * mask
+          #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+          decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
+        
+        # make an autogressive mask
+        ar_mask = get_ar_mask(decoding_order)
               
       mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
       mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])

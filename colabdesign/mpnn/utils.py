@@ -247,7 +247,7 @@ def tied_featurize(batch, chain_dict,
   pssm_log_odds_all = 10000.0*np.ones([B, L_max, 21], float) #1.0 for the bits that need to be predicted
   chain_M_pos = np.zeros([B, L_max], int) #1.0 for the bits that need to be predicted
   bias_by_res_all = np.zeros([B, L_max, 21], float)
-  chain_encoding_all = np.zeros([B, L_max], int) #1.0 for the bits that need to be predicted
+  chain_idx = np.zeros([B, L_max], int) #1.0 for the bits that need to be predicted
   S = np.zeros([B, L_max], int)
   omit_AA_mask = np.zeros([B, L_max, len(alphabet)], int)
   # Build the batch
@@ -414,7 +414,7 @@ def tied_featurize(batch, chain_dict,
     omit_AA_mask[i,] = omit_AA_mask_pad
 
     chain_encoding_pad = np.pad(chain_encoding, [[0,L_max-l]], 'constant', constant_values=(0.0, ))
-    chain_encoding_all[i,:] = chain_encoding_pad
+    chain_idx[i,:] = chain_encoding_pad
 
     pssm_coef_pad = np.pad(pssm_coef_, [[0,L_max-l]], 'constant', constant_values=(0.0, ))
     pssm_bias_pad = np.pad(pssm_bias_, [[0,L_max-l], [0,0]], 'constant', constant_values=(0.0, ))
@@ -461,8 +461,8 @@ def tied_featurize(batch, chain_dict,
   chain_M = jnp.array(chain_M, float)
   chain_M_pos = jnp.array(chain_M_pos, float)
   omit_AA_mask = jnp.array(omit_AA_mask, float)
-  chain_encoding_all = jnp.array(chain_encoding_all, int)
-  return X, S, mask, lengths, chain_M, chain_encoding_all, letter_list_list, \
+  chain_idx = jnp.array(chain_idx, int)
+  return X, S, mask, lengths, chain_M, chain_idx, letter_list_list, \
        visible_list_list, masked_list_list, masked_chain_length_list_list, \
        chain_M_pos, omit_AA_mask, residue_idx, dihedral_mask, tied_pos_list_of_lists_list, \
        pssm_coef_all, pssm_bias_all, pssm_log_odds_all, bias_by_res_all, tied_beta

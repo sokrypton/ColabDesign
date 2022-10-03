@@ -37,30 +37,27 @@ class mk_mpnn_model:
               'num_decoder_layers': num_layers,
               'augment_eps': backbone_noise,
               'k_neighbors': checkpoint['num_edges'],
-              'dropout': 0.0,
-              "use_input_decoding_order":True}
+              'dropout': 0.0}
     self.model = RunModel(config)
     self.model.params = params
 
   def get_logits(self, X, mask, residue_idx, chain_idx,
-                 key, S=None, decoding_order=None, fix_alphabet=True):
+                 key, S=None, ar_mask=None, decoding_order=None):
     old = 'ACDEFGHIKLMNPQRSTVWYX'
     new = "ARNDCQEGHILKMFPSTWYVX"
     inputs = {'X': X, 'S':S, 'mask': mask,
               'residue_idx': residue_idx,
-              'chain_encoding_all': chain_idx}
+              'chain_idx': chain_idx}
     if S is not None:
-      if fix_alphabet:
-        one_hot = jax.nn.one_hot(S,21)
-        inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]
+      one_hot = jax.nn.one_hot(S,21)
+      inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]
       if decoding_order is None:
         inputs["decoding_order"] = jnp.argsort(residue_idx,-1)
       else:
         inputs["decoding_order"] = decoding_order
 
     logits = self.model.score(self.model.params, key, inputs)[0]
-    if fix_alphabet:
-      logits = logits[...,tuple(old.index(k) for k in new)]
+    logits = logits[...,tuple(old.index(k) for k in new)]
     return logits[...,:20]
 
 class MPNN_wrapper:  
@@ -198,7 +195,7 @@ class MPNN_wrapper:
     """    
     protein = inputs['dataset_valid'][0]
     batch_clones = [copy.deepcopy(protein)]
-    (X, S, mask, lengths, chain_M, chain_encoding_all, chain_list_list,
+    (X, S, mask, lengths, chain_M, chain_idx, chain_list_list,
      visible_list_list, masked_list_list, masked_chain_length_list_list,
      chain_M_pos, omit_AA_mask, residue_idx, dihedral_mask,
      tied_pos_list_of_lists_list, pssm_coef, pssm_bias,
@@ -211,7 +208,7 @@ class MPNN_wrapper:
                  'mask': mask,
                  'chain_M': chain_M * chain_M_pos,
                  'residue_idx': residue_idx,
-                 'chain_encoding_all': chain_encoding_all}
+                 'chain_idx': chain_idx}
 
     if unconditional:
       score_input["S"] = None
@@ -256,7 +253,7 @@ class MPNN_wrapper:
 
     protein = inputs['dataset_valid'][0]
     batch_clones = [copy.deepcopy(protein) for i in range(BATCH_COPIES)]
-    (X, S, mask, lengths, chain_M, chain_encoding_all, chain_list_list,
+    (X, S, mask, lengths, chain_M, chain_idx, chain_list_list,
      visible_list_list, masked_list_list, masked_chain_length_list_list,
      chain_M_pos, omit_AA_mask, residue_idx, dihedral_mask,
      tied_pos_list_of_lists_list, pssm_coef, pssm_bias,
@@ -277,7 +274,7 @@ class MPNN_wrapper:
             'randn': randn_1,
             'S_true': S,
             'chain_mask': chain_M,
-            'chain_encoding_all': chain_encoding_all,
+            'chain_idx': chain_idx,
             'residue_idx': residue_idx,
             'mask': mask,
             'temperature': sampling_temp,

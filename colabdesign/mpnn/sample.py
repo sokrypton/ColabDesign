@@ -7,7 +7,7 @@ from colabdesign.mpnn.utils import gather_nodes, cat_neighbors_nodes, scatter, g
 
 class mpnn_sample:
   def sample(self, key, X, randn, S_true,
-         chain_mask, chain_encoding_all, residue_idx,
+         chain_mask, chain_idx, residue_idx,
          mask=None, temperature=1.0, omit_AAs_np=None,
          bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None,
          pssm_coef=None, pssm_bias=None, pssm_multi=None,
@@ -15,7 +15,7 @@ class mpnn_sample:
          pssm_bias_flag=None, bias_by_res=None):
 
     # Prepare node and edge embeddings
-    E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
+    E, E_idx = self.features(X, mask, residue_idx, chain_idx)
     h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
     h_E = self.W_e(E)
 
@@ -50,6 +50,7 @@ class mpnn_sample:
     h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
     h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
     h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+
     for t_ in range(N_nodes):
       t = decoding_order[:, t_]  # [B]
       chain_mask_gathered = jnp.take_along_axis(chain_mask, t[:,None], 1)  # [B]
@@ -102,7 +103,7 @@ class mpnn_sample:
 
 
   def tied_sample(self, key, X, randn, S_true,
-          chain_mask, chain_encoding_all, residue_idx,
+          chain_mask, chain_idx, residue_idx,
           mask=None, temperature=1.0, omit_AAs_np=None,
           bias_AAs_np=None, chain_M_pos=None, omit_AA_mask=None,
           pssm_coef=None, pssm_bias=None, pssm_multi=None,
@@ -111,7 +112,7 @@ class mpnn_sample:
           bias_by_res=None):
 
     # Prepare node and edge embeddings
-    E, E_idx = self.features(X, mask, residue_idx, chain_encoding_all)
+    E, E_idx = self.features(X, mask, residue_idx, chain_idx)
     h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
     h_E = self.W_e(E)
     # Encoder is unmasked self-attention 

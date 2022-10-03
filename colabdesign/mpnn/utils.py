@@ -1,6 +1,7 @@
 import numpy as np
 import itertools
 import jax.numpy as jnp
+import jax
 import time
 
 # The following gather functions

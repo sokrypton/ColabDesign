@@ -338,10 +338,10 @@ class ProteinMPNN(hk.Module, mpnn_sample):
 
   def __call__(self, X, mask, residue_idx, chain_idx,
                S=None, chain_M=None, randn=None,
-               ar_mask=None, decoding_order=None):
+               ar_mask=None, decoding_order=None, offset=None):
     """ Graph-conditioned sequence model """
     # Prepare node and edge embeddings
-    E, E_idx = self.features(X, mask, residue_idx, chain_idx)
+    E, E_idx = self.features(X, mask, residue_idx, chain_idx, offset=offset)
     h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
     h_E = self.W_e(E)
 

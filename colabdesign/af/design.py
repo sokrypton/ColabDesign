@@ -244,8 +244,8 @@ class _af_design:
         self._tmp["best"]["aux"] = aux
         self._tmp["best"]["metric"] = metric
 
-    if verbose and (self._k % verbose) == 0:
-      self._print_log(f"{self._k}", aux=aux)
+    if verbose and ((self._k+1) % verbose) == 0:
+      self._print_log(f"{self._k+1}", aux=aux)
 
   def predict(self, seq=None,
               num_models=None, num_recycles=None, models=None, sample_models=False,

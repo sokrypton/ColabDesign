@@ -47,7 +47,8 @@ class mk_mpnn_model:
     new = "ARNDCQEGHILKMFPSTWYVX"
     inputs = {'X': X, 'S':S, 'mask': mask,
               'residue_idx': residue_idx,
-              'chain_idx': chain_idx}
+              'chain_idx': chain_idx,
+              'ar_mask': ar_mask}
     if S is not None:
       one_hot = jax.nn.one_hot(S,21)
       inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]

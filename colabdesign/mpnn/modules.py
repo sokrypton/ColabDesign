@@ -228,7 +228,7 @@ class ProteinFeatures(hk.Module):
     D_neighbors = gather_edges(D[...,None], E_idx)[...,0] #[...,L,K]
     return self._rbf(D_neighbors)
 
-  def __call__(self, X, mask, residue_idx, chain_labels):
+  def __call__(self, X, mask, residue_idx, chain_idx, offset=None):
     if self.augment_eps > 0:
       self.safe_key, use_key = self.safe_key.split()
       X = X + self.augment_eps * jax.random.normal(use_key, X.shape)
@@ -264,11 +264,12 @@ class ProteinFeatures(hk.Module):
     # position embedding
     ##########################
     # residue index offset
-    offset = (residue_idx[...,:,None] - residue_idx[...,None,:]).astype(int)
+    if offset is None:
+      offset = (residue_idx[...,:,None] - residue_idx[...,None,:])
     offset = gather_edges(offset[...,None], E_idx)[...,0] #[B, L, K]
 
     # chain index offset
-    d_chains = (chain_labels[...,:,None] == chain_labels[...,None,:]).astype(int)
+    d_chains = (chain_idx[...,:,None] == chain_idx[...,None,:]).astype(int)
     E_chains = gather_edges(d_chains[...,None], E_idx)[...,0]
     E_positional = self.embeddings(offset, E_chains)
 

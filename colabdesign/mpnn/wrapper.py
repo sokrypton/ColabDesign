@@ -41,16 +41,17 @@ class mk_mpnn_model:
     self.model = RunModel(config)
     self.model.params = params
 
-  def get_logits(self, X, mask, residue_idx, chain_idx,
-                 key, S=None, ar_mask=None, decoding_order=None):
+  def get_logits(self, X, mask, residue_idx, chain_idx, key, S=None,
+                 ar_mask=None, decoding_order=None, offset=None):
     old = 'ACDEFGHIKLMNPQRSTVWYX'
     new = "ARNDCQEGHILKMFPSTWYVX"
     inputs = {'X': X, 'S':S, 'mask': mask,
               'residue_idx': residue_idx,
               'chain_idx': chain_idx,
-              'ar_mask': ar_mask}
+              'ar_mask': ar_mask,
+              'offset': offset}
     if S is not None:
-      one_hot = jax.nn.one_hot(S,21)
+      one_hot = jax.nn.one_hot(S,21) if jnp.issubdtype(S.dtype, jnp.integer) else S
       inputs["S"] = one_hot[...,tuple(new.index(k) for k in old)]
       if decoding_order is None:
         inputs["decoding_order"] = jnp.argsort(residue_idx,-1)

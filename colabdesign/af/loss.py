@@ -163,7 +163,8 @@ class _af_loss:
       "exp_res": get_exp_res_loss(outputs, mask_1d=mask_1d),
       "plddt":   get_plddt_loss(outputs, mask_1d=mask_1d),
       "pae":     get_pae_loss(outputs, **masks),
-      "con":     get_con_loss(inputs, outputs, opt["con"], **masks)
+      "con":     get_con_loss(inputs, outputs, opt["con"], **masks),
+      "helix":   get_helix_loss(inputs, outputs)
     }
 
     # define losses at interface
@@ -290,6 +291,20 @@ def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
   con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))
   return jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
+
+def get_helix_loss(inputs, outputs):  
+  # decide on what offset to use
+  if "offset" in inputs:
+    offset = inputs["offset"]
+  else:
+    idx = inputs["residue_index"].flatten()
+    offset = idx[:,None] - idx[None,:]
+
+  # define distogram
+  dgram = outputs["distogram"]["logits"]
+  dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+
+  return _get_helix_loss(dgram, dgram_bins, offset)
 
 def _get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
   '''helix bias loss'''

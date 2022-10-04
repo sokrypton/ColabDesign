@@ -69,6 +69,7 @@ class design_model:
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
       wt_seq = np.eye(20)[self._wt_aatype]
+      wt_seq[self._wt_aatype == -1] = 0
       if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
         seq = np.zeros(shape)
         seq[...,self.opt["pos"],:] = wt_seq
@@ -93,7 +94,9 @@ class design_model:
         seq = np.asarray(seq)
 
       if np.issubdtype(seq.dtype, np.integer):
-        seq = np.eye(20)[seq]
+        seq_ = np.eye(20)[seq]
+        seq_[seq == -1] = 0
+        seq = seq_
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7

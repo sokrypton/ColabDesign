@@ -93,8 +93,9 @@ class design_model:
         seq = np.asarray(seq)
 
       if np.issubdtype(seq.dtype, np.integer):
-        seq = np.eye(20)[seq]
-        seq[seq == -1] = 0
+        seq_ = np.eye(20)[seq]
+        seq_[seq == -1] = 0
+        seq = seq_
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7

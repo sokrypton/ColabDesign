@@ -1,28 +1,28 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import joblib
 import re
 import copy
 import random
 import os
+import pickle
 from tqdm import tqdm
 
 from .modules import RunModel
 from .utils import parse_PDB, StructureDatasetPDB, tied_featurize, _S_to_seq
 from colabdesign.shared.prng import SafeKey
+from colabdesign.mpnn.jax_weights import __file__ as mpnn_path
 
 class mk_mpnn_model:
-  def __init__(self,
-    params_path="/content/colabdesign/mpnn/jax_weights",
-    model_name="v_48_020", verbose=False):
+  def __init__(self, model_name="v_48_020", verbose=False):
 
     backbone_noise = 0.00  # Standard deviation of Gaussian noise to add to backbone atoms
     hidden_dim = 128
     num_layers = 3 
 
-    path = os.path.join(params_path, f'{model_name}.pkl')
-    checkpoint = joblib.load(path)
+    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
+    with open(path,'rb') as file:
+      checkpoint = pickle.load(file)
     params = jax.tree_util.tree_map(jnp.array, checkpoint['model_state_dict'])
     if verbose:
       print('Number of edges:', checkpoint['num_edges'])
@@ -73,8 +73,9 @@ class MPNN_wrapper:
     hidden_dim = 128
     num_layers = 3 
 
-    path = os.path.join(params_path, f'{model_name}.pkl')
-    checkpoint = joblib.load(path)
+    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
+    with open(path,'rb') as file:
+      checkpoint = pickle.load(file)
     params = jax.tree_util.tree_map(jnp.array, checkpoint['model_state_dict'])
 
     if verbose:

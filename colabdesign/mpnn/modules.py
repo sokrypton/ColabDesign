@@ -2,9 +2,9 @@ import functools
 import haiku as hk
 import jax
 import jax.numpy as jnp
-import joblib
 import numpy as np
 import itertools
+import pickle
 
 from colabdesign.shared.prng import SafeKey
 from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
@@ -176,7 +176,8 @@ class RunModel:
     self.init_tsample = hk.transform(_forward_tsample).init
 
   def load_params(self, path):
-    self.params = joblib.load(path)
+    with open(path,'rb') as file:
+      self.params = pickle.load(file)
 
 class ProteinFeatures(hk.Module):
   def __init__(self, edge_features, node_features,

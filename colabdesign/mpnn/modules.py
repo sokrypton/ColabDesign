@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import itertools
-import pickle
+import joblib
 
 from colabdesign.shared.prng import SafeKey
 from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
@@ -176,8 +176,7 @@ class RunModel:
     self.init_tsample = hk.transform(_forward_tsample).init
 
   def load_params(self, path):
-    with open(path,'rb') as file:
-      self.params = pickle.load(file)
+    self.params = joblib.load(path)
 
 class ProteinFeatures(hk.Module):
   def __init__(self, edge_features, node_features,

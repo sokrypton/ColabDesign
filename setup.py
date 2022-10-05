@@ -6,6 +6,6 @@ setup(
     install_requires=['py3Dmol','absl-py','biopython',
                       'chex','dm-haiku','dm-tree',
                       'immutabledict','jax','ml-collections',
-                      'numpy','pandas','scipy','optax'],
+                      'numpy','pandas','scipy','optax','joblib'],
     include_package_data=True
 )

@@ -5,7 +5,7 @@ import re
 import copy
 import random
 import os
-import pickle
+import joblib
 from tqdm import tqdm
 
 from .modules import RunModel
@@ -21,8 +21,7 @@ class mk_mpnn_model:
     num_layers = 3 
 
     path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
-    with open(path,'rb') as file:
-      checkpoint = pickle.load(file)
+    checkpoint = joblib.load(path)
     params = jax.tree_util.tree_map(jnp.array, checkpoint['model_state_dict'])
     if verbose:
       print('Number of edges:', checkpoint['num_edges'])
@@ -64,9 +63,7 @@ class mk_mpnn_model:
 
 class MPNN_wrapper:  
   def __init__(self,
-         params_path="/content/colabdesign/mpnn/jax_weights",
          model_name="v_48_020", verbose=False):
-    self.params_path = params_path
     self.model_name = model_name
 
     backbone_noise = 0.00  # Standard deviation of Gaussian noise to add to backbone atoms
@@ -74,8 +71,7 @@ class MPNN_wrapper:
     num_layers = 3 
 
     path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
-    with open(path,'rb') as file:
-      checkpoint = pickle.load(file)
+    checkpoint = joblib.load(path)
     params = jax.tree_util.tree_map(jnp.array, checkpoint['model_state_dict'])
 
     if verbose:

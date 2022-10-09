@@ -19,7 +19,10 @@ def clear_mem():
       for obj_name in dir(module):
         obj = getattr(module, obj_name)
         if hasattr(obj, "cache_clear"):
-          obj.cache_clear()
+          try:
+            obj.cache_clear()
+          except:
+            pass
   gc.collect()
 
 def update_dict(D, *args, **kwargs):

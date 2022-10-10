@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import sys, gc
 
 def clear_mem():
-
   # clear vram (GPU)
   backend = jax.lib.xla_bridge.get_backend()
   if hasattr(backend,'live_buffers'):
@@ -16,13 +15,14 @@ def clear_mem():
   # https://github.com/google/jax/issues/10828
   for module_name, module in sys.modules.items():
     if module_name.startswith("jax"):
-      for obj_name in dir(module):
-        obj = getattr(module, obj_name)
-        if hasattr(obj, "cache_clear"):
-          try:
-            obj.cache_clear()
-          except:
-            pass
+      if module_name not in ["jax.interpreters.partial_eval"]:
+        for obj_name in dir(module):
+          obj = getattr(module, obj_name)
+          if hasattr(obj, "cache_clear"):
+            try:
+              obj.cache_clear()
+            except:
+              pass
   gc.collect()
 
 def update_dict(D, *args, **kwargs):

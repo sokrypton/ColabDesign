@@ -231,7 +231,7 @@ class ProteinFeatures(hk.Module):
   def __call__(self, X, mask, residue_idx, chain_idx, offset=None):
     if self.augment_eps > 0:
       self.safe_key, use_key = self.safe_key.split()
-      X = X + self.augment_eps * jax.random.normal(use_key, X.shape)
+      X = X + self.augment_eps * jax.random.normal(use_key.get(), X.shape)
     
     ##########################
     # get atoms

@@ -1,5 +1,7 @@
 import jax
 import jax.numpy as jnp
+import haiku as hk
+
 import numpy as np
 import itertools
 
@@ -7,11 +9,17 @@ from colabdesign.shared.prng import SafeKey
 from .utils import gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
 
 class mpnn_sample:
-  def sample(self, X, decoding_order,
+  def sample(self, X, mask, decoding_order,
              chain_idx, residue_idx,
-             mask=None, temperature=1.0):
+             temperature=1.0, bias=None):
 
-    key = SafeKey(hk.next_rng_key())
+    key = hk.next_rng_key()
+    if decoding_order is None:
+      key, sub_key = jax.random.split(key)
+      decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[1]))[None]
+
+    mask = jnp.asarray(mask)
+    bias = jnp.asarray(bias)
 
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_idx)
@@ -31,67 +39,56 @@ class mpnn_sample:
     mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
     mask_bw = mask_1D * mask_attend
     mask_fw = mask_1D * (1. - mask_attend)
-
-    N_batch, N_nodes = X.shape[0], X.shape[1]
     
-    # initial values
-    all_logits = jnp.zeros((N_batch, N_nodes, 21))
-    h_S = jnp.zeros_like(h_V,)
-    S = jnp.zeros((N_batch, N_nodes),float)    
-    h_V_stack = [h_V] + [jnp.zeros_like(h_V) for _ in range(len(self.decoder_layers))]
-    h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_S), h_E, E_idx)
+    h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_V), h_E, E_idx)
     h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
     h_EXV_encoder_fw = mask_fw * h_EXV_encoder
 
-    def step(i):
-      t = decoding_order[:,i]  # [B]
-      t1 = t[:,None]
-      t2 = t[:,None,None]
-      t3 = t[:,None,None,None]
+    def fn(x, t, key):
       
       # Hidden layers
-      t_ = jnp.tile(t2, [1,1,E_idx.shape[-1]])
-      E_idx_t = jnp.take_along_axis(E_idx, t_, 1)
-      t_ = jnp.tile(t3, [1,1,h_E.shape[-2], h_E.shape[-1]])
-      h_E_t = jnp.take_along_axis(h_E, t_, 1)
-      h_ES_t = cat_neighbors_nodes(h_S, h_E_t, E_idx_t)
-      t_ = jnp.tile(t3, [1,1,h_EXV_encoder_fw.shape[-2], h_EXV_encoder_fw.shape[-1]])
-      h_EXV_encoder_t = jnp.take_along_axis(h_EXV_encoder_fw, t_, 1)
-      mask_t = jnp.take_along_axis(mask, t1, 1)
+      E_idx_t = E_idx[:,t][:,None]
+      h_E_t = h_E[:,t][:,None]
+      h_ES_t = cat_neighbors_nodes(x["h_S"], h_E_t, E_idx_t)
+      h_EXV_encoder_t = h_EXV_encoder_fw[:,t][:,None] 
+      mask_t = mask[:,t][:,None]
+      mask_bw_t = mask_bw[:,t]
 
-      for l, layer in enumerate(self.decoder_layers):
-        h_V_stack_ = h_V_stack[l]
+      def fn_layer(l, h_v):
         # Updated relational features for future states
-        h_ESV_decoder_t = cat_neighbors_nodes(h_V_stack_, h_ES_t, E_idx_t)
-        t_ = jnp.tile(t2, [1,1,h_V_stack_.shape[-1]])
-        h_V_t = jnp.take_along_axis(h_V_stack_, t_, 1)
-        t_ = jnp.tile(t3, [1,1,mask_bw.shape[-2], mask_bw.shape[-1]])
-        mask_bw_ = jnp.take_along_axis(mask_bw, t_,1)
-        h_ESV_t = mask_bw_  * h_ESV_decoder_t + h_EXV_encoder_t
+        h_ESV_decoder_t = cat_neighbors_nodes(h_v[l], h_ES_t, E_idx_t)
+        h_ESV_t = mask_bw_t * h_ESV_decoder_t + h_EXV_encoder_t
 
         # updates
-        t_ = jnp.tile(t2 [1,1,h_V.shape[-1]])
-        h_V_stack[l+1] = scatter(h_V_stack[l+1], 1, t_, layer(h_V_t, h_ESV_t, mask_V=mask_t))
+        h_v_t = self.decoder_layers[l](h_v[l,:,t], h_ESV_t, mask_V=mask_t)[:,0]
+        return h_v.at[l+1,:,t].set(h_v_t)
 
-      # Sampling step
-      t_ = jnp.tile(t2, [1,1,h_V_stack[-1].shape[-1]])
-      h_V_t = jnp.take_along_axis(h_V_stack[-1], t_, 1)[:,0]
+      for l in range(len(self.decoder_layers)):
+        x["h_V_stack"] = fn_layer(l, x["h_V_stack"])
 
       # sample
-      logits = self.W_out(h_V_t) / temperature
-      inputs = jnp.tile(jnp.arange(logits.shape[1])[None], [logits.shape[0], 1])
-      key, sub_key = jax.random.split(key)
-      S_t = jax.random.categorical(sub_key, logits)
+      logits_t = self.W_out(x["h_V_stack"][-1,:,t])
+      if bias is not None:
+        logits_t = logits_t + bias[...,t,:]
+      S_t_logits = logits_t/temperature + jax.random.gumbel(key, logits_t.shape)
+      S_t = jax.nn.one_hot(S_t_logits.argmax(-1), 21)
+      S_t_soft = jax.nn.softmax(S_t_logits,-1)
+      S_t = jax.lax.stop_gradient(S_t - S_t_soft) + S_t_soft
 
       # updates
-      t_ = jnp.tile(t2, [1,1,21])
-      all_logits = scatter(all_logits, 1, t_, logits[:,None,:])
-      h_S_ = self.W_s(S_t)
-      t_ = jnp.tile(t2, [1,1,h_S_.shape[-1]])
-      h_S = scatter(h_S, 1, t_, h_S_)
-      S = scatter(S, 1, t[:,None], S_t)
+      x["h_S"] = x["h_S"].at[:,t].set(self.W_s(S_t))
+      return x, (S_t, logits_t)
+    
+    # initial values
+    N_batch, N_nodes = X.shape[0], X.shape[1]
+    init = {"h_S":jnp.zeros_like(h_V),
+            "h_V_stack":jnp.array([h_V] + [jnp.zeros_like(h_V)] * len(self.decoder_layers))}
+    iters = {"t":decoding_order[0],
+             "key":jax.random.split(key,N_nodes)}
+    x, (S, logits) = jax.lax.scan(lambda x, xs: fn(x, **xs), init, iters)
 
-    for i in range(N_nodes): step(i)
+    # put back in order
+    i = jax.nn.one_hot(decoding_order[0], N_nodes).argmax(0)
+    S,logits = S[i].swapaxes(0,1), logits[i].swapaxes(0,1)
 
-    output_dict = {"S": S, "logits": all_logits, "decoding_order": decoding_order}
-    return output_dict
+    return {"S":S, "logits":logits, "decoding_order": decoding_order}

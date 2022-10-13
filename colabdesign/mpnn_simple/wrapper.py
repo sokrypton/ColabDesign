@@ -41,55 +41,56 @@ class mk_mpnn_model:
     self.model = RunModel(config)
     self.model.params = params
 
-    if seed is None:
-      seed = random.randint(0,2147483647)
+    if seed is None: seed = random.randint(0,2147483647)
     self.safe_key = SafeKey(jax.random.PRNGKey(seed))
 
-
-  def _aa_convert(self, x, rev=False):
-    mpnn_alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
-    af_alphabet = 'ARNDCQEGHILKMFPSTWYVX'
-    if rev:
-      return x[...,tuple(mpnn_alphabet.index(k) for k in af_alphabet)][...,:20]
-    else:
-      if x.shape[-1] == 20:
-        x = jnp.concatenate([x,jnp.zeros_like(x[...,:1])],-1)
-      return x[...,tuple(af_alphabet.index(k) for k in mpnn_alphabet)]
-
-    
-  def get_logits(self, X, mask, residue_idx, chain_idx, key, S=None,
-                 ar_mask=None, decoding_order=None, offset=None, **kwargs):
-    inputs = {'X': X, 'S':S, 'mask': mask,
-              'residue_idx': residue_idx,
-              'chain_idx': chain_idx,
-              'ar_mask': ar_mask,
-              'offset': offset}
-    if S is not None:
-      one_hot = jax.nn.one_hot(S,21) if jnp.issubdtype(S.dtype, jnp.integer) else S
-      inputs["S"] = self._aa_convert(one_hot)
-      if decoding_order is None:
-        inputs["decoding_order"] = jnp.argsort(residue_idx,-1)
+    ###########################################################################
+    def _aa_convert(x, rev=False):
+      mpnn_alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
+      af_alphabet = 'ARNDCQEGHILKMFPSTWYVX'
+      if rev:
+        return x[...,tuple(mpnn_alphabet.index(k) for k in af_alphabet)][...,:20]
       else:
-        inputs["decoding_order"] = decoding_order
+        if x.shape[-1] == 20:
+          x = jnp.concatenate([x,jnp.zeros_like(x[...,:1])],-1)
+        return x[...,tuple(af_alphabet.index(k) for k in mpnn_alphabet)]
 
-    logits = self.model.score(self.model.params, key, inputs)[0]
-    return self._aa_convert(logits, rev=True)
+    ###########################################################################
+    def _get_logits(X, mask, residue_idx, chain_idx, key, S=None,
+                    ar_mask=None, decoding_order=None, offset=None, **kwargs):
+      inputs = {'X': X, 'S':S, 'mask': mask,
+                'residue_idx': residue_idx,
+                'chain_idx': chain_idx,
+                'ar_mask': ar_mask,
+                'offset': offset}
+      if S is not None:
+        one_hot = jax.nn.one_hot(S,21) if jnp.issubdtype(S.dtype, jnp.integer) else S
+        inputs["S"] = _aa_convert(one_hot)
 
-  def sample(self, X, mask, residue_idx, chain_idx, key,
-             decoding_order=None, temperature=0.1, bias=None, **kwargs):
+      score_dict = self.model.score(self.model.params, key, inputs)
+      logits = _aa_convert(score_dict["logits"], rev=True)
+      return logits
 
-    # sample input
-    inputs = {'X': X,
-              'chain_idx': chain_idx,
-              'residue_idx': residue_idx,
-              'mask': mask,
-              'temperature': temperature,
-              'decoding_order': decoding_order}
-    if bias is not None:
-      inputs["bias"] = self._aa_convert(bias)
+    ###########################################################################
+    def _sample(X, mask, residue_idx, chain_idx, key,
+                decoding_order=None, temperature=0.1, bias=None, **kwargs):
+      # sample input
+      inputs = {'X': X,
+                'chain_idx': chain_idx,
+                'residue_idx': residue_idx,
+                'mask': mask,
+                'temperature': temperature,
+                'decoding_order': decoding_order}
+      if bias is not None:
+        inputs["bias"] = _aa_convert(bias)
 
-    sample_dict = self.model.sample(self.model.params, key, inputs)
-    seq = self._aa_convert(sample_dict["S"], rev=True)
-    logits = self._aa_convert(sample_dict["logits"], rev=True)
-    score = -(seq * jax.nn.log_softmax(logits)).sum(-1).mean()
-    return {"seq":seq, "logits":logits, "score":score}
+      sample_dict = self.model.sample(self.model.params, key, inputs)
+      seq = _aa_convert(sample_dict["S"], rev=True)
+      logits = _aa_convert(sample_dict["logits"], rev=True)
+      score = -(seq * jax.nn.log_softmax(logits)).sum(-1).mean(-1)
+      return {"seq":seq, "logits":logits, "score":score}
+
+    ###########################################################################
+
+    self.get_logits = jax.jit(_get_logits)
+    self.sample = jax.jit(_sample)

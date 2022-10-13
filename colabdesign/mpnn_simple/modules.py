@@ -160,20 +160,12 @@ class RunModel:
     def _forward_score(inputs):
       model = ProteinMPNN(**self.config)
       return model(**inputs)
-    self.score = jax.jit(hk.transform(_forward_score).apply)
-    self.init_score = jax.jit(hk.transform(_forward_score).init)
+    self.score = hk.transform(_forward_score).apply
 
     def _forward_sample(inputs):
       model = ProteinMPNN(**self.config)
       return model.sample(**inputs)
     self.sample = hk.transform(_forward_sample).apply
-    self.init_sample = hk.transform(_forward_sample).init
-
-    def _forward_tsample(inputs):
-      model = ProteinMPNN(**self.config)
-      return model.tied_sample(**inputs)
-    self.tied_sample = hk.transform(_forward_tsample).apply
-    self.init_tsample = hk.transform(_forward_tsample).init
 
   def load_params(self, path):
     self.params = joblib.load(path)
@@ -337,9 +329,11 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     self.W_out = hk.Linear(num_letters, with_bias=True, name='W_out')
 
   def __call__(self, X, mask, residue_idx, chain_idx,
-               S=None, chain_M=None, randn=None,
-               ar_mask=None, decoding_order=None, offset=None):
+               S=None, ar_mask=None, decoding_order=None, offset=None):
     """ Graph-conditioned sequence model """
+
+    key = hk.next_rng_key()
+
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_idx, offset=offset)
     h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
@@ -383,10 +377,8 @@ class ProteinMPNN(hk.Module, mpnn_sample):
 
       if ar_mask is None:
         if decoding_order is None:
-          # update chain_M to include missing regions
-          chain_M = chain_M * mask
-          #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-          decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
+          key, sub_key = jax.random.split(key)
+          decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[1]))[None]
         
         # make an autogressive mask
         ar_mask = get_ar_mask(decoding_order)
@@ -404,5 +396,4 @@ class ProteinMPNN(hk.Module, mpnn_sample):
         h_V = layer(h_V, h_ESV, mask)
 
     logits = self.W_out(h_V)
-    log_probs = jax.nn.log_softmax(logits, axis=-1)
-    return logits, log_probs
+    return {"logits":logits, "decoding_order": decoding_order}

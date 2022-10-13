@@ -9,18 +9,10 @@ from colabdesign.shared.prng import SafeKey
 from .utils import gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
 
 class mpnn_sample:
-  def sample(self, X, mask, decoding_order,
-             chain_idx, residue_idx,
-             temperature=1.0, bias=None):
+  def sample(self, X, mask, residue_idx, chain_idx, 
+             decoding_order=None, temperature=0.1, bias=None):
 
     key = hk.next_rng_key()
-    if decoding_order is None:
-      key, sub_key = jax.random.split(key)
-      decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[1]))[None]
-
-    mask = jnp.asarray(mask)
-    if bias is not None:
-      bias = jnp.asarray(bias)
 
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_idx)
@@ -34,6 +26,9 @@ class mpnn_sample:
       h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 
     # Decoder uses masked self-attention
+    if decoding_order is None:
+      key, sub_key = jax.random.split(key)
+      decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[1]))[None]
     ar_mask = get_ar_mask(decoding_order)
 
     mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]

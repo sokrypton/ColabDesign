@@ -7,8 +7,8 @@ import itertools
 import joblib
 
 from colabdesign.shared.prng import SafeKey
-from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
-from colabdesign.mpnn.sample import mpnn_sample
+from .utils import cat_neighbors_nodes, get_ar_mask
+from .sample import mpnn_sample
 
 Gelu = functools.partial(jax.nn.gelu, approximate=False)
 
@@ -56,11 +56,11 @@ class EncLayer(hk.Module):
                        name=name + '_dense')
 
   def __call__(self, h_V, h_E, E_idx,
-        mask_V=None, mask_attend=None):
+               mask_V=None, mask_attend=None):
     """ Parallel computation of full transformer layer """
 
     h_EV = cat_neighbors_nodes(h_V, h_E, E_idx)
-    h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, 1, h_EV.shape[-2], 1])
+    h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, h_EV.shape[-2], 1])
     h_EV = jnp.concatenate([h_V_expand, h_EV], -1)
 
     h_message = self.W3(self.act(self.W2(self.act(self.W1(h_EV)))))
@@ -76,8 +76,9 @@ class EncLayer(hk.Module):
       h_V = mask_V * h_V
 
     h_EV = cat_neighbors_nodes(h_V, h_E, E_idx)
-    h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, 1, h_EV.shape[-2], 1])
+    h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, h_EV.shape[-2], 1])
     h_EV = jnp.concatenate([h_V_expand, h_EV], -1)
+
     h_message = self.W13(self.act(self.W12(self.act(self.W11(h_EV)))))
     h_E = self.norm3(h_E + self.dropout3(h_message))
     return h_V, h_E
@@ -104,12 +105,13 @@ class DecLayer(hk.Module):
     self.dense = PositionWiseFeedForward(num_hidden, num_hidden * 4,
                        name=name + '_dense')
 
+  
   def __call__(self, h_V, h_E,
          mask_V=None, mask_attend=None):
     """ Parallel computation of full transformer layer """
 
     # Concatenate h_V_i to h_E_ij
-    h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, 1, h_E.shape[-2], 1])
+    h_V_expand = jnp.tile(jnp.expand_dims(h_V, -2),[1, h_E.shape[-2], 1])
     h_EV = jnp.concatenate([h_V_expand, h_E], -1)
 
     h_message = self.W3(self.act(self.W2(self.act(self.W1(h_EV)))))
@@ -160,20 +162,12 @@ class RunModel:
     def _forward_score(inputs):
       model = ProteinMPNN(**self.config)
       return model(**inputs)
-    self.score = jax.jit(hk.transform(_forward_score).apply)
-    self.init_score = jax.jit(hk.transform(_forward_score).init)
+    self.score = hk.transform(_forward_score).apply
 
     def _forward_sample(inputs):
       model = ProteinMPNN(**self.config)
       return model.sample(**inputs)
     self.sample = hk.transform(_forward_sample).apply
-    self.init_sample = hk.transform(_forward_sample).init
-
-    def _forward_tsample(inputs):
-      model = ProteinMPNN(**self.config)
-      return model.tied_sample(**inputs)
-    self.tied_sample = hk.transform(_forward_tsample).apply
-    self.init_tsample = hk.transform(_forward_tsample).init
 
   def load_params(self, path):
     self.params = joblib.load(path)
@@ -210,8 +204,7 @@ class ProteinFeatures(hk.Module):
     D = jnp.sqrt(jnp.square(dX).sum(-1) + eps)
     D_masked = jnp.where(mask_2D,D,D.max(-1,keepdims=True))
     k = min(self.top_k, X.shape[-2])
-    _, E_idx = jax.lax.approx_min_k(D_masked, k, reduction_dimension=-1)
-    return E_idx
+    return jax.lax.approx_min_k(D_masked, k, reduction_dimension=-1)[1]
 
   def _rbf(self, D):
     ''' radial basis function (RBF)
@@ -225,19 +218,19 @@ class ProteinFeatures(hk.Module):
 
   def _get_rbf(self, A, B, E_idx):
     D = jnp.sqrt(jnp.square(A[...,:,None,:] - B[...,None,:,:]).sum(-1) + 1e-6)
-    D_neighbors = gather_edges(D[...,None], E_idx)[...,0] #[...,L,K]
+    D_neighbors = jnp.take_along_axis(D, E_idx, 1)
     return self._rbf(D_neighbors)
 
   def __call__(self, X, mask, residue_idx, chain_idx, offset=None):
     if self.augment_eps > 0:
       self.safe_key, use_key = self.safe_key.split()
-      X = X + self.augment_eps * jax.random.normal(use_key, X.shape)
+      X = X + self.augment_eps * jax.random.normal(use_key.get(), X.shape)
     
     ##########################
     # get atoms
     ##########################
     # N,Ca,C,O,Cb
-    Y = X.transpose((2,0,1,3))
+    Y = X.swapaxes(0,1) #(length, atoms, 3) -> (atoms, length, 3)
     if Y.shape[0] == 4:
       # add Cb
       b,c = (Y[1]-Y[0]),(Y[2]-Y[1])
@@ -257,7 +250,7 @@ class ProteinFeatures(hk.Module):
                        [0,1],[2,1],[3,1],[4,1],[2,0],
                        [3,0],[4,0],[2,4],[3,4],[2,3]])
     RBF_all = jax.vmap(lambda x:self._get_rbf(Y[x[0]],Y[x[1]],E_idx))(edges)
-    RBF_all = RBF_all.transpose((1,2,3,0,4))
+    RBF_all = RBF_all.transpose((1,2,0,3))
     RBF_all = RBF_all.reshape(RBF_all.shape[:-2]+(-1,))
 
     ##########################
@@ -265,12 +258,12 @@ class ProteinFeatures(hk.Module):
     ##########################
     # residue index offset
     if offset is None:
-      offset = (residue_idx[...,:,None] - residue_idx[...,None,:])
-    offset = gather_edges(offset[...,None], E_idx)[...,0] #[B, L, K]
+      offset = (residue_idx[:,None] - residue_idx[None,:])
+    offset = jnp.take_along_axis(offset, E_idx, 1)
 
     # chain index offset
-    d_chains = (chain_idx[...,:,None] == chain_idx[...,None,:]).astype(int)
-    E_chains = gather_edges(d_chains[...,None], E_idx)[...,0]
+    E_chains = (chain_idx[:,None] == chain_idx[None,:]).astype(int)
+    E_chains = jnp.take_along_axis(E_chains, E_idx, 1)
     E_positional = self.embeddings(offset, E_chains)
 
     ##########################
@@ -279,7 +272,7 @@ class ProteinFeatures(hk.Module):
     E = jnp.concatenate((E_positional, RBF_all), -1)
     E = self.edge_embedding(E)
     E = self.norm_edges(E)
-    return E, E_idx 
+    return E, E_idx
 
 class EmbedToken(hk.Module):
   def __init__(self, vocab_size, embed_dim):
@@ -337,17 +330,18 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     self.W_out = hk.Linear(num_letters, with_bias=True, name='W_out')
 
   def __call__(self, X, mask, residue_idx, chain_idx,
-               S=None, chain_M=None, randn=None,
-               ar_mask=None, decoding_order=None, offset=None):
+               S=None, ar_mask=None, decoding_order=None, offset=None):
     """ Graph-conditioned sequence model """
+    
+    key = hk.next_rng_key()
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_idx, offset=offset)
-    h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
+    h_V = jnp.zeros((E.shape[0], E.shape[-1]))
     h_E = self.W_e(E)
-
+    
     # Encoder is unmasked self-attention
-    mask_attend = gather_nodes(mask[...,None],E_idx)[...,0]
-    mask_attend = mask[...,None] * mask_attend
+    mask_attend = jnp.take_along_axis(mask[:,None] * mask[None,:], E_idx, 1)
+    
     for layer in self.encoder_layers:
       h_V, h_E = layer(h_V, h_E, E_idx, mask, mask_attend)
 
@@ -358,17 +352,8 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     if S is None:  
       ##########################################
       # unconditional_probs
-      ##########################################
-
-      # make an autogressive mask
-      ar_mask = jnp.zeros([X.shape[0], X.shape[1], X.shape[1]])
-
-      mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
-      mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
-      mask_bw = mask_1D * mask_attend
-      mask_fw = mask_1D * (1. - mask_attend)
-
-      h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+      ##########################################      
+      h_EXV_encoder_fw = h_EXV_encoder
       for layer in self.decoder_layers:
         h_V = layer(h_V, h_EXV_encoder_fw, mask)
 
@@ -383,26 +368,23 @@ class ProteinMPNN(hk.Module, mpnn_sample):
 
       if ar_mask is None:
         if decoding_order is None:
-          # update chain_M to include missing regions
-          chain_M = chain_M * mask
-          #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
-          decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
+          key, sub_key = jax.random.split(key)
+          decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[0]))
         
         # make an autogressive mask
         ar_mask = get_ar_mask(decoding_order)
               
-      mask_attend = jnp.take_along_axis(ar_mask, E_idx, 2)[...,None]
-      mask_1D = mask.reshape([mask.shape[0], mask.shape[1], 1, 1])
+      mask_attend = jnp.take_along_axis(ar_mask, E_idx, 1)
+      mask_1D = mask[:,None]
       mask_bw = mask_1D * mask_attend
       mask_fw = mask_1D * (1. - mask_attend)
 
-      h_EXV_encoder_fw = mask_fw * h_EXV_encoder
+      h_EXV_encoder_fw = mask_fw[...,None] * h_EXV_encoder
       for layer in self.decoder_layers:
         # Masked positions attend to encoder information, unmasked see. 
         h_ESV = cat_neighbors_nodes(h_V, h_ES, E_idx)
-        h_ESV = mask_bw * h_ESV + h_EXV_encoder_fw
+        h_ESV = mask_bw[...,None] * h_ESV + h_EXV_encoder_fw
         h_V = layer(h_V, h_ESV, mask)
 
     logits = self.W_out(h_V)
-    log_probs = jax.nn.log_softmax(logits, axis=-1)
-    return logits, log_probs
+    return {"logits":logits, "decoding_order": decoding_order}

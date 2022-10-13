@@ -7,8 +7,8 @@ import itertools
 import joblib
 
 from colabdesign.shared.prng import SafeKey
-from .utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
-from .sample import mpnn_sample
+from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
+from colabdesign.mpnn.sample import mpnn_sample
 
 Gelu = functools.partial(jax.nn.gelu, approximate=False)
 
@@ -160,12 +160,20 @@ class RunModel:
     def _forward_score(inputs):
       model = ProteinMPNN(**self.config)
       return model(**inputs)
-    self.score = hk.transform(_forward_score).apply
+    self.score = jax.jit(hk.transform(_forward_score).apply)
+    self.init_score = jax.jit(hk.transform(_forward_score).init)
 
     def _forward_sample(inputs):
       model = ProteinMPNN(**self.config)
       return model.sample(**inputs)
     self.sample = hk.transform(_forward_sample).apply
+    self.init_sample = hk.transform(_forward_sample).init
+
+    def _forward_tsample(inputs):
+      model = ProteinMPNN(**self.config)
+      return model.tied_sample(**inputs)
+    self.tied_sample = hk.transform(_forward_tsample).apply
+    self.init_tsample = hk.transform(_forward_tsample).init
 
   def load_params(self, path):
     self.params = joblib.load(path)
@@ -223,7 +231,7 @@ class ProteinFeatures(hk.Module):
   def __call__(self, X, mask, residue_idx, chain_idx, offset=None):
     if self.augment_eps > 0:
       self.safe_key, use_key = self.safe_key.split()
-      X = X + self.augment_eps * jax.random.normal(use_key.get(), X.shape)
+      X = X + self.augment_eps * jax.random.normal(use_key, X.shape)
     
     ##########################
     # get atoms
@@ -329,11 +337,9 @@ class ProteinMPNN(hk.Module, mpnn_sample):
     self.W_out = hk.Linear(num_letters, with_bias=True, name='W_out')
 
   def __call__(self, X, mask, residue_idx, chain_idx,
-               S=None, ar_mask=None, decoding_order=None, offset=None):
+               S=None, chain_M=None, randn=None,
+               ar_mask=None, decoding_order=None, offset=None):
     """ Graph-conditioned sequence model """
-
-    key = hk.next_rng_key()
-
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_idx, offset=offset)
     h_V = jnp.zeros((E.shape[0], E.shape[1], E.shape[-1]))
@@ -377,8 +383,10 @@ class ProteinMPNN(hk.Module, mpnn_sample):
 
       if ar_mask is None:
         if decoding_order is None:
-          key, sub_key = jax.random.split(key)
-          decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[1]))[None]
+          # update chain_M to include missing regions
+          chain_M = chain_M * mask
+          #[numbers will be smaller for places where chain_M = 0.0 and higher for places where chain_M = 1.0]
+          decoding_order = jnp.argsort((chain_M+0.0001)*(jnp.abs(randn)))
         
         # make an autogressive mask
         ar_mask = get_ar_mask(decoding_order)
@@ -396,4 +404,5 @@ class ProteinMPNN(hk.Module, mpnn_sample):
         h_V = layer(h_V, h_ESV, mask)
 
     logits = self.W_out(h_V)
-    return {"logits":logits, "decoding_order": decoding_order}
+    log_probs = jax.nn.log_softmax(logits, axis=-1)
+    return logits, log_probs

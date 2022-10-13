@@ -1,1 +1,0 @@
-from colabdesign.mpnn_simple.wrapper import mk_mpnn_model

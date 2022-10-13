@@ -1,6 +1,6 @@
-# AfDesign (v1.0.9)
+# AfDesign (v1.1.0)
 ### Google Colab
-<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.0.9/af/design.ipynb">
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.0/af/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
@@ -18,10 +18,12 @@
     - The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
   - adding support for [Optax optimizers](#optax-optimizers)
 - **24Sept2022** - v1.0.9
-  - adding [contrib section](https://github.com/sokrypton/ColabDesign/tree/v1.0.9/af/contrib) where user contributed modifications and protocols will go.
+  - adding [contrib section](https://github.com/sokrypton/ColabDesign/tree/v1.1.0/af/contrib) where user contributed modifications and protocols will go.
+  **13Oct2022** - v1.1.0
+  - integrating proteinMPNN!
 ### setup
 ```bash
-pip install git+https://github.com/sokrypton/ColabDesign.git@v1.0.9
+pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.0
 
 # download alphafold weights
 mkdir params

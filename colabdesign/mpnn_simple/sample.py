@@ -19,7 +19,8 @@ class mpnn_sample:
       decoding_order = jax.random.permutation(sub_key,jnp.arange(X.shape[1]))[None]
 
     mask = jnp.asarray(mask)
-    bias = jnp.asarray(bias)
+    if bias is not None:
+      bias = jnp.asarray(bias)
 
     # Prepare node and edge embeddings
     E, E_idx = self.features(X, mask, residue_idx, chain_idx)

@@ -2,7 +2,7 @@
 **WARNING** This code is work-in-progress!
 
 
-<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.0.9/mpnn/example.ipynb">
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.0.9-alpha/mpnn/examples/proteinmpnn_in_jax.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 

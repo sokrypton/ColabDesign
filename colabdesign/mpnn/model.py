@@ -49,16 +49,17 @@ class mk_mpnn_model:
       mpnn_alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
       af_alphabet = 'ARNDCQEGHILKMFPSTWYVX'
       if rev:
-        return x[...,tuple(mpnn_alphabet.index(k) for k in af_alphabet)][...,:20]
+        return x[...,tuple(mpnn_alphabet.index(k) for k in af_alphabet)]
       else:
         if x.shape[-1] == 20:
-          x = jnp.concatenate([x,jnp.zeros_like(x[...,:1])],-1)
+          x = jnp.pad(x,[[0,0],[0,1]])
         return x[...,tuple(af_alphabet.index(k) for k in mpnn_alphabet)]
 
     ###########################################################################
     def _score(X, mask, residue_idx, chain_idx, key, S=None,
-                  ar_mask=None, decoding_order=None, offset=None, **kwargs):
-      inputs = {'X': X, 'S':S, 'mask': mask,
+               ar_mask=None, decoding_order=None, offset=None, **kwargs):
+      inputs = {'X': X, 
+                'mask': mask,
                 'residue_idx': residue_idx,
                 'chain_idx': chain_idx,
                 'ar_mask': ar_mask,
@@ -81,9 +82,9 @@ class mk_mpnn_model:
                 decoding_order=None, offset=None, temperature=0.1, bias=None, **kwargs):
       # sample input
       inputs = {'X': X,
-                'chain_idx': chain_idx,
-                'residue_idx': residue_idx,
                 'mask': mask,
+                'residue_idx': residue_idx,
+                'chain_idx': chain_idx,
                 'temperature': temperature,
                 'decoding_order': decoding_order,
                 'offset': offset}

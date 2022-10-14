@@ -1,1 +1,1 @@
-from .wrapper import mk_mpnn_model
+from .model import mk_mpnn_model

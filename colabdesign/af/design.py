@@ -253,28 +253,26 @@ class _af_design:
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
+    # save settings
+    save = (copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs])
+
     # set seed if defined
     if seed is not None: self.set_seed(seed)
 
-    # save settings
-    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])
-
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq)    
-
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, use_pssm=False)
+    
     # run
-    aux = self.run(num_recycles=num_recycles, num_models=num_models,
-                   sample_models=sample_models, models=models, backprop=False,
-                   return_aux=True, **kwargs)
-    if verbose: self._print_log("predict", aux=aux)
+    self.run(num_recycles=num_recycles, num_models=num_models,
+             sample_models=sample_models, models=models, backprop=False, **kwargs)
+    if verbose: self._print_log("predict")
 
     # reset settings
-    (self.opt, self._args, self._params) = (opt, args, params)
+    (self.opt, self._args, self._params, self._inputs) = save
 
     # return (or save) results
-    if return_aux: return aux
-    else: self.aux = aux
+    if return_aux: return self.aux
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -399,7 +397,16 @@ class _af_design:
     '''semigreedy search'''    
     if e_tries is None: e_tries = tries
 
-    seq = self._params["seq"].argmax(-1)    
+    # get starting sequence
+    if hasattr(self,"aux"):
+      seq = self.aux["seq_pseudo"].argmax(-1)
+    else:
+      seq = self._params["seq"].argmax(-1)
+
+    # bias sampling towards the defined bias
+    if seq_logits is None:
+      seq_logits = self._inputs["bias"]
+    
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
 
@@ -409,7 +416,9 @@ class _af_design:
     plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
     # optimize!
-    if verbose: print("Running semigreedy optimization...")
+    if verbose:
+      print("Running semigreedy optimization...")
+    
     for i in range(iters):
 
       buff = []
@@ -457,7 +466,6 @@ class _af_design:
           if m < 2: iters = iters // 2
       else:
         self.design_semigreedy(hard_iters, tries=tries, e_tries=e_tries, **kwargs)
-
 
   # ---------------------------------------------------------------------------------
   # experimental optimizers (not extensively evaluated)

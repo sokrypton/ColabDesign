@@ -64,7 +64,7 @@ class design_model:
     if rm_aa is not None:
       for aa in rm_aa.split(","):
         b[...,aa_order[aa]] -= 1e6
-
+        
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
       wt_seq = np.eye(20)[self._wt_aatype]

@@ -18,6 +18,8 @@ from colabdesign.af.prep import prep_pdb, order_aa
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.shared.model import design_model, soft_seq
 
+from scipy.special import softmax, log_softmax
+
 class mk_mpnn_model(design_model):
   def __init__(self, model_name="v_48_020",
                backbone_noise=0.0, dropout=0.0,
@@ -43,15 +45,15 @@ class mk_mpnn_model(design_model):
     self._params = {}
     self._inputs = {}
 
-  def prep_inputs(self, pdb_filename=None, chain=None, fix_pos=None, ignore_missing=True,
-                  rm_aa=None, **kwargs):
+  def prep_inputs(self, pdb_filename=None, chain=None, ignore_missing=True,
+                  fix_pos=None, rm_aa=None, **kwargs):
     '''get inputs from input pdb'''
     pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
     atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
     chain_idx = np.concatenate([[n]*l for n,l in enumerate(pdb["lengths"])])
     self._inputs = {"X":           pdb["batch"]["all_atom_positions"][:,atom_idx],
-                    "S":           pdb["batch"]["aatype"],
                     "mask":        pdb["batch"]["all_atom_mask"][:,1],
+                    "S":           pdb["batch"]["aatype"],
                     "residue_idx": pdb["residue_index"],
                     "chain_idx":   chain_idx}
     self._len = self._inputs["X"].shape[0]
@@ -62,15 +64,18 @@ class mk_mpnn_model(design_model):
 
   def get_af_inputs(self, af):
     '''get inputs from alphafold model'''
-    atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
-    batch = af._inputs["batch"]
-    self._inputs = {"X":           batch["all_atom_positions"][:,atom_idx],
-                    "S":           batch["aatype"],
-                    "mask":        batch["all_atom_mask"][:,1],
-                    "residue_idx": af._inputs["residue_index"],
-                    "chain_idx":   af._inputs["asym_id"],
-                    "bias":        af._inputs["bias"]}
-    self._len = self._inputs["X"].shape[0]
+
+    self._inputs["residue_idx"] = af._inputs["residue_index"]
+    self._inputs["chain_idx"]   = af._inputs["asym_id"]
+    self._inputs["bias"]        = af._inputs["bias"]
+
+    if "batch" in af._inputs:
+      atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
+      batch = af._inputs["batch"]
+      self._inputs["X"]    = batch["all_atom_positions"][:,atom_idx]
+      self._inputs["mask"] = batch["all_atom_mask"][:,1]
+      self._inputs["S"]    = batch["aatype"]
+    self._len = af._len
     if "fix_pos" in af.opt:
       self._inputs["fix_pos"] = p = af.opt["fix_pos"]
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
@@ -90,30 +95,27 @@ class mk_mpnn_model(design_model):
         return self._sample(**inputs, temperature=temp, key=key)
       self._sample_parallel = jax.jit(jax.vmap(_sample, in_axes=[0,None,None]))
 
-    inputs = copy_dict(self._inputs)
-    inputs.update(kwargs)
-    if "fix_pos" in inputs and "decoding_order" not in inputs:
-      i, p = np.arange(inputs["X"].shape[0]), inputs["fix_pos"]
-      inputs["decoding_order"] = np.append(np.take(i,p),np.random.permutation(np.delete(i,p)))
-    key = inputs.pop("key",self.key())
-    O = self._sample_parallel(jax.random.split(key,batch), inputs, temperature)
+    I = copy_dict(self._inputs)
+    I.update(kwargs)
+    key = I.pop("key",self.key())
+    O = self._sample_parallel(jax.random.split(key,batch), I, temperature)
     O = jax.tree_map(np.array, O)
-    O["seq"] = np.array(["".join([order_aa[a] for a in x]) for x in O["S"].argmax(-1)])
+    O["seq"] = _get_seq(O)
+    O["score"] = _get_score(I,O)
     self._outputs = O
-    return O
+    return self._outputs
 
   def score(self, seq=None, **kwargs):
     '''score sequence'''
-    inputs = copy_dict(self._inputs)
+    I = copy_dict(self._inputs)
     if seq is not None:
       self.set_seq(seq)
-      inputs["S"] = self._params["seq"][0]
-    inputs.update(kwargs)
-    if "fix_pos" in inputs and "decoding_order" not in inputs:
-      i, p = np.arange(inputs["X"].shape[0]), inputs["fix_pos"]
-      inputs["decoding_order"] = np.append(np.take(i,p),np.random.permutation(np.delete(i,p)))
-    key = inputs.pop("key",self.key())
-    return jax.tree_map(np.array, self._score(**inputs, key=key))
+      I["S"] = self._params["seq"][0]
+    I.update(kwargs)
+    key = I.pop("key",self.key())
+    O = jax.tree_map(np.array, self._score(**I, key=key))
+    O["score"] = _get_score(I,O)
+    return O
 
   def get_logits(self, **kwargs):
     '''get logits'''
@@ -125,66 +127,70 @@ class mk_mpnn_model(design_model):
     return self.score(**kwargs)["logits"]
 
   def _setup(self):
-    def _aa_convert(x, rev=False):
-      mpnn_alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
-      af_alphabet =   'ARNDCQEGHILKMFPSTWYVX'
-      if rev:
-        return x[...,tuple(mpnn_alphabet.index(k) for k in af_alphabet)]
-      else:
-        if x.shape[-1] == 20:
-          x = jnp.pad(x,[[0,0],[0,1]])
-        return x[...,tuple(af_alphabet.index(k) for k in mpnn_alphabet)]
-
-    def _score(X, mask, residue_idx, chain_idx, key, S=None,
-               ar_mask=None, decoding_order=None, offset=None,
-               fix_pos=None, **kwargs):
-      I = {'X': X, 
+    def _score(X, mask, residue_idx, chain_idx, key, **kwargs):
+      I = {'X': X,
            'mask': mask,
            'residue_idx': residue_idx,
-           'chain_idx': chain_idx,
-           'ar_mask': ar_mask,
-           'offset': offset,
-           'decoding_order':decoding_order}
-      if S is not None:
-        one_hot = jax.nn.one_hot(S,21) if jnp.issubdtype(S.dtype, jnp.integer) else S
-        I["S"] = _aa_convert(one_hot)
+           'chain_idx': chain_idx}
+      I.update(kwargs)
+      if "S" in I: I["S"] = _aa_convert(I["S"])
 
       O = self._model.score(self._model.params, key, I)
+      O["S"] = _aa_convert(O["S"], rev=True)
       O["logits"] = _aa_convert(O["logits"], rev=True)
-      if S is not None:
-        seq = _aa_convert(I["S"], rev=True)
-        O["score"] = -(seq * jax.nn.log_softmax(O["logits"])).sum(-1)
-      else:
-        O["score"] = -jax.nn.log_softmax(O["logits"])[:,:20].max(-1)
-
-      if fix_pos is not None: mask = mask.at[fix_pos].set(0)
-      O["score"] = (O["score"] * mask).sum()/mask.sum()
       return O
     
-    def _sample(X, mask, residue_idx, chain_idx, key,
-                decoding_order=None, offset=None, temperature=0.1,
-                bias=None, fix_pos=None, **kwargs):
-      # sample input
+    def _sample(X, mask, residue_idx, chain_idx, key, temperature=0.1, **kwargs):
+      
       I = {'X': X,
            'mask': mask,
            'residue_idx': residue_idx,
            'chain_idx': chain_idx,
-           'temperature': temperature,
-           'decoding_order': decoding_order,
-           'offset': offset}
-      if bias is not None:
-        I["bias"] = _aa_convert(bias)
-
+           'temperature': temperature}
+      I.update(kwargs)
+      if "bias" in I: I["bias"] = _aa_convert(I["bias"])
+      
       O = self._model.sample(self._model.params, key, I)
       O["S"] = _aa_convert(O["S"], rev=True)
       O["logits"] = _aa_convert(O["logits"], rev=True)
-      O["score"] = -(O["S"] * jax.nn.log_softmax(O["logits"])).sum(-1)
-
-      if fix_pos is not None: mask = mask.at[fix_pos].set(0)
-      O["score"] = (O["score"] * mask).sum()/mask.sum()
       return O
-
-    ###########################################################################
 
     self._score = jax.jit(_score)
     self._sample = jax.jit(_sample)
+
+#######################################################################################
+
+def _get_seq(O):
+  seqs, S = [], O["S"]
+  for seq in S.argmax(-1):
+    seqs.append("".join([order_aa[a] for a in seq]))
+  return np.array(seqs)
+
+def _get_score(I,O):
+  log_q = log_softmax(O["logits"],-1)[...,:20]
+  q = softmax(O["logits"][...,:20],-1)
+  if O.get("S",None) is not None:
+    p = O["S"][...,:20]
+    score = -(p * log_q).sum(-1)
+  else:
+    score = -(q * log_q).sum(-1)
+    
+  mask = I["mask"].copy()
+  if "fix_pos" in I:
+    mask[I["fix_pos"]] = 0
+  score = (score * mask).sum(-1) / mask.sum()
+  return score
+
+def _aa_convert(x, rev=False):
+  mpnn_alphabet = 'ACDEFGHIKLMNPQRSTVWYX'
+  af_alphabet =   'ARNDCQEGHILKMFPSTWYVX'
+  if x is None:
+    return x
+  else:
+    if rev:
+      return x[...,tuple(mpnn_alphabet.index(k) for k in af_alphabet)]
+    else:
+      x = jax.nn.one_hot(x,21) if jnp.issubdtype(x.dtype, jnp.integer) else x
+      if x.shape[-1] == 20:
+        x = jnp.pad(x,[[0,0],[0,1]])
+      return x[...,tuple(af_alphabet.index(k) for k in mpnn_alphabet)]

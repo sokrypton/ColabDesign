@@ -46,7 +46,7 @@ class mk_mpnn_model(design_model):
     self._inputs = {}
 
   def prep_inputs(self, pdb_filename=None, chain=None, ignore_missing=True,
-                  fix_pos=None, rm_aa=None, **kwargs):
+                  fix_pos=None, inverse=False, rm_aa=None, **kwargs):
     '''get inputs from input pdb'''
     pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
     atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
@@ -56,10 +56,14 @@ class mk_mpnn_model(design_model):
                     "S":           pdb["batch"]["aatype"],
                     "residue_idx": pdb["residue_index"],
                     "chain_idx":   chain_idx}
-    self._len = self._inputs["X"].shape[0]
+    self._lengths = pdb["lengths"]
+    self._len = sum(self._lengths)
     self.set_seq(self._inputs["S"], rm_aa=rm_aa)
     if fix_pos is not None:
-      self._inputs["fix_pos"] = p = prep_pos(fix_pos, **pdb["idx"])["pos"]
+      p = prep_pos(fix_pos, **pdb["idx"])["pos"]
+      if inverse:
+        p = np.delete(np.arange(self._len),p)
+      self._inputs["fix_pos"] = p
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
 
   def get_af_inputs(self, af):
@@ -75,6 +79,7 @@ class mk_mpnn_model(design_model):
       self._inputs["X"]    = batch["all_atom_positions"][:,atom_idx]
       self._inputs["mask"] = batch["all_atom_mask"][:,1]
       self._inputs["S"]    = batch["aatype"]
+    self._lengths = af._lengths
     self._len = af._len
     if "fix_pos" in af.opt:
       self._inputs["fix_pos"] = p = af.opt["fix_pos"]
@@ -122,8 +127,7 @@ class mk_mpnn_model(design_model):
     return self.score(**kwargs)["logits"]
 
   def get_unconditional_logits(self, **kwargs):
-    '''get unconditional logits'''
-    kwargs["S"], kwargs["seq"] = None, None
+    kwargs["decoding_order"] = np.full(self._len,-1)
     return self.score(**kwargs)["logits"]
 
   def _setup(self):
@@ -169,7 +173,7 @@ def _get_seq(O):
 def _get_score(I,O):
   log_q = log_softmax(O["logits"],-1)[...,:20]
   q = softmax(O["logits"][...,:20],-1)
-  if O.get("S",None) is not None:
+  if "S" in O:
     p = O["S"][...,:20]
     score = -(p * log_q).sum(-1)
   else:

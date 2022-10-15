@@ -5,7 +5,7 @@
   - [AfDesign](/af) - using AlphaFold for design
   - [WIP] [RfDesign](https://github.com/RosettaCommons/RFDesign) - using RoseTTAFold for design
 - P(sequence | structure)
-  - [WIP] [ProteinMPNN](/mpnn)
+  - [ProteinMPNN](/mpnn)
   - [WIP] TrMRF
 - P(sequence)
   - [WIP] [MSA_transformer](/esm_msa)

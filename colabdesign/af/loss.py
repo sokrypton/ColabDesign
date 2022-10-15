@@ -88,7 +88,8 @@ class _af_loss:
       C,L = self._args["copies"], self._len
       pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
       
-    def sub(x, axis=0): return jnp.take(x,pos,axis)
+    def sub(x, axis=0):
+      return jax.tree_map(lambda y:jnp.take(y,pos,axis),x)
     
     copies = self._args["copies"] if self._args["homooligomer"] else 1
     aatype = sub(inputs["aatype"])

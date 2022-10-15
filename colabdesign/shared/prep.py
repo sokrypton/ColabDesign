@@ -33,7 +33,7 @@ def prep_pos(pos, residue, chain):
   pos_set = []
   for i,c in zip(residue_set, chain_set):
     if i is None:
-      idx = np.where(chain == c)
+      idx = np.where(chain == c)[0]
       assert len(idx) > 0, f'ERROR: chain {c} not found'
       pos_set += [n for n in idx]
       len_set[len_set.index(c)] = len(idx)

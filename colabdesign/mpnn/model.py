@@ -12,11 +12,11 @@ from .modules import RunModel
 
 from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import Key, copy_dict
+from colabdesign.shared.model import design_model, soft_seq
 
 # borrow some stuff from AfDesign
 from colabdesign.af.prep import prep_pdb, order_aa
 from colabdesign.af.alphafold.common import protein, residue_constants
-from colabdesign.shared.model import design_model, soft_seq
 
 from scipy.special import softmax, log_softmax
 

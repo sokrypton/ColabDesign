@@ -1,10 +1,6 @@
-import numpy as np
-import itertools
 import jax.numpy as jnp
 import jax
-import time
 
-# The following gather functions
 def gather_nodes(nodes, neighbor_idx):
   # Features [B,N,C] at Neighbor indices [B,N,K] => [B,N,K,C]
   # Flatten and expand indices per batch [B,N,K] => [B,NK] => [B,NK,C]

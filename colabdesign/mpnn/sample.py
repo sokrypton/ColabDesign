@@ -1,11 +1,8 @@
 import jax
 import jax.numpy as jnp
 import haiku as hk
-
 import numpy as np
-import itertools
 
-from colabdesign.shared.prng import SafeKey
 from .utils import cat_neighbors_nodes, get_ar_mask
 
 class mpnn_sample:

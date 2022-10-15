@@ -3,7 +3,6 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 import numpy as np
-import itertools
 import joblib
 
 from colabdesign.shared.prng import SafeKey

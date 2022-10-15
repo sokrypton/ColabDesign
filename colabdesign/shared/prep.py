@@ -10,26 +10,37 @@ def prep_pos(pos, residue, chain):
   for idx in pos.split(","):
     i,j = idx.split("-") if "-" in idx else (idx, None)
 
-    # if chain defined
-    if i[0].isalpha():
-      c,i = i[0], int(i[1:])
+    if i.isalpha() and j is None:
+      residue_set += [None]
+      chain_set += [i]
+      len_set += [i]
     else:
-      c,i = chain[0],int(i)
-    if j is None:
-      j = i
-    else:
-      j = int(j[1:] if j[0].isalpha() else j)
-    residue_set += list(range(i,j+1))
-    chain_set += [c] * (j-i+1)
-    len_set += [j-i+1]
+      # if chain defined
+      if i[0].isalpha():
+        c,i = i[0], int(i[1:])
+      else:
+        c,i = chain[0],int(i)
+      if j is None:
+        j = i
+      else:
+        j = int(j[1:] if j[0].isalpha() else j)
+      residue_set += list(range(i,j+1))
+      chain_set += [c] * (j-i+1)
+      len_set += [j-i+1]
 
   residue = np.asarray(residue)
   chain = np.asarray(chain)
   pos_set = []
   for i,c in zip(residue_set, chain_set):
-    idx = np.where((residue == i) & (chain == c))[0]
-    assert len(idx) == 1, f'ERROR: positions {i} and chain {c} not found'
-    pos_set.append(idx[0])
+    if i is None:
+      idx = np.where(chain == c)
+      assert len(idx) > 0, f'ERROR: chain {c} not found'
+      pos_set += [n for n in idx]
+      len_set[len_set.index(c)] = len(idx)
+    else:
+      idx = np.where((residue == i) & (chain == c))[0]
+      assert len(idx) == 1, f'ERROR: positions {i} and chain {c} not found'
+      pos_set.append(idx[0])
 
   return {"residue":np.array(residue_set),
           "chain":np.array(chain_set),

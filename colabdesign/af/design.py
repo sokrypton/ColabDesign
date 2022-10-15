@@ -40,6 +40,7 @@ class _af_design:
     if reset_opt and not keep_history:
       copy_missing(self.opt, self._opt)
       self.opt = copy_dict(self._opt)
+      if hasattr(self,"aux"): del self.aux
     
     if not keep_history:
       # initialize trajectory
@@ -253,8 +254,15 @@ class _af_design:
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
-    # save settings
-    save = (copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs])
+    def load_settings():    
+      if "save" in self._tmp:
+        (self.opt, self._args, self._params, self._inputs) = self._tmp.pop("save")
+
+    def save_settings():
+      load_settings()
+      self._tmp["save"] = (copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs])
+
+    save_settings()
 
     # set seed if defined
     if seed is not None: self.set_seed(seed)
@@ -268,8 +276,7 @@ class _af_design:
              sample_models=sample_models, models=models, backprop=False, **kwargs)
     if verbose: self._print_log("predict")
 
-    # reset settings
-    (self.opt, self._args, self._params, self._inputs) = save
+    load_settings()
 
     # return (or save) results
     if return_aux: return self.aux
@@ -405,7 +412,7 @@ class _af_design:
 
     # bias sampling towards the defined bias
     if seq_logits is None:
-      seq_logits = self._inputs["bias"]
+      seq_logits = self._inputs["bias"].copy()
     
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
@@ -420,7 +427,6 @@ class _af_design:
       print("Running semigreedy optimization...")
     
     for i in range(iters):
-
       buff = []
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
@@ -433,13 +439,14 @@ class _af_design:
       # accept best
       losses = [x["aux"]["loss"] for x in buff]
       best = buff[np.argmin(losses)]
-      self.aux, seq, self._k = best["aux"], jnp.array(best["seq"]), self._k + 1
+      self.aux, seq = best["aux"], jnp.array(best["seq"])
       self.set_seq(seq=seq)
       self._save_results(save_best=save_best, verbose=verbose)
 
       # update plddt
       plddt = best["aux"]["plddt"]
       plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+      self._k += 1
 
   def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10, e_tries=None,
                              ramp_recycles=True, ramp_models=True, **kwargs):

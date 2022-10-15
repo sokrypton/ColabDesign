@@ -19,8 +19,9 @@
   - adding support for [Optax optimizers](#optax-optimizers)
 - **24Sept2022** - v1.0.9
   - adding [contrib section](https://github.com/sokrypton/ColabDesign/tree/v1.1.0/af/contrib) where user contributed modifications and protocols will go.
-  **13Oct2022** - v1.1.0
+- **15Oct2022** - v1.1.0
   - integrating proteinMPNN!
+  - bugfix for sidechain loss
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.0

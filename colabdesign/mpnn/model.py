@@ -65,6 +65,7 @@ class mk_mpnn_model(design_model):
         p = np.delete(np.arange(self._len),p)
       self._inputs["fix_pos"] = p
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
+    self.pdb = pdb
 
   def get_af_inputs(self, af):
     '''get inputs from alphafold model'''

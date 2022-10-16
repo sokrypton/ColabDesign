@@ -10,61 +10,69 @@ from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_contact_map, get_ptm, get_seq_ent_loss, get_mlm_loss
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_ptm
+from colabdesign.af.loss   import get_contact_map, get_seq_ent_loss, get_mlm_loss
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
 from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
-from colabdesign.af.crop   import _af_crop, crop_feat
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
 ################################################################
 
-class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils, _af_crop):
+class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
   def __init__(self, protocol="fixbb", num_seq=1,
                num_models=1, sample_models=True,
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
                use_openfold=False, use_alphafold=True,
-               use_multimer=False,
-               use_mlm=False, use_crop=False, crop_len=None, crop_mode="slide",               
-               pre_callback=None, post_callback=None, design_callback=None,
-               loss_callback=None, debug=False, data_dir="."):
+               use_multimer=False, use_mlm=False,            
+               pre_callback=None, post_callback=None,
+               pre_design_callback=None, post_design_callback=None,
+               loss_callback=None, traj_iter=1, traj_max=500, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
-    assert crop_mode in ["slide","roll","pair","dist"]
 
     # decide if templates should be used
     if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._callbacks = {"pre":pre_callback, "post":post_callback, 
-                       "loss":loss_callback, "design":design_callback}
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
-                  "optimizer":optimizer, "best_metric":best_metric,
-                  "use_crop":use_crop, "crop_len":crop_len, "crop_mode":crop_mode}
+                  "optimizer":optimizer, "best_metric":best_metric, 
+                  "traj_iter":traj_iter, "traj_max":traj_max}
 
     self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
-                "temp":1.0, "soft":0.0, "hard":0.0, "bias":0.0, "alpha":2.0,
+                "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
-                "template": {"dropout":0.0, "rm_ic":False, "rm_seq":True, "rm_sc":True},                
-                "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0},
+                "template": {"dropout":0.0, "rm_ic":False},                
+                "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0},
                 "cmap_cutoff": 10.0, "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
-      self.opt["mlm_dropout"] = 0.05
+      self.opt["mlm_dropout"] = 0.0
       self.opt["weights"]["mlm"] = 0.1
 
     self._params = {}
     self._inputs = {}
-    self._tmp = {}
+    self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
+                 "log":[],"best":{}}
+
+    # collect callbacks
+    self._callbacks = {"model":{"pre":pre_callback,"post":post_callback,"loss":loss_callback},
+                       "design":{"pre":pre_design_callback,"post":post_design_callback}}
+    
+    for m,n in self._callbacks.items():
+      for k,v in n.items():
+        if v is None: v = []
+        if not isinstance(v,list): v = [v]
+        self._callbacks[m][k] = v
 
     #############################
     # configure AlphaFold
@@ -129,7 +137,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # INPUTS
       #######################################################################
-
       L = inputs["aatype"].shape[0]
 
       # get sequence
@@ -138,7 +145,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
       if a["use_mlm"]:
-        mlm = jax.random.bernoulli(key(), opt["mlm_dropout"], (L,))
+        mlm = opt.get("mlm",jax.random.bernoulli(key(),opt["mlm_dropout"],(L,)))
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       else:
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
@@ -155,23 +162,16 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
-      
-      # experimental - crop inputs
-      if a["use_crop"] and opt["crop_pos"].shape[0] < L:
-          inputs = crop_feat(inputs, opt["crop_pos"])    
 
       if "batch" not in inputs:
         inputs["batch"] = None
 
       # pre callback
-      if self._callbacks["pre"] is not None:
-        fns = self._callbacks["pre"]
-        if not isinstance(fns, list): fns = [fns]
-        for fn in fns: 
-          fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
-                     "seq":seq, "key":key(), "params":params}
-          sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
-          fn(**sub_args)
+      for fn in self._callbacks["model"]["pre"]:
+        fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
+                   "seq":seq, "key":key(), "params":params}
+        sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+        fn(**sub_args)
       
       #######################################################################
       # OUTPUTS
@@ -180,23 +180,17 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs
-      aux.update({"atom_positions":outputs["structure_module"]["final_atom_positions"],
-                  "atom_mask":outputs["structure_module"]["final_atom_mask"],                  
-                  "residue_index":inputs["residue_index"],
-                  "aatype":inputs["aatype"],
-                  "plddt": get_plddt(outputs),
-                  "pae":   get_pae(outputs), 
-                  "ptm":   get_ptm(inputs, outputs),
-                  "i_ptm": get_ptm(inputs, outputs, interface=True), 
-                  "cmap":  get_contact_map(outputs, opt["cmap_cutoff"]),
-                  "prev": outputs["prev"]})
+      aux.update({"atom_positions": outputs["structure_module"]["final_atom_positions"],
+                  "atom_mask":      outputs["structure_module"]["final_atom_mask"],                  
+                  "residue_index":  inputs["residue_index"],
+                  "aatype":         inputs["aatype"],
+                  "plddt":          get_plddt(outputs),
+                  "pae":            get_pae(outputs), 
+                  "ptm":            get_ptm(inputs, outputs),
+                  "i_ptm":          get_ptm(inputs, outputs, interface=True), 
+                  "cmap":           get_contact_map(outputs, opt["cmap_cutoff"]),
+                  "prev":           outputs["prev"]})
 
-      # experimental - uncrop outputs
-      if a["use_crop"] and opt["crop_pos"].shape[0] < L:
-        p = opt["crop_pos"]
-        aux["cmap"] = jnp.zeros((L,L)).at[p[:,None],p[None,:]].set(aux["cmap"])
-        aux["pae"] = jnp.full((L,L),jnp.nan).at[p[:,None],p[None,:]].set(aux["pae"])
-            
       #######################################################################
       # LOSS
       #######################################################################
@@ -206,23 +200,21 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
       # sequence entropy loss
-      aux["losses"].update(get_seq_ent_loss(inputs, outputs))
+      aux["losses"].update(get_seq_ent_loss(inputs))
       
       # experimental masked-language-modeling
       if a["use_mlm"]:
+        aux["mlm"] = outputs["masked_msa"]["logits"]
         aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
 
       # run user defined callbacks
       for c in ["loss","post"]:
-        fns = self._callbacks[c]
-        if fns is not None:
-          if not isinstance(fns, list): fns = [fns]
-          for fn in fns:
-            fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
-                       "aux":aux, "seq":seq, "key":key(), "params":params}
-            sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
-            if c == "loss": aux["losses"].update(fn(**sub_args))
-            if c == "post": fn(**sub_args)
+        for fn in self._callbacks["model"][c]:
+          fn_args = {"inputs":inputs, "outputs":outputs, "opt":opt,
+                     "aux":aux, "seq":seq, "key":key(), "params":params}
+          sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
+          if c == "loss": aux["losses"].update(fn(**sub_args))
+          if c == "post": fn(**sub_args)
 
       # save for debugging
       if a["debug"]: aux["debug"] = {"inputs":inputs,"outputs":outputs}

@@ -161,8 +161,13 @@ def plot_ticks(ax, Ls, Ln=None, add_yticks=False):
 def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
                    losses=None, pos_ref=None, line_w=2.0,
                    dpi=100, interval=60, color_msa="Taylor",
-                   length=None, align_xyz=True, **kwargs):
+                   length=None, align_xyz=True, color_by="plddt", **kwargs):
 
+  def nankabsch(a,b,**kwargs):
+    ok = np.isfinite(a).all(axis=1) & np.isfinite(b).all(axis=1)
+    a,b = a[ok],b[ok]
+    return _np_kabsch(a,b,**kwargs)
+  
   if xyz is not None:
     if pos_ref is None:
       pos_ref = xyz[-1]
@@ -177,29 +182,30 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
         L = length
         
       pos_ref_trim = pos_ref[:L]
-      pos_ref_trim = pos_ref_trim - pos_ref_trim.mean(0)
+      pos_ref_trim_mu = np.nanmean(pos_ref_trim,0)
+      pos_ref_trim = pos_ref_trim - pos_ref_trim_mu
 
       # align to reference position
       new_pos = []
       for x in xyz:
-        x_mu = x[:L].mean(0)
-        aln = _np_kabsch(x[:L]-x_mu, pos_ref_trim, use_jax=False)
+        x_mu = np.nanmean(x[:L],0)
+        aln = nankabsch(x[:L]-x_mu, pos_ref_trim, use_jax=False)
         new_pos.append((x-x_mu) @ aln)
 
       pos = np.array(new_pos)
 
       # rotate for best view
       pos_mean = np.concatenate(pos,0)
-      m = pos_mean.mean(0)
-      rot_mtx = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+      m = np.nanmean(pos_mean,0)
+      rot_mtx = nankabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
       pos = (pos - m) @ rot_mtx
-      pos_ref_full = ((pos_ref - pos_ref_trim.mean(0)) - m) @ rot_mtx
+      pos_ref_full = ((pos_ref - pos_ref_trim_mu) - m) @ rot_mtx
     
     else:
       # rotate for best view
       pos_mean = np.concatenate(xyz,0)
-      m = pos_mean.mean(0)
-      aln = _np_kabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
+      m = np.nanmean(pos_mean,0)
+      aln = nankabsch(pos_mean - m, pos_mean - m, return_v=True, use_jax=False)
       pos = [(x - m) @ aln for x in xyz]
       pos_ref_full = (pos_ref - m) @ aln
 
@@ -229,8 +235,10 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
 
   # set bounderies
   if xyz is not None:
-    x_min,y_min,z_min = np.minimum(np.mean([x.min(0) for x in pos],0),pos_ref_full.min(0)) - 5
-    x_max,y_max,z_max = np.maximum(np.mean([x.max(0) for x in pos],0),pos_ref_full.max(0)) + 5
+    main_pos = pos_ref_full[np.isfinite(pos_ref_full).all(1)]
+    pred_pos = [np.isfinite(x).all(1) for x in pos]
+    x_min,y_min,z_min = np.minimum(np.mean([x.min(0) for x in pred_pos],0),main_pos.min(0)) - 5
+    x_max,y_max,z_max = np.maximum(np.mean([x.max(0) for x in pred_pos],0),main_pos.max(0)) + 5
 
     x_pad = ((y_max - y_min) * 2 - (x_max - x_min)) / 2
     y_pad = ((x_max - x_min) / 2 - (y_max - y_min)) / 2
@@ -251,10 +259,15 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   for k in range(len(seq)):
     ims.append([])
     if xyz is not None:
-      if plddt is None:
-        ims[-1].append(plot_pseudo_3D(pos[k], ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+      flags = dict(ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max)
+      if color_by == "plddt" and plddt is not None:
+        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, **flags))
+      elif color_by == "chain":
+        c = np.concatenate([[n]*L for n,L in enumerate(length)])
+        ims[-1].append(plot_pseudo_3D(pos[k], c=c, cmap=pymol_cmap, cmin=0, cmax=39, **flags))
       else:
-        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max))
+        L = pos[k].shape[0]
+        ims[-1].append(plot_pseudo_3D(pos[k], c=np.arange(L)[::-1], cmin=0, cmax=L, **flags))  
     else:
       L = con[k].shape[0]
       ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1, extent=(0, L, L, 0)))

@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
-from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical
+from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list, copy_missing
 
 ####################################################
 # AF_DESIGN - design functions
@@ -24,7 +24,7 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 class _af_design:
 
   def restart(self, seed=None, opt=None, weights=None,
-              seq=None, keep_history=False, reset_opt=True, **kwargs):   
+              seq=None, mode=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
     ------------
@@ -38,11 +38,14 @@ class _af_design:
     '''
     # reset [opt]ions
     if reset_opt and not keep_history:
+      copy_missing(self.opt, self._opt)
       self.opt = copy_dict(self._opt)
+      if hasattr(self,"aux"): del self.aux
+    
     if not keep_history:
       # initialize trajectory
-      self._traj = {"log":[],"seq":[],"xyz":[],"plddt":[],"pae":[]}
-      self._best, self._tmp = {}, {}
+      self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
+                   "log":[],"best":{}}
 
     # update options/settings (if defined)
     self.set_opt(opt)
@@ -50,7 +53,7 @@ class _af_design:
   
     # initialize sequence
     self.set_seed(seed)
-    self.set_seq(seq=seq, **kwargs)
+    self.set_seq(seq=seq, mode=mode, **kwargs)
 
     # reset optimizer
     self._k = 0
@@ -66,22 +69,21 @@ class _af_design:
     if models is not None:
       models = models if isinstance(models,list) else [models]
       ns = [ns[n if isinstance(n,int) else ns_name.index(n)] for n in models]
-    
+
     m = min(num_models,len(ns))
     if sample_models and m != len(ns):
-      ns = np.array(ns)
-
       model_nums = np.random.choice(ns,(m,),replace=False)
-      model_nums = np.array(model_nums).tolist()
     else:
       model_nums = ns[:m]
-
-    return model_nums    
+    return model_nums   
 
   def run(self, num_recycles=None, num_models=None, sample_models=None, models=None,
           backprop=True, callback=None, model_nums=None, return_aux=False):
     '''run model to get outputs, losses and gradients'''
     
+    # pre-design callbacks
+    for fn in self._callbacks["design"]["pre"]: fn(self)
+
     # decide which model params to use
     if model_nums is None:
       model_nums = self._get_model_nums(num_models, sample_models, models)
@@ -94,30 +96,23 @@ class _af_design:
       auxs.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
     auxs = jax.tree_map(lambda *x: np.stack(x), *auxs)
 
-    # update aux
-    self.aux = jax.tree_map(lambda x:x[0], auxs)
-    self.aux["all"] = auxs
+    # update aux (average outputs)
+    def avg_or_first(x):
+      if np.issubdtype(x.dtype, np.integer): return x[0]
+      else: return x.mean(0)
 
-    # average losses and gradients
-    self.aux["loss"] = auxs["loss"].mean()
-    self.aux["losses"] = jax.tree_map(lambda x: x.mean(0), auxs["losses"])
-    self.aux["grad"] = jax.tree_map(lambda x: x.mean(0), auxs["grad"])
+    self.aux = jax.tree_map(avg_or_first, auxs)
+    self.aux["atom_positions"] = auxs["atom_positions"][0]
+    self.aux["all"] = auxs
     
-    # design callbacks
-    def append(x,fns):
-      if not isinstance(fns,list): fns = [fns]
-      x += [fn for fn in fns if fn is not None]
-    callbacks = []
-    append(callbacks, callback)
-    append(callbacks, self._callbacks["design"])
-    if self._args["use_crop"]: append(callbacks, self._crop())
-    for callback in callbacks: callback(self)
+    # post-design callbacks
+    for fn in (self._callbacks["design"]["post"] + to_list(callback)): fn(self)
 
     # update log
-    self.aux["log"] = {**self.aux["losses"], "loss":self.aux["loss"]}
-    self.aux["log"].update({k:auxs[k].mean() for k in ["ptm","i_ptm"]})
-    self.aux["log"].update({k:self.opt[k] for k in ["hard","soft","temp"]})
+    self.aux["log"] = {**self.aux["losses"]}
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
+    for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
+    for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
     # compute sequence recovery
     if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
@@ -132,7 +127,8 @@ class _af_design:
       self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
-    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]), "models":model_nums})
+    self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
+                            "models":model_nums})
     
     if return_aux: return self.aux
 
@@ -160,7 +156,6 @@ class _af_design:
     
     else:
       L = self._inputs["residue_index"].shape[0]
-      if self._args["use_crop"]: L = self.opt["crop_pos"].shape[0]
       
       # intialize previous
       self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
@@ -208,16 +203,16 @@ class _af_design:
     lr = self.opt["learning_rate"] * lr_scale
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
-    # increment
-    self._k += 1
-
     # save results
     self._save_results(save_best=save_best, verbose=verbose)
+
+    # increment
+    self._k += 1
 
   def _print_log(self, print_str=None, aux=None):
     if aux is None: aux = self.aux
     keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "seq_ent","mlm","pae","i_pae","exp_res","con","i_con",
+            "seq_ent","mlm","helix","pae","i_pae","exp_res","con","i_con",
             "sc_fape","sc_rmsd","dgram_cce","fape","plddt","ptm"]
     
     if "i_ptm" in aux["log"]:
@@ -229,26 +224,35 @@ class _af_design:
     print(dict_to_str(aux["log"], filt=self.opt["weights"],
                       print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
 
-  def _save_results(self, aux=None, save_best=False, verbose=True):
-    if aux is None: aux = self.aux
-    # update traj
-    traj = {"seq":   aux["seq"]["pseudo"],
-            "xyz":   aux["atom_positions"][:,1,:],
-            "plddt": aux["plddt"],
-            "pae":   aux["pae"]}
-    traj = jax.tree_map(np.array, traj)
-    traj["log"] = aux["log"]
-    for k,v in traj.items(): self._traj[k].append(v)
+  def _save_results(self, aux=None, save_best=False,
+                    best_metric=None, metric_higher_better=False,
+                    verbose=True):
+    if aux is None: aux = self.aux    
+    self._tmp["log"].append(aux["log"])    
+    if (self._k % self._args["traj_iter"]) == 0:
+      # update traj
+      traj = {"seq":   aux["seq"]["pseudo"],
+              "xyz":   aux["atom_positions"][:,1,:],
+              "plddt": aux["plddt"],
+              "pae":   aux["pae"]}
+      for k,v in traj.items():
+        if len(self._tmp["traj"][k]) == self._args["traj_max"]:
+          self._tmp["traj"][k].pop(0)
+        self._tmp["traj"][k].append(v)
 
     # save best
     if save_best:
-      metric = aux["log"][self._args["best_metric"]]
-      if "metric" not in self._best or metric < self._best["metric"]:
-        self._best["aux"] = aux
-        self._best["metric"] = metric
+      if best_metric is None:
+        best_metric = self._args["best_metric"]
+      metric = float(aux["log"][best_metric])
+      if self._args["best_metric"] in ["plddt","ptm","i_ptm","seqid"] or metric_higher_better:
+        metric = -metric
+      if "metric" not in self._tmp["best"] or metric < self._tmp["best"]["metric"]:
+        self._tmp["best"]["aux"] = aux
+        self._tmp["best"]["metric"] = metric
 
-    if verbose and (self._k % verbose) == 0:
-      self._print_log(f"{self._k}", aux=aux)
+    if verbose and ((self._k+1) % verbose) == 0:
+      self._print_log(f"{self._k+1}", aux=aux)
 
   def predict(self, seq=None,
               num_models=None, num_recycles=None, models=None, sample_models=False,
@@ -256,29 +260,32 @@ class _af_design:
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
+    def load_settings():    
+      if "save" in self._tmp:
+        (self.opt, self._args, self._params, self._inputs) = self._tmp.pop("save")
+
+    def save_settings():
+      load_settings()
+      self._tmp["save"] = (copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs])
+
+    save_settings()
+
     # set seed if defined
     if seed is not None: self.set_seed(seed)
 
-    # save settings
-    (opt, args, params) = (copy_dict(x) for x in [self.opt, self._args, self._params])
-
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq)    
-
-    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout,
-                 use_crop=False, use_pssm=False)
+    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, use_pssm=False)
+    
     # run
-    aux = self.run(num_recycles=num_recycles, num_models=num_models,
-                   sample_models=sample_models, models=models, backprop=False,
-                   return_aux=True, **kwargs)
-    if verbose: self._print_log("predict", aux=aux)
+    self.run(num_recycles=num_recycles, num_models=num_models,
+             sample_models=sample_models, models=models, backprop=False, **kwargs)
+    if verbose: self._print_log("predict")
 
-    # reset settings
-    (self.opt, self._args, self._params) = (opt, args, params)
+    load_settings()
 
     # return (or save) results
-    if return_aux: return aux
-    else: self.aux = aux
+    if return_aux: return self.aux
 
   # ---------------------------------------------------------------------------------
   # example design functions
@@ -370,6 +377,7 @@ class _af_design:
 
     # fix some positions
     i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
+    i_prob[np.isnan(i_prob)] = 0
     if "fix_pos" in self.opt:
       if "pos" in self.opt:
         p = self.opt["pos"][self.opt["fix_pos"]]
@@ -396,21 +404,35 @@ class _af_design:
     
     return seq
 
-  def design_semigreedy(self, iters=100, tries=10, dropout=False, use_plddt=True,
+  def design_semigreedy(self, iters=100, tries=10, dropout=False,
                         save_best=True, seq_logits=None, e_tries=None, **kwargs):
 
     '''semigreedy search'''    
     if e_tries is None: e_tries = tries
 
-    plddt = None
-    seq = self._params["seq"].argmax(-1)
+    # get starting sequence
+    if hasattr(self,"aux"):
+      seq = self.aux["seq_pseudo"].argmax(-1)
+    else:
+      seq = self._params["seq"].argmax(-1)
+
+    # bias sampling towards the defined bias
+    if seq_logits is None:
+      seq_logits = self._inputs["bias"].copy()
+    
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
 
-    # optimize!
-    if verbose: print("Running semigreedy optimization...")
-    for i in range(iters):
+    # get current plddt
+    aux = self.predict(seq, return_aux=True, verbose=False, **model_flags, **kwargs)
+    plddt = self.aux["plddt"]
+    plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
+    # optimize!
+    if verbose:
+      print("Running semigreedy optimization...")
+    
+    for i in range(iters):
       buff = []
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
@@ -423,14 +445,14 @@ class _af_design:
       # accept best
       losses = [x["aux"]["loss"] for x in buff]
       best = buff[np.argmin(losses)]
-      self.aux, seq, self._k = best["aux"], jnp.array(best["seq"]), self._k + 1
+      self.aux, seq = best["aux"], jnp.array(best["seq"])
       self.set_seq(seq=seq)
       self._save_results(save_best=save_best, verbose=verbose)
 
       # update plddt
-      if use_plddt:
-        plddt = best["aux"]["all"]["plddt"].mean(0)
-        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+      plddt = best["aux"]["plddt"]
+      plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+      self._k += 1
 
   def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10, e_tries=None,
                              ramp_recycles=True, ramp_models=True, **kwargs):
@@ -458,13 +480,12 @@ class _af_design:
       else:
         self.design_semigreedy(hard_iters, tries=tries, e_tries=e_tries, **kwargs)
 
-
   # ---------------------------------------------------------------------------------
   # experimental optimizers (not extensively evaluated)
   # ---------------------------------------------------------------------------------
 
   def _design_mcmc(self, steps=1000, half_life=200, T_init=0.01, mutation_rate=1,
-                   use_plddt=True, seq_logits=None, save_best=True, **kwargs):
+                   seq_logits=None, save_best=True, **kwargs):
     '''
     MCMC with simulated annealing
     ----------------------------------------
@@ -507,9 +528,8 @@ class _af_design:
         # accept
         (current_seq,current_loss) = (mut_seq,loss)
         
-        if use_plddt:
-          plddt = aux["all"]["plddt"].mean(0)
-          plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
+        plddt = aux["all"]["plddt"].mean(0)
+        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
         
         if loss < best_loss:
           (best_loss, self._k) = (loss, i)

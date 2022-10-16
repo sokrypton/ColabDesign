@@ -39,9 +39,8 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric", "use_crop","crop_mode","crop_len"]:
-      if k in kwargs:
-        self._args[k] = kwargs.pop(k)
+    for k in ["best_metric","traj_iter"]:
+      if k in kwargs: self._args[k] = kwargs.pop(k)
             
     if "recycle_mode" in kwargs:
       ok_recycle_mode_swap = ["average","sample","first","last"]
@@ -60,7 +59,7 @@ class _af_utils:
 
   def get_loss(self, x="loss"):
     '''output the loss (for entire trajectory)'''
-    return np.array([float(loss[x]) for loss in self._traj["log"]])
+    return np.array([loss[x] for loss in self._tmp["log"]])
 
   def save_pdb(self, filename=None, get_best=True, renum_pdb=True, aux=None):
     '''
@@ -68,10 +67,10 @@ class _af_utils:
     - set get_best=False, to get the last sampled sequence
     '''
     if aux is None:
-      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+      aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
     
-    p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}        
+    p = {k:aux[k] for k in ["aatype","residue_index","atom_positions","atom_mask"]}
     p["b_factors"] = 100 * p["atom_mask"] * aux["plddt"][...,None]
 
     def to_pdb_str(x, n=None):
@@ -96,23 +95,27 @@ class _af_utils:
   #-------------------------------------
   # plotting functions
   #-------------------------------------
-  def animate(self, s=0, e=None, dpi=100, get_best=True, aux=None):
+  def animate(self, s=0, e=None, dpi=100, get_best=True, aux=None, color_by="plddt"):
     '''
     animate the trajectory
     - use [s]tart and [e]nd to define range to be animated
     - use dpi to specify the resolution of animation
+    - color_by = ["plddt","chain","rainbow"]
     '''
     if aux is None:
-      aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
+      aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
     
-    pos_ref = aux["atom_positions"][0,:,1,:]
-    sub_traj = {k:v[s:e] for k,v in self._traj.items()}      
-        
-    if self.protocol == "hallucination":
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, dpi=dpi)
+    if self.protocol in ["fixbb","binder"]:
+      pos_ref = self._inputs["batch"]["all_atom_positions"][:,1].copy()
+      pos_ref[(pos_ref == 0).any(-1)] = np.nan
     else:
-      return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths, align_xyz=False, dpi=dpi) 
+      pos_ref = aux["atom_positions"][0,:,1,:]
+    sub_traj = {k:v[s:e] for k,v in self._tmp["traj"].items()}      
+    
+    align_xyz = self.protocol == "hallucination"
+    return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,
+                          color_by=color_by, align_xyz=align_xyz, dpi=dpi) 
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), animate=False,
@@ -147,7 +150,8 @@ class _af_utils:
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")
       ax1.plot(rmsd,color="black")
-      ax1_.plot(self.get_loss("seqid"),color="green",label="seqid")
+      seqid = self.get_loss("seqid")
+      ax1_.plot(seqid,color="green",label="seqid")
       # axes labels
       ax1.set_yscale("log")
       ticks = [0.25,0.5,1,2,4,8,16,32,64]
@@ -155,14 +159,11 @@ class _af_utils:
       ax1.set_yticks(ticks); ax1.set_yticklabels(ticks)
       ax1.set_ylabel("RMSD",color="black");ax1_.set_ylabel("seqid",color="green")
       ax1.set_ylim(0.25,64)
-      ax1_.set_ylim(0,0.4)
+      ax1_.set_ylim(0,0.8)
       # extras
-      if "soft" in self._traj["log"][0]:
-        ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
-      if "temp" in self._traj["log"][0]:
-        ax2.plot(self.get_loss("temp"),color="orange",label="temp")
-      if "hard" in self._traj["log"][0]:
-        ax2.plot(self.get_loss("hard"),color="red",label="hard")
+      ax2.plot(self.get_loss("soft"),color="yellow",label="soft")
+      ax2.plot(self.get_loss("temp"),color="orange",label="temp")
+      ax2.plot(self.get_loss("hard"),color="red",label="hard")
       ax2.set_ylim(-0.1,1.1)
       ax2.set_xlabel("iterations")
       ax2.legend(loc='center left')
@@ -171,7 +172,7 @@ class _af_utils:
     plt.show()
 
   def clear_best(self):
-    self._best = {}
+    self._tmp["best"] = {}
 
   def save_current_pdb(self, filename=None):
     '''save pdb coordinates (if filename provided, otherwise return as string)'''

@@ -22,7 +22,7 @@ class mk_af_tr_model:
           self.tr = mk_tr_model(protocol="fixbb")
           self.tr.prep_inputs(pdb_filename=pdb_filename, chain=binder_chain, **flags)
     else:
-      self.tr = mk_tr_model(protocol=protocol, **flags)
+      self.tr = mk_tr_model(protocol=protocol)
 
     if protocol == "fixbb":
       def _prep_inputs(pdb_filename, chain, fix_pos=None, 

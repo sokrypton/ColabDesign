@@ -24,7 +24,7 @@ def clear_mem():
             except:
               pass
   gc.collect()
-
+  
 def update_dict(D, *args, **kwargs):
   '''robust function for updating dictionary'''
   def set_dict(d, x, override=False):
@@ -109,3 +109,14 @@ def softmax(x, axis=-1):
 
 def categorical(p):
   return (p.cumsum(-1) >= np.random.uniform(size=p.shape[:-1])[..., None]).argmax(-1)
+
+def to_list(xs):
+  if not isinstance(xs,list): xs = [xs]
+  return [x for x in xs if x is not None]
+
+def copy_missing(a,b):
+  for i,v in a.items():
+    if i not in b:
+      b[i] = v
+    elif isinstance(v,dict):
+      copy_missing(v,b[i])

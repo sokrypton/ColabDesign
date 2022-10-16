@@ -56,16 +56,15 @@ class design_model:
     
     # initialize bias
     if bias is None:
-      b, set_bias = np.zeros(20), False
+      b = np.zeros(shape[1:])
     else:
-      b, set_bias = np.asarray(bias), True
-    
+      b = np.array(np.broadcast_to(bias, shape[1:]))
+
     # disable certain amino acids
     if rm_aa is not None:
       for aa in rm_aa.split(","):
         b[...,aa_order[aa]] -= 1e6
-      set_bias = True
-
+        
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
       wt_seq = np.eye(20)[self._wt_aatype]
@@ -100,9 +99,8 @@ class design_model:
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
-        set_bias = True
       
-      x = np.broadcast_to(seq,shape)
+      x = np.broadcast_to(seq, shape)
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)
@@ -117,9 +115,7 @@ class design_model:
 
     # set seq/bias/state
     self._params["seq"] = x
-    
-    if set_bias:
-      self.opt["bias"] = b 
+    self._inputs["bias"] = b 
 
   def _norm_seq_grad(self):
     g = self.aux["grad"]["seq"]
@@ -165,8 +161,7 @@ class design_model:
     get sequences as strings
     - set get_best=False, to get the last sampled sequence
     '''
-    aux = self._best["aux"] if (get_best and "aux" in self._best) else self.aux
-    aux = jax.tree_map(lambda x:np.asarray(x), aux)
+    aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     x = aux["seq"]["hard"].argmax(-1)
     return ["".join([order_aa[a] for a in s]) for s in x]
   
@@ -188,7 +183,7 @@ class design_model:
     # make default
     if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
-def soft_seq(x, opt, key=None):
+def soft_seq(x, bias, opt, key=None):
   seq = {"input":x}
   # shuffle msa (randomly pick which sequence is query)
   if x.ndim == 3 and x.shape[0] > 1 and key is not None:
@@ -197,7 +192,8 @@ def soft_seq(x, opt, key=None):
     seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
 
   # straight-through/reparameterization
-  seq["logits"] = seq["input"] * opt["alpha"] + opt["bias"]
+  seq["logits"] = seq["input"] * opt["alpha"]
+  if bias is not None: seq["logits"] = seq["logits"] + bias
   seq["pssm"] = jax.nn.softmax(seq["logits"])
   seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
   seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)

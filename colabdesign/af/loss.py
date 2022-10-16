@@ -20,7 +20,7 @@ class _af_loss:
     # rmsd loss
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
     if self._args["realign"]:
-      aux["atom_positions"] = aln["align"](aux["atom_positions"])
+      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
     
     # supervised losses
     aux["losses"].update({
@@ -78,7 +78,7 @@ class _af_loss:
       align_fn = get_rmsd_loss(inputs, outputs, L=self._target_len)["align"]
 
     if self._args["realign"]:
-      aux["atom_positions"] = align_fn(aux["atom_positions"])
+      aux["atom_positions"] = align_fn(aux["atom_positions"]) * aux["atom_mask"][...,None]
 
   def _loss_partial(self, inputs, outputs, aux):
     '''get losses'''    
@@ -138,7 +138,7 @@ class _af_loss:
 
     # align final atoms
     if self._args["realign"]:
-      aux["atom_positions"] = aln["align"](aux["atom_positions"])
+      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
 
   def _loss_hallucination(self, inputs, outputs, aux):
     # unsupervised losses
@@ -164,7 +164,8 @@ class _af_loss:
       "exp_res": get_exp_res_loss(outputs, mask_1d=mask_1d),
       "plddt":   get_plddt_loss(outputs, mask_1d=mask_1d),
       "pae":     get_pae_loss(outputs, **masks),
-      "con":     get_con_loss(inputs, outputs, opt["con"], **masks)
+      "con":     get_con_loss(inputs, outputs, opt["con"], **masks),
+      "helix":   get_helix_loss(inputs, outputs)
     }
 
     # define losses at interface
@@ -291,6 +292,20 @@ def _get_con_loss(dgram, dgram_bins, cutoff=None, binary=True):
   con_loss_cat_ent = -(px_ * jax.nn.log_softmax(dgram)).sum(-1)
   con_loss_bin_ent = -jnp.log((bins * px + 1e-8).sum(-1))
   return jnp.where(binary, con_loss_bin_ent, con_loss_cat_ent)
+
+def get_helix_loss(inputs, outputs):  
+  # decide on what offset to use
+  if "offset" in inputs:
+    offset = inputs["offset"]
+  else:
+    idx = inputs["residue_index"].flatten()
+    offset = idx[:,None] - idx[None,:]
+
+  # define distogram
+  dgram = outputs["distogram"]["logits"]
+  dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+
+  return _get_helix_loss(dgram, dgram_bins, offset)
 
 def _get_helix_loss(dgram, dgram_bins, offset=None, **kwargs):
   '''helix bias loss'''
@@ -490,7 +505,7 @@ def _get_sc_rmsd_loss(true, pred, sc):
   rmsd = jnp.sqrt(msd + 1e-8)
   return {"rmsd":rmsd, "align":align_fn}
 
-def get_seq_ent_loss(inputs, outputs):
+def get_seq_ent_loss(inputs):
   opt = inputs["opt"]
   x = inputs["seq"]["logits"] / opt["temp"]
   ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
@@ -505,8 +520,8 @@ def get_seq_ent_loss(inputs, outputs):
   return {"seq_ent":ent.mean()}
 
 def get_mlm_loss(outputs, mask, truth=None):
-  x = outputs["masked_msa"]["logits"]
-  if truth is None: truth = jax.nn.softmax(x[...,:20])
-  ent = -(truth[...,:20] * jax.nn.log_softmax(x)[...,:20]).sum(-1)
+  x = outputs["masked_msa"]["logits"][...,:20]
+  if truth is None: truth = jax.nn.softmax(x)
+  ent = -(truth[...,:20] * jax.nn.log_softmax(x)).sum(-1)
   ent = (ent * mask).sum(-1) / (mask.sum() + 1e-8)
   return {"mlm":ent.mean()}

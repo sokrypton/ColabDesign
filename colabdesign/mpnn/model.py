@@ -36,6 +36,7 @@ class mk_mpnn_model(design_model):
               'augment_eps': backbone_noise,
               'k_neighbors': checkpoint['num_edges'],
               'dropout': dropout}
+    
     self._model = RunModel(config)
     self._model.params = jax.tree_map(np.array, checkpoint['model_state_dict'])
     self._setup()
@@ -44,6 +45,7 @@ class mk_mpnn_model(design_model):
     self._num = 1
     self._params = {}
     self._inputs = {}
+    self._tied_lengths = False
 
   def prep_inputs(self, pdb_filename=None, chain=None, homooligomer=False,
                   ignore_missing=True, fix_pos=None, inverse=False,
@@ -72,7 +74,7 @@ class mk_mpnn_model(design_model):
     
     if homooligomer:
       assert min(self._lengths) == max(self._lengths)
-      self._inputs["copies"] = np.array(self._lengths)
+      self._tied_lengths = True
 
     self.pdb = pdb
 
@@ -99,13 +101,12 @@ class mk_mpnn_model(design_model):
 
     if af._args["homooligomer"]:
       assert min(self._lengths) == max(self._lengths)
-      self._inputs["copies"] = af._lengths
+      self._tied_lengths = True
 
   def sample(self, temperature=0.1, rescore=False, **kwargs):
     '''sample sequence'''
-    self.sample_parallel(temperature, batch=1, rescore=rescore, **kwargs)
-    self._outputs = jax.tree_map(lambda x:x[0], self._outputs)
-    return self._outputs
+    O = self.sample_parallel(temperature, batch=1, rescore=rescore, **kwargs)
+    return jax.tree_map(lambda x:x[0], O)
     
   def sample_parallel(self, temperature=0.1, batch=10, rescore=False, **kwargs):
     '''sample new sequence(s) in parallel'''
@@ -113,14 +114,13 @@ class mk_mpnn_model(design_model):
     I.update(kwargs)
     key = I.pop("key",self.key())
     keys = jax.random.split(key,batch)
-    O = self._sample_parallel(keys, I, temperature)
+    O = self._sample_parallel(keys, I, temperature, tied_lengths=self._tied_lengths)
     if rescore:
       O = self._rescore_parallel(keys, O["S"], O["decoding_order"], I)
     O = jax.tree_map(np.array, O)
     O["seq"] = _get_seq(O)
     O["score"] = _get_score(I,O)
-    self._outputs = O
-    return self._outputs
+    return O
 
   def score(self, seq=None, **kwargs):
     '''score sequence'''
@@ -175,20 +175,22 @@ class mk_mpnn_model(design_model):
       return O
 
     self._score = jax.jit(_score)
-    self._sample = jax.jit(_sample)
+    self._sample = jax.jit(_sample, static_argnames="tied_lengths")
 
-    def _sample_parallel(key, inputs, temp):
+    def _sample_parallel(key, inputs, temp, tied_lengths=False):
       inputs.pop("temperature",None)
       inputs.pop("key",None)
-      return _sample(**inputs, temperature=temp, key=key)
-    self._sample_parallel = jax.jit(jax.vmap(_sample_parallel, in_axes=[0,None,None]))
+      return _sample(**inputs, temperature=temp, key=key, tied_lengths=tied_lengths)
+    fn = jax.vmap(_sample_parallel, in_axes=[0,None,None,None])
+    self._sample_parallel = jax.jit(fn, static_argnames="tied_lengths")
 
     def _rescore_parallel(key, S, decoding_order, inputs):
       inputs.pop("S",None)
       inputs.pop("decoding_order",None)
       inputs.pop("key",None)
       return _score(**inputs, S=S, decoding_order=decoding_order, key=key)
-    self._rescore_parallel = jax.jit(jax.vmap(_rescore_parallel, in_axes=[0,0,0,None]))
+    fn = jax.vmap(_rescore_parallel, in_axes=[0,0,0,None])
+    self._rescore_parallel = jax.jit(fn)
 
 #######################################################################################
 

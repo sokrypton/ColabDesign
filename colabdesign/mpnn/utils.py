@@ -18,6 +18,7 @@ def cat_neighbors_nodes(h_nodes, h_neighbors, E_idx):
 
 def get_ar_mask(order):
   '''compute autoregressive mask, given order of positions'''
+  order = order.flatten()
   L = order.shape[-1]
   oh_order = jax.nn.one_hot(order, L)
   tri = jnp.tri(L, k=-1)

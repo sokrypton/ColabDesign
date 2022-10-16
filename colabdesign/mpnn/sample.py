@@ -6,7 +6,7 @@ import numpy as np
 from .utils import cat_neighbors_nodes, get_ar_mask
 
 class mpnn_sample:
-  def sample(self, I):
+  def sample(self, I, tied_lengths=False):
 
     key = hk.next_rng_key()
     N_nodes = I["X"].shape[0]
@@ -29,21 +29,27 @@ class mpnn_sample:
     key, sub_key = jax.random.split(key)
 
     # get decoding order
-    randn = jax.random.uniform(key, (N_nodes,))    
-    randn = jnp.where(I["mask"],randn,randn + 1)
-    if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)
-
-    copies = I.get("copies",jnp.array([N_nodes])).shape[0]
     if "decoding_order" in I:
       decoding_order = I["decoding_order"]
+      if decoding_order.ndim == 1: decoding_order[:,None]
+
     else:
-      decoding_order = randn.reshape(copies,-1).mean(0).argsort()
-      decoding_order = jnp.arange(N_nodes).reshape(copies,-1).T[decoding_order]
+      randn = jax.random.uniform(key, (N_nodes,))    
+      randn = jnp.where(I["mask"],randn,randn + 1)
+      if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)
+      if tied_lengths:
+        lengths = I.get("lengths",jnp.array([N_nodes]))    
+        copies = lengths.shape[0]
+        decoding_order_tied = randn.reshape(copies,-1).mean(0).argsort()
+        decoding_order = jnp.arange(N_nodes).reshape(copies,-1).T[decoding_order_tied]
+      else:
+        decoding_order = randn.argsort(-1)[:,None]
     
+    # get autoregressive mask
     if "ar_mask" in I:
       ar_mask = I["ar_mask"]
     else:
-      ar_mask = get_ar_mask(decoding_order.flatten())
+      ar_mask = get_ar_mask(decoding_order)
     
     mask_attend = jnp.take_along_axis(ar_mask, E_idx, 1)
     mask_1D = I["mask"][:,None]
@@ -54,7 +60,7 @@ class mpnn_sample:
     h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
     h_EXV_encoder = mask_fw[...,None] * h_EXV_encoder
 
-    def fn(x, t, key, tied=False, sample=True):
+    def fn(x, t, key, tied=True, sample=True):
       h_EXV_encoder_t = h_EXV_encoder[t] 
       E_idx_t         = E_idx[t]
       mask_t          = I["mask"][t]
@@ -110,6 +116,6 @@ class mpnn_sample:
     # scan over decoding order
     iters = {"t":decoding_order,
              "key":jax.random.split(key,decoding_order.shape[0])}
-    O = hk.scan(lambda x, xs: (fn(x, **xs, tied=True),None), O, iters)[0]        
+    O = hk.scan(lambda x, xs: (fn(x,**xs),None), O, iters)[0]        
 
-    return {"S":O["S"], "logits":O["logits"], "decoding_order":decoding_order.flatten()}
+    return {"S":O["S"], "logits":O["logits"], "decoding_order":decoding_order}

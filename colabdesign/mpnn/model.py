@@ -45,8 +45,10 @@ class mk_mpnn_model(design_model):
     self._params = {}
     self._inputs = {}
 
-  def prep_inputs(self, pdb_filename=None, chain=None, ignore_missing=True,
-                  fix_pos=None, inverse=False, rm_aa=None, **kwargs):
+  def prep_inputs(self, pdb_filename=None, chain=None, homooligomer=False,
+                  ignore_missing=True, fix_pos=None, inverse=False,
+                  rm_aa=None, **kwargs):
+    
     '''get inputs from input pdb'''
     pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
     atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
@@ -56,15 +58,22 @@ class mk_mpnn_model(design_model):
                     "S":           pdb["batch"]["aatype"],
                     "residue_idx": pdb["residue_index"],
                     "chain_idx":   chain_idx}
+    
     self._lengths = pdb["lengths"]
     self._len = sum(self._lengths)
     self.set_seq(self._inputs["S"], rm_aa=rm_aa)
+    
     if fix_pos is not None:
       p = prep_pos(fix_pos, **pdb["idx"])["pos"]
       if inverse:
         p = np.delete(np.arange(self._len),p)
       self._inputs["fix_pos"] = p
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
+    
+    if homooligomer:
+      assert min(self._lengths) == max(self._lengths)
+      self._inputs["copies"] = np.array(self._lengths)
+
     self.pdb = pdb
 
   def get_af_inputs(self, af):
@@ -80,11 +89,18 @@ class mk_mpnn_model(design_model):
       self._inputs["X"]    = batch["all_atom_positions"][:,atom_idx]
       self._inputs["mask"] = batch["all_atom_mask"][:,1]
       self._inputs["S"]    = batch["aatype"]
+
     self._lengths = af._lengths
     self._len = af._len
+
     if "fix_pos" in af.opt:
       self._inputs["fix_pos"] = p = af.opt["fix_pos"]
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
+
+    if af._args["homooligomer"]:
+      assert min(self._lengths) == max(self._lengths)
+      self._inputs["copies"] = af._lengths
+
   
   def sample(self, temperature=0.1, **kwargs):
     '''sample sequence'''
@@ -138,7 +154,8 @@ class mk_mpnn_model(design_model):
            'residue_idx': residue_idx,
            'chain_idx': chain_idx}
       I.update(kwargs)
-      if "S" in I: I["S"] = _aa_convert(I["S"])
+      for k in ["S","bias"]:
+        if k in I: I[k] = _aa_convert(I[k])
 
       O = self._model.score(self._model.params, key, I)
       O["S"] = _aa_convert(O["S"], rev=True)
@@ -153,7 +170,8 @@ class mk_mpnn_model(design_model):
            'chain_idx': chain_idx,
            'temperature': temperature}
       I.update(kwargs)
-      if "bias" in I: I["bias"] = _aa_convert(I["bias"])
+      for k in ["S","bias"]:
+        if k in I: I[k] = _aa_convert(I[k])
       
       O = self._model.sample(self._model.params, key, I)
       O["S"] = _aa_convert(O["S"], rev=True)

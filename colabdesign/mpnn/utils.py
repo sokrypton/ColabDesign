@@ -21,4 +21,5 @@ def get_ar_mask(order):
   L = order.shape[-1]
   oh_order = jax.nn.one_hot(order, L)
   tri = jnp.tri(L, k=-1)
-  return jnp.einsum('ij,...iq,...jp->...qp', tri, oh_order, oh_order)
+  ar_mask = jnp.einsum('ij,...iq,...jp->...qp', tri, oh_order, oh_order)
+  return ar_mask

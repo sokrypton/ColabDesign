@@ -224,7 +224,9 @@ class _af_design:
     print(dict_to_str(aux["log"], filt=self.opt["weights"],
                       print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
 
-  def _save_results(self, aux=None, save_best=False, verbose=True):
+  def _save_results(self, aux=None, save_best=False,
+                    best_metric=None, metric_higher_better=False,
+                    verbose=True):
     if aux is None: aux = self.aux    
     self._tmp["log"].append(aux["log"])    
     if (self._k % self._args["traj_iter"]) == 0:
@@ -240,7 +242,11 @@ class _af_design:
 
     # save best
     if save_best:
-      metric = aux["log"][self._args["best_metric"]]
+      if best_metric is None:
+        best_metric = self._args["best_metric"]
+      metric = float(aux["log"][best_metric])
+      if self._args["best_metric"] in ["plddt","ptm","i_ptm","seqid"] or metric_higher_better:
+        metric = -metric
       if "metric" not in self._tmp["best"] or metric < self._tmp["best"]["metric"]:
         self._tmp["best"]["aux"] = aux
         self._tmp["best"]["metric"] = metric

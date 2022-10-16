@@ -40,8 +40,8 @@ class mpnn_sample:
       if tied_lengths:
         lengths = I.get("lengths",jnp.array([N_nodes]))    
         copies = lengths.shape[0]
-        decoding_order = randn.reshape(copies,-1).mean(0).argsort()
-        decoding_order = jnp.arange(N_nodes).reshape(copies,-1).T[decoding_order]
+        decoding_order_tied = randn.reshape(copies,-1).mean(0).argsort()
+        decoding_order = jnp.arange(N_nodes).reshape(copies,-1).T[decoding_order_tied]
       else:
         decoding_order = randn.argsort(-1)[:,None]
     

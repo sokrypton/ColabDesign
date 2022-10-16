@@ -55,14 +55,16 @@ class mk_mpnn_model(design_model):
     pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
     atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
     chain_idx = np.concatenate([[n]*l for n,l in enumerate(pdb["lengths"])])
+    self._lengths = pdb["lengths"]
+    self._len = sum(self._lengths)
+
     self._inputs = {"X":           pdb["batch"]["all_atom_positions"][:,atom_idx],
                     "mask":        pdb["batch"]["all_atom_mask"][:,1],
                     "S":           pdb["batch"]["aatype"],
                     "residue_idx": pdb["residue_index"],
-                    "chain_idx":   chain_idx}
+                    "chain_idx":   chain_idx,
+                    "lengths":     np.array(self._lengths)}
     
-    self._lengths = pdb["lengths"]
-    self._len = sum(self._lengths)
     self.set_seq(self._inputs["S"], rm_aa=rm_aa)
     
     if fix_pos is not None:
@@ -75,15 +77,20 @@ class mk_mpnn_model(design_model):
     if homooligomer:
       assert min(self._lengths) == max(self._lengths)
       self._tied_lengths = True
+      self._len = self._lengths[0]
 
     self.pdb = pdb
 
   def get_af_inputs(self, af):
     '''get inputs from alphafold model'''
 
+    self._lengths = af._lengths
+    self._len = af._len
+
     self._inputs["residue_idx"] = af._inputs["residue_index"]
     self._inputs["chain_idx"]   = af._inputs["asym_id"]
     self._inputs["bias"]        = af._inputs["bias"]
+    self._inputs["lengths"]     = np.array(self._lengths)
 
     if "batch" in af._inputs:
       atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
@@ -91,9 +98,6 @@ class mk_mpnn_model(design_model):
       self._inputs["X"]    = batch["all_atom_positions"][:,atom_idx]
       self._inputs["mask"] = batch["all_atom_mask"][:,1]
       self._inputs["S"]    = batch["aatype"]
-
-    self._lengths = af._lengths
-    self._len = af._len
 
     if "fix_pos" in af.opt:
       self._inputs["fix_pos"] = p = af.opt["fix_pos"]
@@ -114,9 +118,9 @@ class mk_mpnn_model(design_model):
     I.update(kwargs)
     key = I.pop("key",self.key())
     keys = jax.random.split(key,batch)
-    O = self._sample_parallel(keys, I, temperature, tied_lengths=self._tied_lengths)
+    O = self._sample_parallel(keys, I, temperature, self._tied_lengths)
     if rescore:
-      O = self._rescore_parallel(keys, O["S"], O["decoding_order"], I)
+      O = self._rescore_parallel(keys, I, O["S"], O["decoding_order"])
     O = jax.tree_map(np.array, O)
     O["seq"] = _get_seq(O)
     O["score"] = _get_score(I,O)
@@ -157,8 +161,8 @@ class mk_mpnn_model(design_model):
       O["logits"] = _aa_convert(O["logits"], rev=True)
       return O
     
-    def _sample(X, mask, residue_idx, chain_idx, key, temperature=0.1, **kwargs):
-      
+    def _sample(X, mask, residue_idx, chain_idx, key,
+                temperature=0.1, tied_lengths=False, **kwargs):
       I = {'X': X,
            'mask': mask,
            'residue_idx': residue_idx,
@@ -169,7 +173,7 @@ class mk_mpnn_model(design_model):
       for k in ["S","bias"]:
         if k in I: I[k] = _aa_convert(I[k])
       
-      O = self._model.sample(self._model.params, key, I)
+      O = self._model.sample(self._model.params, key, I, tied_lengths)
       O["S"] = _aa_convert(O["S"], rev=True)
       O["logits"] = _aa_convert(O["logits"], rev=True)
       return O
@@ -180,16 +184,16 @@ class mk_mpnn_model(design_model):
     def _sample_parallel(key, inputs, temp, tied_lengths=False):
       inputs.pop("temperature",None)
       inputs.pop("key",None)
-      return _sample(**inputs, temperature=temp, key=key, tied_lengths=tied_lengths)
+      return _sample(**inputs, key=key, temperature=temp, tied_lengths=tied_lengths)
     fn = jax.vmap(_sample_parallel, in_axes=[0,None,None,None])
     self._sample_parallel = jax.jit(fn, static_argnames="tied_lengths")
 
-    def _rescore_parallel(key, S, decoding_order, inputs):
+    def _rescore_parallel(key, inputs, S, decoding_order):
       inputs.pop("S",None)
       inputs.pop("decoding_order",None)
       inputs.pop("key",None)
-      return _score(**inputs, S=S, decoding_order=decoding_order, key=key)
-    fn = jax.vmap(_rescore_parallel, in_axes=[0,0,0,None])
+      return _score(**inputs, key=key, S=S, decoding_order=decoding_order)
+    fn = jax.vmap(_rescore_parallel, in_axes=[0,None,0,0])
     self._rescore_parallel = jax.jit(fn)
 
 #######################################################################################

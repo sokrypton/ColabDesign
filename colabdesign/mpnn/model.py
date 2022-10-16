@@ -103,7 +103,7 @@ class mk_mpnn_model(design_model):
 
   def sample(self, temperature=0.1, rescore=False, **kwargs):
     '''sample sequence'''
-    self.sample_parallel(temperature, batch=1, recore=rescore, **kwargs)
+    self.sample_parallel(temperature, batch=1, rescore=rescore, **kwargs)
     self._outputs = jax.tree_map(lambda x:x[0], self._outputs)
     return self._outputs
     

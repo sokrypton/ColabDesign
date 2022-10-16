@@ -101,26 +101,21 @@ class mk_mpnn_model(design_model):
       assert min(self._lengths) == max(self._lengths)
       self._inputs["copies"] = af._lengths
 
-  
-  def sample(self, temperature=0.1, **kwargs):
+  def sample(self, temperature=0.1, rescore=False, **kwargs):
     '''sample sequence'''
-    self.sample_parallel(temperature, batch=1, **kwargs)
+    self.sample_parallel(temperature, batch=1, recore=rescore, **kwargs)
     self._outputs = jax.tree_map(lambda x:x[0], self._outputs)
     return self._outputs
     
-  def sample_parallel(self, temperature=0.1, batch=10, **kwargs):
+  def sample_parallel(self, temperature=0.1, batch=10, rescore=False, **kwargs):
     '''sample new sequence(s) in parallel'''
-
-    # define parallel function
-    if not hasattr(self,"_sample_parallel"):
-      def _sample(key, inputs, temp):
-        return self._sample(**inputs, temperature=temp, key=key)
-      self._sample_parallel = jax.jit(jax.vmap(_sample, in_axes=[0,None,None]))
-
     I = copy_dict(self._inputs)
     I.update(kwargs)
     key = I.pop("key",self.key())
-    O = self._sample_parallel(jax.random.split(key,batch), I, temperature)
+    keys = jax.random.split(key,batch)
+    O = self._sample_parallel(keys, I, temperature)
+    if rescore:
+      O = self._rescore_parallel(keys, O["S"], O["decoding_order"], I)
     O = jax.tree_map(np.array, O)
     O["seq"] = _get_seq(O)
     O["score"] = _get_score(I,O)
@@ -169,6 +164,7 @@ class mk_mpnn_model(design_model):
            'residue_idx': residue_idx,
            'chain_idx': chain_idx,
            'temperature': temperature}
+
       I.update(kwargs)
       for k in ["S","bias"]:
         if k in I: I[k] = _aa_convert(I[k])
@@ -180,6 +176,19 @@ class mk_mpnn_model(design_model):
 
     self._score = jax.jit(_score)
     self._sample = jax.jit(_sample)
+
+    def _sample_parallel(key, inputs, temp):
+      inputs.pop("temperature",None)
+      inputs.pop("key",None)
+      return _sample(**inputs, temperature=temp, key=key)
+    self._sample_parallel = jax.jit(jax.vmap(_sample_parallel, in_axes=[0,None,None]))
+
+    def _rescore_parallel(key, S, decoding_order, inputs):
+      inputs.pop("S",None)
+      inputs.pop("decoding_order",None)
+      inputs.pop("key",None)
+      return _score(**inputs, S=S, decoding_order=decoding_order, key=key)
+    self._rescore_parallel = jax.jit(jax.vmap(_rescore_parallel, in_axes=[0,0,0,None]))
 
 #######################################################################################
 

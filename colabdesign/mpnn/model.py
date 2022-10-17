@@ -140,9 +140,10 @@ class mk_mpnn_model(design_model):
     ''' one_hot to amino acid sequence '''
     def split_seq(seq):
       if len(self._lengths) > 1:
-        return "".join(np.insert(list(seq),np.cumsum(self._lengths[:-1]),"/"))
-      else:
-        return seq
+        seq = "".join(np.insert(list(seq),np.cumsum(self._lengths[:-1]),"/"))
+        if self._tied_lengths:
+          seq = seq.split("/")[0]
+      return seq
     seqs, S = [], O["S"].argmax(-1)
     if S.ndim == 1: S = [S]
     for s in S:

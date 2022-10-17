@@ -83,7 +83,7 @@ class mk_mpnn_model(design_model):
     
     if verbose:
       print("lengths", self._lengths)
-      if "fix_pos" in mpnn_model._inputs:
+      if "fix_pos" in self._inputs:
         print("the following positions will be fixed:")
         print(self._inputs["fix_pos"])
 
@@ -117,7 +117,7 @@ class mk_mpnn_model(design_model):
     '''sample sequence'''
     O = []
     for _ in range(num):
-      O.append(self.sample_parallel(temperature, batch=batch, rescore=rescore, **kwargs))
+      O.append(self.sample_parallel(batch, temperature, rescore, **kwargs))
     return jax.tree_map(lambda *x:np.concatenate(x,0),*O)    
 
   def sample_parallel(self, batch=10, temperature=0.1, rescore=False, **kwargs):
@@ -182,7 +182,7 @@ class mk_mpnn_model(design_model):
     I.update(kwargs)
     key = I.pop("key",self.key())
     O = jax.tree_map(np.array, self._score(**I, key=key))
-    O["score"] = _get_score(I,O)
+    O.update(self._get_score(O))
     return O
 
   def get_logits(self, **kwargs):

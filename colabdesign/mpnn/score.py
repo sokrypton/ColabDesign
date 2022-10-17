@@ -41,18 +41,10 @@ class mpnn_score:
       h_S = self.W_s(I["S"])
       h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
-      if "ar_mask" not in I:
-        if "decoding_order" not in I:
-          key, sub_key = jax.random.split(key)
-          randn = jax.random.uniform(sub_key, (I["X"].shape[0],))
-          randn = jnp.where(I["mask"],randn,randn+1)
-          if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)
-          I["decoding_order"] = randn.argsort()
-        
-        # make an autogressive mask
-        I["ar_mask"] = get_ar_mask(I["decoding_order"])
+      # get autoregressive mask
+      ar_mask = I.get("ar_mask",get_ar_mask(I["decoding_order"]))
               
-      mask_attend = jnp.take_along_axis(I["ar_mask"], E_idx, 1)
+      mask_attend = jnp.take_along_axis(ar_mask, E_idx, 1)
       mask_1D = I["mask"][:,None]
       mask_bw = mask_1D * mask_attend
       mask_fw = mask_1D * (1 - mask_attend)

@@ -49,7 +49,7 @@ class mk_mpnn_model(design_model):
 
   def prep_inputs(self, pdb_filename=None, chain=None, homooligomer=False,
                   ignore_missing=True, fix_pos=None, inverse=False,
-                  rm_aa=None, **kwargs):
+                  rm_aa=None, verbose=False, **kwargs):
     
     '''get inputs from input pdb'''
     pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
@@ -80,6 +80,12 @@ class mk_mpnn_model(design_model):
       self._len = self._lengths[0]
 
     self.pdb = pdb
+    
+    if verbose:
+      print("lengths", self._lengths)
+      if "fix_pos" in mpnn_model._inputs:
+        print("the following positions will be fixed:")
+        print(self._inputs["fix_pos"])
 
   def get_af_inputs(self, af):
     '''get inputs from alphafold model'''
@@ -107,12 +113,14 @@ class mk_mpnn_model(design_model):
       assert min(self._lengths) == max(self._lengths)
       self._tied_lengths = True
 
-  def sample(self, temperature=0.1, rescore=False, **kwargs):
+  def sample(self, num=1, batch=1, temperature=0.1, rescore=False, **kwargs):
     '''sample sequence'''
-    O = self.sample_parallel(temperature, batch=1, rescore=rescore, **kwargs)
-    return jax.tree_map(lambda x:x[0], O)
-    
-  def sample_parallel(self, temperature=0.1, batch=10, rescore=False, **kwargs):
+    O = []
+    for _ in range(num):
+      O.append(self.sample_parallel(temperature, batch=batch, rescore=rescore, **kwargs))
+    return jax.tree_map(lambda *x:np.concatenate(x,0),*O)    
+
+  def sample_parallel(self, batch=10, temperature=0.1, rescore=False, **kwargs):
     '''sample new sequence(s) in parallel'''
     I = copy_dict(self._inputs)
     I.update(kwargs)
@@ -122,9 +130,48 @@ class mk_mpnn_model(design_model):
     if rescore:
       O = self._rescore_parallel(keys, I, O["S"], O["decoding_order"])
     O = jax.tree_map(np.array, O)
-    O["seq"] = _get_seq(O)
-    O["score"] = _get_score(I,O)
+
+    # process outputs to human-readable form
+    O.update(self._get_seq(O))
+    O.update(self._get_score(O))
     return O
+
+  def _get_seq(self, O):
+    ''' one_hot to amino acid sequence '''
+    def split_seq(seq):
+      if len(self._lengths) > 1:
+        return "".join(np.insert(list(seq),np.cumsum(self._lengths[:-1]),"/"))
+      else:
+        return seq
+    seqs, S = [], O["S"].argmax(-1)
+    if S.ndim == 1: S = [S]
+    for s in S:
+      seq = "".join([order_aa[a] for a in s])
+      seq = split_seq(seq)
+      seqs.append(seq)
+    
+    return {"seq": np.array(seqs)}
+
+  def _get_score(self, O):
+    ''' logits to score/sequence_recovery '''
+    mask = self._inputs["mask"].copy()
+    if "fix_pos" in self._inputs:
+      mask[self._inputs["fix_pos"]] = 0
+
+    log_q = log_softmax(O["logits"],-1)[...,:20]
+    q = softmax(O["logits"][...,:20],-1)
+    if "S" in O:
+      S = O["S"][...,:20]
+      score = -(S * log_q).sum(-1)
+      seqid = S.argmax(-1) == self._inputs["S"]
+    else:
+      score = -(q * log_q).sum(-1)
+      seqid = np.zeros_like(score)
+      
+    score = (score * mask).sum(-1) / mask.sum()
+    seqid = (seqid * mask).sum(-1) / mask.sum()
+
+    return {"score":score, "seqid":seqid}
 
   def score(self, seq=None, **kwargs):
     '''score sequence'''
@@ -222,27 +269,6 @@ class mk_mpnn_model(design_model):
     self._rescore_parallel = jax.jit(fn)
 
 #######################################################################################
-
-def _get_seq(O):
-  seqs, S = [], O["S"]
-  for seq in S.argmax(-1):
-    seqs.append("".join([order_aa[a] for a in seq]))
-  return np.array(seqs)
-
-def _get_score(I,O):
-  log_q = log_softmax(O["logits"],-1)[...,:20]
-  q = softmax(O["logits"][...,:20],-1)
-  if "S" in O:
-    p = O["S"][...,:20]
-    score = -(p * log_q).sum(-1)
-  else:
-    score = -(q * log_q).sum(-1)
-    
-  mask = I["mask"].copy()
-  if "fix_pos" in I:
-    mask[I["fix_pos"]] = 0
-  score = (score * mask).sum(-1) / mask.sum()
-  return score
 
 def _aa_convert(x, rev=False):
   mpnn_alphabet = 'ACDEFGHIKLMNPQRSTVWYX'

@@ -17,6 +17,14 @@ mpnn_model.prep_inputs(pdb_filename="tmp.pdb")
 samples = mpnn_model.sample_parallel()
 ```
 # FAQ
+#### What are all the available functions?
+- `mpnn_model.sample()` - sample one sequence
+- `mpnn_model.sample(temperature=0.1)` - control sampling temperature
+- `mpnn_model.sample(decoding_order=np.array([0,1,2,3,4,5]))` specify the order of autoregressive sampling
+- `mpnn_model.sample(decoding_order=np.array([[0,3],[1,4],[2,5]]))` - specify order of "tied" autoregressive sampling
+- `mpnn_model.sample_parallel(batch=128)` - sample 128 sequences in parallel (all options above apply)
+- `mpnn_model.score(seq="QWERTY")` - score one sequence
+- `mpnn_model.get_unconditional_logits()` - get P(sequence | structure)
 #### How do I specify which positions to fix, while leaving the rest to redesign?
 ```python
 mpnn_model.prep_inputs(pdb_filename="tmp.pdb", fix_pos="1-10")
@@ -38,7 +46,7 @@ mpnn_model.prep_inputs(pdb_filename="tmp.pdb", chain="A,B", fix_pos="A")
 mpnn_model.prep_inputs(pdb_filename="tmp.pdb", rm_aa="C")
 ```
 #### I want more control!
-You can modify the bias matrix directly! The bias matrix is a (length, 20) matrix. Setting values to large negative will avoid these from being sampled (this is what rm_aa does) and setting values to large positions numbers will fix those positions (this is what fix_pos does). The alphabet for the 20 values is `ARNDCQEGHILKMFPSTWYV`.
+You can modify the bias matrix directly! The bias matrix is a (length, 20) matrix. Using large negative/positive values in the bias matrix is how we prevent certain amino acids from being sampled (rm_aa) and fix certain positions (fix_pos). For reference, the alphabet used: `ARNDCQEGHILKMFPSTWYV`.
 ```python
 mpnn_model._inputs["bias"][:,0] = 1e8
 ```

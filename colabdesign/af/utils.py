@@ -113,19 +113,20 @@ class _af_utils:
 
     if traj is None: traj = self._tmp["traj"]
     sub_traj = {k:v[s:e] for k,v in traj.items()}
-    
+
     align_xyz = self.protocol == "hallucination"
     return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,
                           color_by=color_by, align_xyz=align_xyz, dpi=dpi) 
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), animate=False,
-               get_best=True, aux=None):
+               get_best=True, aux=None, pdb_str=None):
     '''
     use py3Dmol to plot pdb coordinates
     - color=["pLDDT","chain","rainbow"]
     '''
-    pdb_str = self.save_pdb(get_best=get_best, aux=aux)
+    if pdb_str is None:
+      pdb_str = self.save_pdb(get_best=get_best, aux=aux)
     view = show_pdb(pdb_str,
                     show_sidechains=show_sidechains,
                     show_mainchains=show_mainchains,

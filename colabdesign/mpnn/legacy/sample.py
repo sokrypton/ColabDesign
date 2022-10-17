@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import itertools
 
-from colabdesign.mpnn.utils import gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
+from .utils import gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
 
 class mpnn_sample:
   def sample(self, key, X, randn, S_true,

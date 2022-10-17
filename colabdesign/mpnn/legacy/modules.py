@@ -7,8 +7,8 @@ import itertools
 import joblib
 
 from colabdesign.shared.prng import SafeKey
-from colabdesign.mpnn.utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
-from colabdesign.mpnn.sample import mpnn_sample
+from .utils import gather_edges, gather_nodes, cat_neighbors_nodes, scatter, get_ar_mask
+from .sample import mpnn_sample
 
 Gelu = functools.partial(jax.nn.gelu, approximate=False)
 
@@ -166,14 +166,14 @@ class RunModel:
     def _forward_sample(inputs):
       model = ProteinMPNN(**self.config)
       return model.sample(**inputs)
-    self.sample = hk.transform(_forward_sample).apply
-    self.init_sample = hk.transform(_forward_sample).init
+    self.sample = jax.jit(hk.transform(_forward_sample).apply)
+    self.init_sample = jax.jit(hk.transform(_forward_sample).init)
 
     def _forward_tsample(inputs):
       model = ProteinMPNN(**self.config)
       return model.tied_sample(**inputs)
-    self.tied_sample = hk.transform(_forward_tsample).apply
-    self.init_tsample = hk.transform(_forward_tsample).init
+    self.tied_sample = jax.jit(hk.transform(_forward_tsample).apply)
+    self.init_tsample = jax.jit(hk.transform(_forward_tsample).init)
 
   def load_params(self, path):
     self.params = joblib.load(path)

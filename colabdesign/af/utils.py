@@ -95,7 +95,7 @@ class _af_utils:
   #-------------------------------------
   # plotting functions
   #-------------------------------------
-  def animate(self, s=0, e=None, dpi=100, get_best=True, aux=None, color_by="plddt"):
+  def animate(self, s=0, e=None, dpi=100, get_best=True, traj=None, aux=None, color_by="plddt"):
     '''
     animate the trajectory
     - use [s]tart and [e]nd to define range to be animated
@@ -104,14 +104,15 @@ class _af_utils:
     '''
     if aux is None:
       aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
-    aux = aux["all"]
-    
+    aux = aux["all"]    
     if self.protocol in ["fixbb","binder"]:
       pos_ref = self._inputs["batch"]["all_atom_positions"][:,1].copy()
       pos_ref[(pos_ref == 0).any(-1)] = np.nan
     else:
       pos_ref = aux["atom_positions"][0,:,1,:]
-    sub_traj = {k:v[s:e] for k,v in self._tmp["traj"].items()}      
+
+    if traj is None: traj = self._tmp["traj"]
+    sub_traj = {k:v[s:e] for k,v in traj.items()}
     
     align_xyz = self.protocol == "hallucination"
     return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,

@@ -31,7 +31,8 @@ class mpnn_sample:
     # get decoding order
     if "decoding_order" in I:
       decoding_order = I["decoding_order"]
-      if decoding_order.ndim == 1: decoding_order[:,None]
+      if decoding_order.ndim == 1:
+        decoding_order = decoding_order[:,None]
 
     else:
       randn = jax.random.uniform(key, (N_nodes,))    

@@ -46,7 +46,7 @@ mpnn_model.prep_inputs(pdb_filename="tmp.pdb", chain="A,B", fix_pos="A")
 mpnn_model.prep_inputs(pdb_filename="tmp.pdb", rm_aa="C")
 ```
 #### I want more control!
-You can modify the bias matrix directly! The bias matrix is a (length, 20) matrix. Setting values to large negative will avoid these from being sampled (this is what rm_aa does) and setting values to large positions numbers will fix those positions (this is what fix_pos does). The alphabet for the 20 values is `ARNDCQEGHILKMFPSTWYV`.
+You can modify the bias matrix directly! The bias matrix is a (length, 20) matrix. Setting values to large-negative value will precent these from being sampled (this is what rm_aa does) and setting values to large-positive values will fix those positions (this is what fix_pos does). The alphabet for the 20 values is `ARNDCQEGHILKMFPSTWYV`.
 ```python
 mpnn_model._inputs["bias"][:,0] = 1e8
 ```

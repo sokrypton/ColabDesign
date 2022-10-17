@@ -153,6 +153,15 @@ class mk_mpnn_model(design_model):
            'residue_idx': residue_idx,
            'chain_idx': chain_idx}
       I.update(kwargs)
+
+      # define decoding order
+      if "decoding_order" not in I:
+        key, sub_key = jax.random.split(key)
+        randn = jax.random.uniform(sub_key, (I["X"].shape[0],))    
+        randn = jnp.where(I["mask"], randn, randn+1)
+        if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)        
+        I["decoding_order"] = randn.argsort()
+
       for k in ["S","bias"]:
         if k in I: I[k] = _aa_convert(I[k])
 
@@ -168,25 +177,41 @@ class mk_mpnn_model(design_model):
            'residue_idx': residue_idx,
            'chain_idx': chain_idx,
            'temperature': temperature}
-
       I.update(kwargs)
+
+      # define decoding order
+      if "decoding_order" in I:
+        if I["decoding_order"].ndim == 1:
+          I["decoding_order"] = I["decoding_order"][:,None]
+      else:
+        key, sub_key = jax.random.split(key)
+        randn = jax.random.uniform(sub_key, (I["X"].shape[0],))    
+        randn = jnp.where(I["mask"], randn, randn+1)
+        if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)        
+        if tied_lengths:
+          copies = I["lengths"].shape[0]
+          decoding_order_tied = randn.reshape(copies,-1).mean(0).argsort()
+          I["decoding_order"] = jnp.arange(I["X"].shape[0]).reshape(copies,-1).T[decoding_order_tied]
+        else:
+          I["decoding_order"] = randn.argsort()[:,None]
+
       for k in ["S","bias"]:
         if k in I: I[k] = _aa_convert(I[k])
       
-      O = self._model.sample(self._model.params, key, I, tied_lengths)
+      O = self._model.sample(self._model.params, key, I)
       O["S"] = _aa_convert(O["S"], rev=True)
       O["logits"] = _aa_convert(O["logits"], rev=True)
       return O
 
     self._score = jax.jit(_score)
-    self._sample = jax.jit(_sample, static_argnames="tied_lengths")
+    self._sample = jax.jit(_sample, static_argnames=["tied_lengths"])
 
-    def _sample_parallel(key, inputs, temp, tied_lengths=False):
+    def _sample_parallel(key, inputs, temperature, tied_lengths=False):
       inputs.pop("temperature",None)
       inputs.pop("key",None)
-      return _sample(**inputs, key=key, temperature=temp, tied_lengths=tied_lengths)
+      return _sample(**inputs, key=key, temperature=temperature, tied_lengths=tied_lengths)
     fn = jax.vmap(_sample_parallel, in_axes=[0,None,None,None])
-    self._sample_parallel = jax.jit(fn, static_argnames="tied_lengths")
+    self._sample_parallel = jax.jit(fn, static_argnames=["tied_lengths"])
 
     def _rescore_parallel(key, inputs, S, decoding_order):
       inputs.pop("S",None)

@@ -164,9 +164,9 @@ class RunModel:
       return model.score(inputs)
     self.score = hk.transform(_forward_score).apply
 
-    def _forward_sample(inputs, tied_lengths=False):
+    def _forward_sample(inputs):
       model = ProteinMPNN(**self.config)
-      return model.sample(inputs, tied_lengths=tied_lengths)
+      return model.sample(inputs)
     self.sample = hk.transform(_forward_sample).apply
 
   def load_params(self, path):

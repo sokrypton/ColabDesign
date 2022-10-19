@@ -47,6 +47,7 @@ mpnn_model.prep_inputs(pdb_filename="tmp.pdb", rm_aa="C")
 ```
 #### I want more control!
 You can modify the bias matrix directly! The bias matrix is a (length, 21) matrix. Using large negative/positive values in the bias matrix is how we prevent certain amino acids from being sampled (rm_aa) and fix certain positions (fix_pos). For reference, the alphabet used: `ARNDCQEGHILKMFPSTWYV`.
+
 For example, to add alanine bias to the first position, do:
 ```python
 from colabdesign.mpnn.model import aa_order

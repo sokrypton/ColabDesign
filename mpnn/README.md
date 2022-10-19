@@ -51,6 +51,7 @@ You can modify the bias matrix directly! The bias matrix is a (length, 21) matri
 For example, to add alanine bias to the first position, do:
 ```python
 from colabdesign.mpnn.model import aa_order
+mpnn_model.prep_inputs(pdb_filename="tmp.pdb")
 mpnn_model._inputs["bias"][0,aa_order["A"]] = 1.0
 ```
 For example, if you want to add a hydrophilic bias to all positions, you can do:

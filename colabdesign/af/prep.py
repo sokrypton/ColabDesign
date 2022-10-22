@@ -69,7 +69,7 @@ class _af_prep:
     res_idx = self._pdb["residue_index"]
     
     # get [pos]itions of interests    
-    if fix_pos is not None:
+    if fix_pos is not None and fix_pos != "":
       self._pos_info = prep_pos(fix_pos, **self._pdb["idx"])
       self.opt["fix_pos"] = self._pos_info["pos"]
 
@@ -336,7 +336,7 @@ class _af_prep:
       self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])      
       self._wt_aatype_sub = self._wt_aatype
       
-    elif fix_pos is not None:
+    elif fix_pos is not None and fix_pos != "":
       sub_fix_pos = []
       sub_i = []
       pos = self.opt["pos"].tolist()

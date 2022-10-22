@@ -25,7 +25,7 @@ class mpnn_score:
     h_EX_encoder = cat_neighbors_nodes(jnp.zeros_like(h_V), h_E, E_idx)
     h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
 
-    if I.get("S",None) is None:
+    if "S" not in I:
       ##########################################
       # unconditional_probs
       ##########################################      

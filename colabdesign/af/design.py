@@ -245,7 +245,7 @@ class _af_design:
       if best_metric is None:
         best_metric = self._args["best_metric"]
       metric = float(aux["log"][best_metric])
-      if self._args["best_metric"] in ["plddt","ptm","i_ptm","seqid"] or metric_higher_better:
+      if self._args["best_metric"] in ["plddt","ptm","i_ptm","seqid","composite"] or metric_higher_better:
         metric = -metric
       if "metric" not in self._tmp["best"] or metric < self._tmp["best"]["metric"]:
         self._tmp["best"]["aux"] = aux

@@ -46,9 +46,18 @@ mpnn_model.prep_inputs(pdb_filename="tmp.pdb", chain="A,B", fix_pos="A")
 mpnn_model.prep_inputs(pdb_filename="tmp.pdb", rm_aa="C")
 ```
 #### I want more control!
-You can modify the bias matrix directly! The bias matrix is a (length, 20) matrix. Using large negative/positive values in the bias matrix is how we prevent certain amino acids from being sampled (rm_aa) and fix certain positions (fix_pos). For reference, the alphabet used: `ARNDCQEGHILKMFPSTWYV`.
+You can modify the bias matrix directly! The bias matrix is a (length, 21) matrix. Using large negative/positive values in the bias matrix is how we prevent certain amino acids from being sampled (rm_aa) and fix certain positions (fix_pos). For reference, the alphabet used: `ARNDCQEGHILKMFPSTWYV`.
+
+For example, to add alanine bias to the first position, do:
 ```python
-mpnn_model._inputs["bias"][:,0] = 1e8
+from colabdesign.mpnn.model import aa_order
+mpnn_model.prep_inputs(pdb_filename="tmp.pdb")
+mpnn_model._inputs["bias"][0,aa_order["A"]] = 1.0
+```
+For example, if you want to add a hydrophilic bias to all positions, you can do:
+```python
+for k in "DEHKNQRSTWY":
+  mpnn_model._inputs["bias"][:,aa_order[k]] = 1.39
 ```
 #### How about tied sampling for homo-oligomeric complexes?
 ```python
@@ -70,7 +79,7 @@ for n,S in enumerate(samples["S"]):
 ```
 
 ### Contributors:
-- Sergey Ovchinnikov [@sokrypton](https://github.com/sokrypton)
 - Shihao Feng [@JeffSHF](https://github.com/JeffSHF)
+- Sergey Ovchinnikov [@sokrypton](https://github.com/sokrypton)
 - Simon Kozlov [@sim0nsays](https://github.com/sim0nsays)
 - Justas Dauparas [@dauparas](https://github.com/dauparas) - [original pytorch code](https://github.com/dauparas/ProteinMPNN)

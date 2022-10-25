@@ -24,6 +24,7 @@ MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
 def pdb_to_string(pdb_file):
   modres = {**MODRES}
   lines = []
+  seen = []
   for line in open(pdb_file,"rb"):
     line = line.decode("utf-8","ignore").rstrip()
     if line[:6] == "MODRES":
@@ -36,7 +37,17 @@ def pdb_to_string(pdb_file):
       if k in modres:
         line = "ATOM  "+line[6:17]+modres[k]+line[20:]
     if line[:4] == "ATOM":
-      lines.append(line)
+      chain = line[21:22]
+      atom = line[12:12+4].strip()
+      resi = line[17:17+3]
+      resn = line[22:22+5].strip()
+      if resn[-1].isalpha(): # alternative atom
+        resn = resn[:-1]
+        line = line[:26]+" "+line[27:]
+      key = f"{chain}_{resn}_{resi}_{atom}"
+      if key not in seen: # skip alternative placements
+        lines.append(line)
+        seen.append(key)
   return "\n".join(lines)
 
 def renum_pdb_str(pdb_str, Ls=None, renum=True, offset=1):

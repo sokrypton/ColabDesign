@@ -12,15 +12,16 @@ from .modules import RunModel
 
 from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import Key, copy_dict
-from colabdesign.shared.model import design_model, soft_seq
 
 # borrow some stuff from AfDesign
-from colabdesign.af.prep import prep_pdb, order_aa
+from colabdesign.af.prep import prep_pdb
 from colabdesign.af.alphafold.common import protein, residue_constants
+aa_order = residue_constants.restype_order
+order_aa = {b:a for a,b in aa_order.items()}
 
 from scipy.special import softmax, log_softmax
 
-class mk_mpnn_model(design_model):
+class mk_mpnn_model():
   def __init__(self, model_name="v_48_020",
                backbone_noise=0.0, dropout=0.0,
                seed=None, verbose=False):
@@ -43,7 +44,6 @@ class mk_mpnn_model(design_model):
     self.set_seed(seed)
 
     self._num = 1
-    self._params = {}
     self._inputs = {}
     self._tied_lengths = False
 
@@ -56,21 +56,25 @@ class mk_mpnn_model(design_model):
     atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])
     chain_idx = np.concatenate([[n]*l for n,l in enumerate(pdb["lengths"])])
     self._lengths = pdb["lengths"]
-    self._len = sum(self._lengths)
+    L = sum(self._lengths)
 
     self._inputs = {"X":           pdb["batch"]["all_atom_positions"][:,atom_idx],
                     "mask":        pdb["batch"]["all_atom_mask"][:,1],
                     "S":           pdb["batch"]["aatype"],
                     "residue_idx": pdb["residue_index"],
                     "chain_idx":   chain_idx,
-                    "lengths":     np.array(self._lengths)}
+                    "lengths":     np.array(self._lengths),
+                    "bias":        np.zeros((L,20))}
     
-    self.set_seq(self._inputs["S"], rm_aa=rm_aa)
+
+    if rm_aa is not None:
+      for aa in rm_aa.split(","):
+        self._inputs["bias"][...,aa_order[aa]] -= 1e6
     
     if fix_pos is not None:
       p = prep_pos(fix_pos, **pdb["idx"])["pos"]
       if inverse:
-        p = np.delete(np.arange(self._len),p)
+        p = np.delete(np.arange(L),p)
       self._inputs["fix_pos"] = p
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
     
@@ -78,6 +82,9 @@ class mk_mpnn_model(design_model):
       assert min(self._lengths) == max(self._lengths)
       self._tied_lengths = True
       self._len = self._lengths[0]
+    else:
+      self._tied_lengths = False    
+      self._len = sum(self._lengths)  
 
     self.pdb = pdb
     
@@ -112,6 +119,8 @@ class mk_mpnn_model(design_model):
     if af._args["homooligomer"]:
       assert min(self._lengths) == max(self._lengths)
       self._tied_lengths = True
+    else:
+      self._tied_lengths = False
 
   def sample(self, num=1, batch=1, temperature=0.1, rescore=False, **kwargs):
     '''sample sequence'''
@@ -140,9 +149,10 @@ class mk_mpnn_model(design_model):
     ''' one_hot to amino acid sequence '''
     def split_seq(seq):
       if len(self._lengths) > 1:
-        return "".join(np.insert(list(seq),np.cumsum(self._lengths[:-1]),"/"))
-      else:
-        return seq
+        seq = "".join(np.insert(list(seq),np.cumsum(self._lengths[:-1]),"/"))
+        if self._tied_lengths:
+          seq = seq.split("/")[0]
+      return seq
     seqs, S = [], O["S"].argmax(-1)
     if S.ndim == 1: S = [S]
     for s in S:
@@ -177,8 +187,9 @@ class mk_mpnn_model(design_model):
     '''score sequence'''
     I = copy_dict(self._inputs)
     if seq is not None:
-      self.set_seq(seq)
-      I["S"] = self._params["seq"][0]
+      if self._tied_lengths and len(seq) == self._lengths[0]:
+        seq = seq * len(self._lengths)
+      I["S"] = np.array([aa_order.get(aa,-1) for aa in seq])
     I.update(kwargs)
     key = I.pop("key",self.key())
     O = jax.tree_map(np.array, self._score(**I, key=key))
@@ -190,8 +201,13 @@ class mk_mpnn_model(design_model):
     return self.score(**kwargs)["logits"]
 
   def get_unconditional_logits(self, **kwargs):
-    kwargs["decoding_order"] = np.full(self._len,-1)
+    L = self._inputs["X"].shape[0]
+    kwargs["ar_mask"] = np.zeros((L,L))
     return self.score(**kwargs)["logits"]
+
+  def set_seed(self, seed=None):
+    np.random.seed(seed=seed)
+    self.key = Key(seed=seed).get
 
   def _setup(self):
     def _score(X, mask, residue_idx, chain_idx, key, **kwargs):

@@ -7,5 +7,5 @@
 
 ### Contributors:
 - Shihao Feng [@JeffSHF](https://github.com/JeffSHF)
-- Weikun.Wu [@guyujun](https://github.com/guyujun) (from [Levinthal.bio](http://levinthal.bio/en/))
+- Lin Xu
 - Facebook Research - [original Pytorch code](https://github.com/facebookresearch/esm)

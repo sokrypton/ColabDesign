@@ -30,7 +30,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                use_multimer=False, use_mlm=False,            
                pre_callback=None, post_callback=None,
                pre_design_callback=None, post_design_callback=None,
-               loss_callback=None, traj_iter=1, traj_max=500, debug=False, data_dir="."):
+               loss_callback=None, traj_iter=1, traj_max=10000, debug=False, data_dir="."):
     
     assert protocol in ["fixbb","hallucination","binder","partial"]
     assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]

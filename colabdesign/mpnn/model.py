@@ -240,7 +240,6 @@ class mk_mpnn_model():
            'residue_idx': residue_idx,
            'chain_idx': chain_idx,
            'temperature': temperature}
-
       I.update(kwargs)
 
       # define decoding order

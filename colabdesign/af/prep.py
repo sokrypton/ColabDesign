@@ -384,14 +384,17 @@ def prep_pdb(pdb_filename, chain=None,
     batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
     return {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
 
-  # go through each defined chain
-  chains = [None] if chain is None else chain.split(",")
+  if "," in chains: chains = chains.split(",")
+  if not hasattr(chain,list): chains = [chains]
+
   o,last = [],0
   residue_idx, chain_idx = [],[]
   full_lengths = []
 
+  # go through each defined chain  
   for n,chain in enumerate(chains):
-    protein_obj = protein.from_pdb_string(pdb_to_string(pdb_filename), chain_id=chain)
+    pdb_str = pdb_to_string(pdb_filename, chains=chain, models=[1])
+    protein_obj = protein.from_pdb_string(pdb_str, chain_id=chain)
     batch = {'aatype': protein_obj.aatype,
              'all_atom_positions': protein_obj.atom_positions,
              'all_atom_mask': protein_obj.atom_mask,

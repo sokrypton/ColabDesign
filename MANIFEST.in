@@ -1,1 +1,2 @@
 include colabdesign/mpnn/jax_weights/*.pkl
+include colabdesign/tr/weights/*.pkl

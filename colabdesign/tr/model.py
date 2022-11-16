@@ -9,7 +9,8 @@ from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model, soft_seq
 
-from colabdesign.tr.trrosetta import TrRosetta, get_model_params
+from .weights import __file__ as tr_path
+from .trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
 from colabdesign.af.prep import prep_pdb
@@ -17,14 +18,14 @@ from colabdesign.af.alphafold.common import protein
 
 class mk_tr_model(design_model):
   def __init__(self, protocol="fixbb", num_models=1,
-               sample_models=True, data_dir="params/tr",
+               sample_models=True, data_dir=None,
                optimizer="sgd", learning_rate=0.1,
                loss_callback=None):
     
     assert protocol in ["fixbb","hallucination","partial"]
 
     self.protocol = protocol
-    self._data_dir = "." if os.path.isfile("models/model_xaa.npy") else data_dir
+    self._data_dir = os.path.dirname(mpnn_path) if data_dir is None else data_dir
     self._loss_callback = loss_callback
     self._num = 1
 
@@ -41,7 +42,10 @@ class mk_tr_model(design_model):
 
     # setup model
     self._model = self._get_model()
-    self._model_params = [get_model_params(f"{self._data_dir}/models/model_xa{k}.npy") for k in list("abcde")]
+    self._model_params = []
+    for k in list("abcde"):
+      params_path = os.path.join(self._data_dir,f"model_xa{k}.npy")
+      self._model_params.append(get_model_params(params_path))
 
     if protocol in ["hallucination","partial"]:
       self._bkg_model = TrRosetta(bkg_model=True)
@@ -159,7 +163,7 @@ class mk_tr_model(design_model):
       self._inputs["6D_bkg"] = []
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
-        model_params = get_model_params(f"{self._data_dir}/bkgr_models/bkgr0{n}.npy")
+        model_params = get_model_params(os.path.join(self._data_dir,f"/bkgr0{n}.npy"))
         self._inputs["6D_bkg"].append(self._bkg_model(model_params, key, self._len))
       self._inputs["6D_bkg"] = jax.tree_map(lambda *x:np.stack(x).mean(0), *self._inputs["6D_bkg"])
 

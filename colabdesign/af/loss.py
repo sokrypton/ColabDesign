@@ -233,7 +233,7 @@ def get_plddt_loss(outputs, mask_1d=None):
   return mask_loss(p, mask_1d)
 
 def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
-  p = 1 - (get_pae(outputs) / 31.0)
+  p = get_pae(outputs) / 31.0
   p = (p + p.T) / 2
   L = p.shape[0]
   if mask_1d is None: mask_1d = jnp.ones(L)

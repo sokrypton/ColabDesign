@@ -7,7 +7,7 @@ import random
 import os
 import joblib
 
-from .jax_weights import __file__ as mpnn_path
+from .weights import __file__ as mpnn_path
 from .modules import RunModel
 
 from colabdesign.shared.prep import prep_pos

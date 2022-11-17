@@ -46,37 +46,47 @@ class _af_inputs:
     return seq
 
   def _update_template(self, inputs, key):
-    ''''dynamically update template features'''
-    
-    opt = inputs["opt"]
-    o = opt["template"]
+    ''''dynamically update template features''' 
+    if "batch" in  inputs:
+      opt = inputs["opt"]
+      o = opt["template"]
 
-    # enable templates
-    inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
-
-    batch = inputs["batch"]
-    if self.protocol in ["partial","fixbb","binder"]:
-
+      # enable templates
+      inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
+      batch = inputs["batch"]
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      rm_seq = jnp.broadcast_to(inputs["rm_template_seq"],L)
-      rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs["rm_template_sc"],L))
+      if "rm_template_seq" in inputs:
+        rm_seq = jnp.broadcast_to(inputs["rm_template_seq"],L)
+      else:
+        rm_seq = jnp.full(L,True)
+      if "rm_template_sc" in inputs:
+        rm_sc = jnp.broadcast_to(inputs["rm_template_sc"],L)
+      else:
+        rm_sc = jnp.full(L,True)
+      rm_sc  = jnp.where(rm_seq,True,rm_sc)
 
       # aatype = is used to define template's CB coordinates (CA in case of glycine)
       # template_aatype = is used as template's sequence
       aatype = jnp.where(rm_seq,0,batch["aatype"])
       template_aatype = jnp.where(rm_seq,21,batch["aatype"])
-                    
-      # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-      cb, cb_mask = model.modules.pseudo_beta_fn(aatype, batch["all_atom_positions"], batch["all_atom_mask"])
-      
+                          
       # define template features
-      template_feats = {"template_aatype": template_aatype,
-                        "template_all_atom_positions": batch["all_atom_positions"],
-                        "template_all_atom_mask": batch["all_atom_mask"],
-                        "template_pseudo_beta": cb,
-                        "template_pseudo_beta_mask": cb_mask}
+      template_feats = dict(template_aatype=template_aatype)
+
+      if "template_dgram" in batch:
+        # use dgram from batch if provided
+        template_feats["template_dgram"] = batch["dgram"]
+        template_feats["template_pseudo_beta_mask"] = batch["dgram"].sum(-1) > 0
+      
+      elif "all_atom_positions" in batch:
+        # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
+        cb, cb_mask = model.modules.pseudo_beta_fn(aatype, batch["all_atom_positions"], batch["all_atom_mask"])
+        template_feats.update({"template_pseudo_beta": cb,
+                               "template_pseudo_beta_mask": cb_mask,
+                               "template_all_atom_positions": batch["all_atom_positions"],
+                               "template_all_atom_mask": batch["all_atom_mask"]})
 
       # inject template features
       if self.protocol == "partial":
@@ -87,23 +97,26 @@ class _af_inputs:
 
       for k,v in template_feats.items():
         if self.protocol == "partial":
-          inputs[k] = inputs[k].at[0,pos].set(v)
+          if k in ["template_dgram"]:
+            inputs[k] = inputs[k].at[0,pos[:,None],pos[None,:]].set(v)
+          else:
+            inputs[k] = inputs[k].at[0,pos].set(v)
         else:
           inputs[k] = inputs[k].at[0].set(v)
         
         # remove sidechains (mask anything beyond CB)
-        if k == "template_all_atom_mask":
+        if k in ["template_all_atom_mask"]:
           if self.protocol == "partial":
             inputs[k] = inputs[k].at[:,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,pos,5:]))
           else:
             inputs[k] = inputs[k].at[:,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,:,5:]))
 
-    # dropout template input features
-    L = inputs["template_aatype"].shape[1]
-    n = self._target_len if self.protocol == "binder" else 0
-    pos_mask = jax.random.bernoulli(key, 1-o["dropout"],(L,))
-    inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
-    inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
+      # dropout template input features
+      L = inputs["template_aatype"].shape[1]
+      n = self._target_len if self.protocol == "binder" else 0
+      pos_mask = jax.random.bernoulli(key, 1-o["dropout"],(L,))
+      inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
+      inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   '''update the sequence features'''

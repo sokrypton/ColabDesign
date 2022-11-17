@@ -10,15 +10,6 @@ For original version implemented in keras see: https://github.com/gjoni/trDesign
 ### install
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.0
-
-# download weights
-if [ ! -d params/tr ]; then
-  mkdir -p params/tr
-  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
-  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
-  unzip -qqo models.zip -d params/tr/
-  unzip -qqo bkgr_models.zip -d params/tr/
-fi
 ```
 
 ### example

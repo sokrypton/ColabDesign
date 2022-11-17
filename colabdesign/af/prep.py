@@ -384,8 +384,10 @@ def prep_pdb(pdb_filename, chain=None,
     batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
     return {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
 
-  if "," in chains: chains = chains.split(",")
-  if not hasattr(chain,list): chains = [chains]
+  if isinstance(chain,str) and "," in chain:
+    chains = chain.split(",")
+  elif not isinstance(chain,list):
+    chains = [chain]
 
   o,last = [],0
   residue_idx, chain_idx = [],[]

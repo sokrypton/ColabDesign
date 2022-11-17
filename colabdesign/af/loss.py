@@ -229,14 +229,12 @@ def get_exp_res_loss(outputs, mask_1d=None):
   return mask_loss(p, mask_1d)
 
 def get_plddt_loss(outputs, mask_1d=None):
-  p = jax.nn.softmax(outputs["predicted_lddt"]["logits"])
-  p = (p * jnp.arange(p.shape[-1])[::-1]).mean(-1)
+  p = 1 - get_plddt(outputs)
   return mask_loss(p, mask_1d)
 
 def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
-  p = jax.nn.softmax(outputs["predicted_aligned_error"]["logits"])
-  p = (p * jnp.arange(p.shape[-1])).mean(-1)
-  p = (p + p.T)/2
+  p = 1 - (get_pae(outputs) / 31.0)
+  p = (p + p.T) / 2
   L = p.shape[0]
   if mask_1d is None: mask_1d = jnp.ones(L)
   if mask_1b is None: mask_1b = jnp.ones(L)

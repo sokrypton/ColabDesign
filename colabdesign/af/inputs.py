@@ -71,9 +71,12 @@ class _af_inputs:
       template_feats = {"template_aatype": template_aatype,
                         "template_all_atom_positions": batch["all_atom_positions"],
                         "template_all_atom_mask": batch["all_atom_mask"]}
+      
       if "template_dgram" in batch:
+        # use dgram from batch if provided
         template_feats["template_dgram"] = batch["template_dgram"]
         template_feats["template_pseudo_beta_mask"] = batch["template_dgram"].sum(-1) > 0
+      
       else:
         # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
         cb, cb_mask = model.modules.pseudo_beta_fn(aatype, batch["all_atom_positions"], batch["all_atom_mask"])

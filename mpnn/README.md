@@ -57,7 +57,7 @@ mpnn_model._inputs["bias"][0,aa_order["A"]] = 1.0
 For example, if you want to add a hydrophilic bias to all positions, you can do:
 ```python
 for k in "DEHKNQRSTWY":
-  mpnn_model._inputs["bias"][:,aa_order[k]] = 1.39
+  mpnn_model._inputs["bias"][:,aa_order[k]] += 1.39
 ```
 #### How about tied sampling for homo-oligomeric complexes?
 ```python

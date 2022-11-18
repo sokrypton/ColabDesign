@@ -47,46 +47,39 @@ class _af_inputs:
 
   def _update_template(self, inputs, key):
     ''''dynamically update template features''' 
-    if "batch" in  inputs:
-      opt = inputs["opt"]
-      o = opt["template"]
+    if "batch" in inputs:
+      batch, opt = inputs["batch"], inputs["opt"]
 
       # enable templates
-      inputs["template_mask"] = inputs["template_mask"].at[:].set(1)
-      batch = inputs["batch"]
+      inputs["template_mask"] = inputs["template_mask"].at[0].set(1)
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      if "rm_template_seq" in inputs:
-        rm_seq = jnp.broadcast_to(inputs["rm_template_seq"],L)
-      else:
-        rm_seq = jnp.full(L,True)
-      if "rm_template_sc" in inputs:
-        rm_sc = jnp.broadcast_to(inputs["rm_template_sc"],L)
-      else:
-        rm_sc = jnp.full(L,True)
-      rm_sc  = jnp.where(rm_seq,True,rm_sc)
-
-      # aatype = is used to define template's CB coordinates (CA in case of glycine)
-      # template_aatype = is used as template's sequence
-      aatype = jnp.where(rm_seq,0,batch["aatype"])
-      template_aatype = jnp.where(rm_seq,21,batch["aatype"])
+      rm_seq = jnp.broadcast_to(inputs.get("rm_template_seq",True),L)
+      rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs.get("rm_template_sc",True),L))
                           
       # define template features
-      template_feats = dict(template_aatype=template_aatype)
+      template_feats = {"template_aatype":jnp.where(rm_seq,21,batch["aatype"])}
 
       if "template_dgram" in batch:
         # use dgram from batch if provided
-        template_feats["template_dgram"] = batch["dgram"]
-        template_feats["template_pseudo_beta_mask"] = batch["dgram"].sum(-1) > 0
+        mask = batch["dgram"].sum(-1) > 0
+        atoms = (residue_constants.atom_order[a] for a in ['N','CA','C'])
+        template_feats.update({"template_dgram":batch["dgram"],
+                               "template_pseudo_beta_mask":mask,
+                               "template_all_atom_mask": jnp.zeros((L,37)).at[:,atoms].set(mask[:,None])})
       
       elif "all_atom_positions" in batch:
         # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-        cb, cb_mask = model.modules.pseudo_beta_fn(aatype, batch["all_atom_positions"], batch["all_atom_mask"])
-        template_feats.update({"template_pseudo_beta": cb,
-                               "template_pseudo_beta_mask": cb_mask,
+        # aatype = is used to define template's CB coordinates (CA in case of glycine)
+        cb, cb_mask = model.modules.pseudo_beta_fn(
+          jnp.where(rm_seq,0,batch["aatype"]),
+          batch["all_atom_positions"],
+          batch["all_atom_mask"])
+        template_feats.update({"template_pseudo_beta":        cb,
+                               "template_pseudo_beta_mask":   cb_mask,
                                "template_all_atom_positions": batch["all_atom_positions"],
-                               "template_all_atom_mask": batch["all_atom_mask"]})
+                               "template_all_atom_mask":      batch["all_atom_mask"]})
 
       # inject template features
       if self.protocol == "partial":
@@ -114,7 +107,7 @@ class _af_inputs:
       # dropout template input features
       L = inputs["template_aatype"].shape[1]
       n = self._target_len if self.protocol == "binder" else 0
-      pos_mask = jax.random.bernoulli(key, 1-o["dropout"],(L,))
+      pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
       inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
       inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
 

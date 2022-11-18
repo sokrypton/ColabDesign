@@ -61,14 +61,15 @@ class _af_inputs:
       # define template features
       template_feats = {"template_aatype":jnp.where(rm_seq,21,batch["aatype"])}
 
-      if "template_dgram" in batch:
+      if "dgram" in batch:
         # use dgram from batch if provided
-        mask = batch["dgram"].sum(-1) > 0
-        atoms = (residue_constants.atom_order[a] for a in ['N','CA','C'])
+        mask = batch["dgram"].sum(-1).sum(-1) > 0
+        all_atom_mask = jnp.zeros((L,37)).at[:,:3].set(mask[:,None])
         template_feats.update({"template_dgram":batch["dgram"],
                                "template_pseudo_beta_mask":mask,
-                               "template_all_atom_mask": jnp.zeros((L,37)).at[:,atoms].set(mask[:,None])})
-      
+                               "template_all_atom_mask": all_atom_mask})
+        nT,nL = inputs["template_aatype"].shape
+        inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
       elif "all_atom_positions" in batch:
         # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
         # aatype = is used to define template's CB coordinates (CA in case of glycine)

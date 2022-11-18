@@ -1,7 +1,7 @@
 # MSA TRANSFORMER in jax!
 **WARNING** This code is work-in-progress!
 
-<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.0/esm_msa/example.ipynb">
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.1/esm_msa/example.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 

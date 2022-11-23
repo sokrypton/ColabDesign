@@ -22,6 +22,8 @@
 - **15Oct2022** - v1.1.0
   - integrating proteinMPNN!
   - bugfix for sidechain loss
+- **17Nov2022**
+  - updating pae/plddt loss calculation to be consistent with pae/plddt outputs  
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.0

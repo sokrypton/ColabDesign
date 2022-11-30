@@ -255,8 +255,9 @@ class mk_tr_model(design_model):
     self._k += 1
 
     # save results
-    if save_best and "aux" in self._tmp["best"] and self.aux["loss"] < self._tmp["best"]["aux"]["loss"]:
-      self._tmp["best"]["aux"] = self.aux
+    if save_best:
+      if "aux" not in self._tmp["best"] or self.aux["loss"] < self._tmp["best"]["aux"]["loss"]:
+        self._tmp["best"]["aux"] = self.aux
 
     # print
     if verbose and (self._k % verbose) == 0:

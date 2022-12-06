@@ -13,7 +13,8 @@ def clear_mem():
 
   # clear ram (CPU)
   # https://github.com/google/jax/issues/10828
-  for module_name, module in sys.modules.items():
+  modules = {k:v for k,v in sys.modules.items()}
+  for module_name, module in modules.items():
     if module_name.startswith("jax"):
       if module_name not in ["jax.interpreters.partial_eval"]:
         for obj_name in dir(module):

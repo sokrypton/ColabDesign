@@ -21,33 +21,48 @@ MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
           'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
           'CSD':'CYS','SEC':'CYS'}
 
-def pdb_to_string(pdb_file):
+def pdb_to_string(pdb_file, chains=None, models=None):
+  '''read pdb file and return as string'''
+
+  if chains is not None:
+    if "," in chains: chains = chains.split(",")
+    if not isinstance(chains,list): chains = [chains]
+  if models is not None:
+    if not isinstance(models,list): models = [models]
+
   modres = {**MODRES}
   lines = []
   seen = []
+  model = 1
   for line in open(pdb_file,"rb"):
     line = line.decode("utf-8","ignore").rstrip()
-    if line[:6] == "MODRES":
-      k = line[12:15]
-      v = line[24:27]
-      if k not in modres and v in residue_constants.restype_3to1:
-        modres[k] = v
-    if line[:6] == "HETATM":
-      k = line[17:20]
-      if k in modres:
-        line = "ATOM  "+line[6:17]+modres[k]+line[20:]
-    if line[:4] == "ATOM":
-      chain = line[21:22]
-      atom = line[12:12+4].strip()
-      resi = line[17:17+3]
-      resn = line[22:22+5].strip()
-      if resn[-1].isalpha(): # alternative atom
-        resn = resn[:-1]
-        line = line[:26]+" "+line[27:]
-      key = f"{chain}_{resn}_{resi}_{atom}"
-      if key not in seen: # skip alternative placements
+    if line[:5] == "MODEL":
+      model = int(line[5:])
+    if models is None or model in models:
+      if line[:6] == "MODRES":
+        k = line[12:15]
+        v = line[24:27]
+        if k not in modres and v in residue_constants.restype_3to1:
+          modres[k] = v
+      if line[:6] == "HETATM":
+        k = line[17:20]
+        if k in modres:
+          line = "ATOM  "+line[6:17]+modres[k]+line[20:]
+      if line[:4] == "ATOM":
+        chain = line[21:22]
+        if chains is None or chain in chains:
+          atom = line[12:12+4].strip()
+          resi = line[17:17+3]
+          resn = line[22:22+5].strip()
+          if resn[-1].isalpha(): # alternative atom
+            resn = resn[:-1]
+            line = line[:26]+" "+line[27:]
+          key = f"{model}_{chain}_{resn}_{resi}_{atom}"
+          if key not in seen: # skip alternative placements
+            lines.append(line)
+            seen.append(key)
+      if line[:5] == "MODEL" or line[:3] == "TER" or line[:6] == "ENDMDL":
         lines.append(line)
-        seen.append(key)
   return "\n".join(lines)
 
 def renum_pdb_str(pdb_str, Ls=None, renum=True, offset=1):

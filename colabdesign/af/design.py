@@ -501,7 +501,7 @@ class _af_design:
     verbose = kwargs.pop("verbose",1)
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
 
-    # initalize
+    # initialize
     plddt, best_loss, current_loss = None, np.inf, np.inf 
     current_seq = self._params["seq"].argmax(-1)
 

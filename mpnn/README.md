@@ -1,13 +1,13 @@
 # ProteinMPNN in jax!
 **WARNING** This code is work-in-progress!
 
-<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.0/mpnn/examples/proteinmpnn_in_jax.ipynb">
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.1/mpnn/examples/proteinmpnn_in_jax.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
 #### install
 ```bash
-pip -q install git+https://github.com/sokrypton/ColabDesign.git@v1.1.0
+pip -q install git+https://github.com/sokrypton/ColabDesign.git@v1.1.1
 ```
 #### run
 ```python

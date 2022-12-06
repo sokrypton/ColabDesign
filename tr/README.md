@@ -3,22 +3,13 @@ Work in Progress...
 For original version implemented in keras see: https://github.com/gjoni/trDesign/tree/master/02-GD
 
 ### Google Colab
-<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.0/tr/design.ipynb">
+<a href="https://colab.research.google.com/github/sokrypton/ColabDesign/blob/v1.1.1/tr/design.ipynb">
   <img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/>
 </a>
 
 ### install
 ```bash
-pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.0
-
-# download weights
-if [ ! -d params/tr ]; then
-  mkdir -p params/tr
-  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/models.zip
-  wget -qnc https://files.ipd.uw.edu/krypton/TrRosetta/bkgr_models.zip
-  unzip -qqo models.zip -d params/tr/
-  unzip -qqo bkgr_models.zip -d params/tr/
-fi
+pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.1
 ```
 
 ### example

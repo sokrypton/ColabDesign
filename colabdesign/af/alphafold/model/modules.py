@@ -1613,14 +1613,14 @@ class SingleTemplateEmbedding(hk.Module):
     num_res = batch['template_aatype'].shape[0]
     num_channels = (self.config.template_pair_stack
                     .triangle_attention_ending_node.value_dim)
-    template_mask = batch['template_pseudo_beta_mask']
-    template_mask_2d = template_mask[:, None] * template_mask[None, :]
-    template_mask_2d = template_mask_2d * multichain_mask_2d
-    template_mask_2d = template_mask_2d.astype(dtype)
 
     if "template_dgram" in batch:
       template_dgram = batch["template_dgram"]
+      template_mask_2d = batch["template_dgram"].sum(-1)
+
     else:
+      template_mask = batch['template_pseudo_beta_mask']
+      template_mask_2d = template_mask[:, None] * template_mask[None, :]
       if self.config.backprop_dgram:
         template_dgram = dgram_from_positions_soft(batch['template_pseudo_beta'],
                                                    temp=self.config.backprop_dgram_temp,
@@ -1628,6 +1628,10 @@ class SingleTemplateEmbedding(hk.Module):
       else:
         template_dgram = dgram_from_positions(batch['template_pseudo_beta'],
                                               **self.config.dgram_features)
+
+    template_mask_2d = template_mask_2d * multichain_mask_2d
+    template_mask_2d = template_mask_2d.astype(dtype)
+
     template_dgram *= template_mask_2d[..., None]
     template_dgram = template_dgram.astype(dtype)
     to_concat = [template_dgram, template_mask_2d[:, :, None]]
@@ -1637,33 +1641,38 @@ class SingleTemplateEmbedding(hk.Module):
     to_concat.append(jnp.tile(aatype[None, :, :], [num_res, 1, 1]))
     to_concat.append(jnp.tile(aatype[:, None, :], [1, num_res, 1]))
 
-    # Backbone affine mask: whether the residue has C, CA, N
-    # (the template mask defined above only considers pseudo CB).
-    n, ca, c = [residue_constants.atom_order[a] for a in ('N', 'CA', 'C')]
-    template_mask = (
-        batch['template_all_atom_mask'][..., n] *
-        batch['template_all_atom_mask'][..., ca] *
-        batch['template_all_atom_mask'][..., c])
-    template_mask_2d = template_mask[:, None] * template_mask[None, :]
-
-    # compute unit_vector (not used by default)
-    if self.config.use_template_unit_vector:
-      rot, trans = quat_affine.make_transform_from_reference(
-          n_xyz=batch['template_all_atom_positions'][:, n],
-          ca_xyz=batch['template_all_atom_positions'][:, ca],
-          c_xyz=batch['template_all_atom_positions'][:, c])
-      affines = quat_affine.QuatAffine(
-          quaternion=quat_affine.rot_to_quat(rot, unstack_inputs=True),
-          translation=trans,
-          rotation=rot,
-          unstack_inputs=True)
-      points = [jnp.expand_dims(x, axis=-2) for x in affines.translation]
-      affine_vec = affines.invert_point(points, extra_dims=1)
-      inv_distance_scalar = jax.lax.rsqrt(1e-6 + sum([jnp.square(x) for x in affine_vec]))
-      inv_distance_scalar *= template_mask_2d.astype(inv_distance_scalar.dtype)
-      unit_vector = [(x * inv_distance_scalar)[..., None] for x in affine_vec]
-    else:      
+    if "template_dgram" in batch:
       unit_vector = [jnp.zeros((num_res,num_res,1))] * 3
+
+    else:
+      # Backbone affine mask: whether the residue has C, CA, N
+      # (the template mask defined above only considers pseudo CB).
+      n, ca, c = [residue_constants.atom_order[a] for a in ('N', 'CA', 'C')]
+      template_mask = (
+          batch['template_all_atom_mask'][..., n] *
+          batch['template_all_atom_mask'][..., ca] *
+          batch['template_all_atom_mask'][..., c])
+      template_mask_2d = template_mask[:, None] * template_mask[None, :]
+      template_mask_2d = template_mask_2d * multichain_mask_2d
+
+      # compute unit_vector (not used by default)
+      if self.config.use_template_unit_vector:
+        rot, trans = quat_affine.make_transform_from_reference(
+            n_xyz=batch['template_all_atom_positions'][:, n],
+            ca_xyz=batch['template_all_atom_positions'][:, ca],
+            c_xyz=batch['template_all_atom_positions'][:, c])
+        affines = quat_affine.QuatAffine(
+            quaternion=quat_affine.rot_to_quat(rot, unstack_inputs=True),
+            translation=trans,
+            rotation=rot,
+            unstack_inputs=True)
+        points = [jnp.expand_dims(x, axis=-2) for x in affines.translation]
+        affine_vec = affines.invert_point(points, extra_dims=1)
+        inv_distance_scalar = jax.lax.rsqrt(1e-6 + sum([jnp.square(x) for x in affine_vec]))
+        inv_distance_scalar *= template_mask_2d.astype(inv_distance_scalar.dtype)
+        unit_vector = [(x * inv_distance_scalar)[..., None] for x in affine_vec]
+      else:      
+        unit_vector = [jnp.zeros((num_res,num_res,1))] * 3
       
     unit_vector = [x.astype(dtype) for x in unit_vector]
     to_concat.extend(unit_vector)

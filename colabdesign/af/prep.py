@@ -151,10 +151,12 @@ class _af_prep:
       if repeat:
         offset = 1
         self._lengths = [self._len * copies]
+        self._args["repeat"] = True
       else:
         offset = 50
         self._lengths = [self._len] * copies
         self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
+        self._args["homooligomer"] = True
       res_idx = repeat_idx(np.arange(length), copies, offset=offset)
     else:
       self._lengths = [self._len]

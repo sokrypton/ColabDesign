@@ -104,6 +104,9 @@ class mk_mpnn_model():
     self._inputs["chain_idx"]   = af._inputs["asym_id"]
     self._inputs["bias"]        = af._inputs["bias"]
     self._inputs["lengths"]     = np.array(self._lengths)
+    
+    if "offset" in af._inputs:
+      self._inputs["offset"] = af._inputs["offset"]
 
     if "batch" in af._inputs:
       atom_idx = tuple(residue_constants.atom_order[k] for k in ["N","CA","C","O"])

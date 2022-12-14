@@ -67,7 +67,7 @@ class _af_inputs:
         nT,nL = inputs["template_aatype"].shape
         inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
         
-      elif "all_atom_positions" in batch:
+      if "all_atom_positions" in batch:
         # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
         # aatype = is used to define template's CB coordinates (CA in case of glycine)
         cb, cb_mask = model.modules.pseudo_beta_fn(
@@ -106,8 +106,13 @@ class _af_inputs:
       L = inputs["template_aatype"].shape[1]
       n = self._target_len if self.protocol == "binder" else 0
       pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
-      inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:].multiply(pos_mask[n:,None])
+      # if self.protocol == "partial": pos_mask = pos_mask.at[pos].set(0)
+      inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:,:].multiply(pos_mask[n:,None])
       inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
+      if "template_dgram" in inputs:
+        pos_mask_2d = pos_mask[:,None] * pos_mask[None,:]
+        inputs["template_dgram"] = inputs["template_dgram"].at[:,n:,n:,:].multiply(pos_mask_2d[n:,n:,None])
+
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   '''update the sequence features'''

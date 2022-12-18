@@ -348,6 +348,9 @@ class EmbeddingsAndEvoformer(hk.Module):
           'template_all_atom_positions': batch['template_all_atom_positions'],
           'template_all_atom_mask': batch['template_all_atom_mask']
       }
+      if "template_dgram" in batch:
+        template_batch["template_dgram"] = batch["template_dgram"]
+
       # Construct a mask such that only intra-chain template features are
       # computed, since all templates are for each chain individually.
       multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
@@ -515,15 +518,10 @@ class TemplateEmbedding(hk.Module):
 
     # Embed each template separately.
     template_embedder = SingleTemplateEmbedding(self.config, self.global_config)
-    def partial_template_embedder(template_aatype,
-                                  template_all_atom_positions,
-                                  template_all_atom_mask,
-                                  unsafe_key):
+    def partial_template_embedder(template_batch, unsafe_key):
       safe_key = prng.SafeKey(unsafe_key)
       return template_embedder(query_embedding,
-                               template_aatype,
-                               template_all_atom_positions,
-                               template_all_atom_mask,
+                               template_batch,
                                padding_mask_2d,
                                multichain_mask_2d,
                                is_training,
@@ -536,13 +534,8 @@ class TemplateEmbedding(hk.Module):
     def scan_fn(carry, x):
       return carry + partial_template_embedder(*x), None
 
-    scan_init = jnp.zeros((num_res, num_res, c.num_channels),
-                          dtype=query_embedding.dtype)
-    summed_template_embeddings, _ = hk.scan(
-        scan_fn, scan_init,
-        (template_batch['template_aatype'],
-         template_batch['template_all_atom_positions'],
-         template_batch['template_all_atom_mask'], unsafe_keys))
+    scan_init = jnp.zeros((num_res, num_res, c.num_channels), dtype=query_embedding.dtype)
+    summed_template_embeddings, _ = hk.scan(scan_fn, scan_init, (template_batch, unsafe_keys))
 
     embedding = summed_template_embeddings / num_templates
     embedding = jax.nn.relu(embedding)
@@ -562,8 +555,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, template_aatype,
-               template_all_atom_positions, template_all_atom_mask,
+  def __call__(self, query_embedding, template_batch,               
                padding_mask_2d, multichain_mask_2d, is_training, dropout_scale,
                safe_key):
     """Build the single template embedding graph.
@@ -592,45 +584,56 @@ class SingleTemplateEmbedding(hk.Module):
     dtype = query_embedding.dtype
     num_channels = self.config.num_channels
 
-    def construct_input(query_embedding, template_aatype,
-                        template_all_atom_positions, template_all_atom_mask,
-                        multichain_mask_2d):
+    def construct_input(query_embedding, template_batch, multichain_mask_2d):
 
-      # Compute distogram feature for the template.
-      template_positions, pseudo_beta_mask = modules.pseudo_beta_fn(
-          template_aatype, template_all_atom_positions, template_all_atom_mask)
-      pseudo_beta_mask_2d = (pseudo_beta_mask[:, None] *
-                             pseudo_beta_mask[None, :])
-      pseudo_beta_mask_2d *= multichain_mask_2d
-      template_dgram = modules.dgram_from_positions(
-          template_positions, **self.config.dgram_features)
-      template_dgram *= pseudo_beta_mask_2d[..., None]
-      template_dgram = template_dgram.astype(dtype)
-      pseudo_beta_mask_2d = pseudo_beta_mask_2d.astype(dtype)
+      if "template_dgram" in template_batch:
+        template_dgram = template_batch["template_dgram"]
+        template_dgram *= multichain_mask_2d[...,None]
+        pseudo_beta_mask_2d = template_dgram.sum(-1)
+      
+      else:
+        # Compute distogram feature for the template.
+        template_positions, pseudo_beta_mask = modules.pseudo_beta_fn(
+            template_batch["template_aatype"],
+            template_batch["template_all_atom_positions"],
+            template_batch["template_all_atom_mask"])
+        pseudo_beta_mask_2d = (pseudo_beta_mask[:, None] *
+                               pseudo_beta_mask[None, :])
+        pseudo_beta_mask_2d *= multichain_mask_2d
+        template_dgram = modules.dgram_from_positions(
+            template_positions, **self.config.dgram_features)
+        template_dgram *= pseudo_beta_mask_2d[..., None]
+        template_dgram = template_dgram.astype(dtype)    
+        pseudo_beta_mask_2d = pseudo_beta_mask_2d.astype(dtype)
+
       to_concat = [(template_dgram, 1), (pseudo_beta_mask_2d, 0)]
-
-      aatype = jax.nn.one_hot(template_aatype, 22, axis=-1, dtype=dtype)
+      aatype = jax.nn.one_hot(template_batch["template_aatype"], 22, axis=-1, dtype=dtype)
       to_concat.append((aatype[None, :, :], 1))
       to_concat.append((aatype[:, None, :], 1))
 
-      # Compute a feature representing the normalized vector between each
-      # backbone affine - i.e. in each residues local frame, what direction are
-      # each of the other residues.
-      raw_atom_pos = template_all_atom_positions
+      if "template_dgram" in template_batch:
+        num_res = template_batch["template_aatype"].shape[0]
+        unit_vector = [jnp.zeros((num_res,num_res))] * 3
+        backbone_mask_2d = jnp.zeros((num_res,num_res))
 
-      atom_pos = geometry.Vec3Array.from_array(raw_atom_pos)
-      rigid, backbone_mask = folding_multimer.make_backbone_affine(
-          atom_pos,
-          template_all_atom_mask,
-          template_aatype)
-      points = rigid.translation
-      rigid_vec = rigid[:, None].inverse().apply_to_point(points)
-      unit_vector = rigid_vec.normalized()
-      unit_vector = [unit_vector.x, unit_vector.y, unit_vector.z]
+      else:
+        # Compute a feature representing the normalized vector between each
+        # backbone affine - i.e. in each residues local frame, what direction are
+        # each of the other residues.
+        raw_atom_pos = template_batch["template_all_atom_positions"]
+        atom_pos = geometry.Vec3Array.from_array(raw_atom_pos)
+        rigid, backbone_mask = folding_multimer.make_backbone_affine(
+            atom_pos,
+            template_batch["template_all_atom_mask"],
+            template_batch["template_aatype"])
+        points = rigid.translation
+        rigid_vec = rigid[:, None].inverse().apply_to_point(points)
+        unit_vector = rigid_vec.normalized()
+        unit_vector = [unit_vector.x, unit_vector.y, unit_vector.z]
 
-      backbone_mask_2d = backbone_mask[:, None] * backbone_mask[None, :]
-      backbone_mask_2d *= multichain_mask_2d
-      unit_vector = [x*backbone_mask_2d for x in unit_vector]
+        backbone_mask_2d = backbone_mask[:, None] * backbone_mask[None, :]
+        backbone_mask_2d *= multichain_mask_2d
+        unit_vector = [x*backbone_mask_2d for x in unit_vector]
 
       # Note that the backbone_mask takes into account C, CA and N (unlike
       # pseudo beta mask which just needs CB) so we add both masks as features.
@@ -641,8 +644,7 @@ class SingleTemplateEmbedding(hk.Module):
           axis=[-1],
           create_scale=True,
           create_offset=True,
-          name='query_embedding_norm')(
-              query_embedding)
+          name='query_embedding_norm')(query_embedding)
       # Allow the template embedder to see the query embedding.  Note this
       # contains the position relative feature, so this is how the network knows
       # which residues are next to each other.
@@ -651,7 +653,6 @@ class SingleTemplateEmbedding(hk.Module):
       act = 0
 
       for i, (x, n_input_dims) in enumerate(to_concat):
-
         act += common_modules.Linear(
             num_channels,
             num_input_dims=n_input_dims,
@@ -659,9 +660,7 @@ class SingleTemplateEmbedding(hk.Module):
             name=f'template_pair_embedding_{i}')(x)
       return act
 
-    act = construct_input(query_embedding, template_aatype,
-                          template_all_atom_positions, template_all_atom_mask,
-                          multichain_mask_2d)
+    act = construct_input(query_embedding, template_batch, multichain_mask_2d)
 
     template_iteration = TemplateEmbeddingIteration(
         c.template_pair_stack, gc, name='template_embedding_iteration')

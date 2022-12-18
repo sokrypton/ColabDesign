@@ -242,6 +242,14 @@ def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
   return mask_loss(p, mask_2d)
 
+def get_dgram_bins(outputs):
+  dgram = outputs["distogram"]["logits"]
+  if dgram.shape[-1] == 64:
+    dgram_bins = jnp.append(0,jnp.linspace(2.3125,21.6875,63))
+  if dgram.shape[-1] == 39:
+    dgram_bins = jnp.linspace(3.25,50.75,39)
+  return dgram_bins
+
 def get_con_loss(inputs, outputs, con_opt,
                  mask_1d=None, mask_1b=None, mask_2d=None):
 
@@ -260,7 +268,7 @@ def get_con_loss(inputs, outputs, con_opt,
 
   # define distogram
   dgram = outputs["distogram"]["logits"]
-  dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+  dgram_bins = get_dgram_bins(outputs)
 
   p = _get_con_loss(dgram, dgram_bins, cutoff=con_opt["cutoff"], binary=con_opt["binary"])
   if "seqsep" in con_opt:
@@ -301,7 +309,7 @@ def get_helix_loss(inputs, outputs):
 
   # define distogram
   dgram = outputs["distogram"]["logits"]
-  dgram_bins = jnp.append(0,outputs["distogram"]["bin_edges"])
+  dgram_bins = get_dgram_bins(outputs)
 
   return _get_helix_loss(dgram, dgram_bins, offset)
 

@@ -181,8 +181,8 @@ class mk_mpnn_model():
       score = -(q * log_q).sum(-1)
       seqid = np.zeros_like(score)
       
-    score = (score * mask).sum(-1) / mask.sum()
-    seqid = (seqid * mask).sum(-1) / mask.sum()
+    score = (score * mask).sum(-1) / (mask.sum() + 1e-8)
+    seqid = (seqid * mask).sum(-1) / (mask.sum() + 1e-8)
 
     return {"score":score, "seqid":seqid}
 

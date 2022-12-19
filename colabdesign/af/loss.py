@@ -208,7 +208,7 @@ def get_dgram_bins(outputs):
   if dgram.shape[-1] == 64:
     dgram_bins = jnp.append(0,jnp.linspace(2.3125,21.6875,63))
   if dgram.shape[-1] == 39:
-    dgram_bins = jnp.linspace(3.25,50.75,39)
+    dgram_bins = jnp.linspace(3.25,50.75,39) + 1.25
   return dgram_bins
 
 def get_contact_map(outputs, dist=8.0):

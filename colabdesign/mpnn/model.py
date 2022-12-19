@@ -145,7 +145,7 @@ class mk_mpnn_model():
 
     # process outputs to human-readable form
     O.update(self._get_seq(O))
-    O.update(self._get_score(O))
+    O.update(self._get_score(I,O))
     return O
 
   def _get_seq(self, O):
@@ -165,11 +165,11 @@ class mk_mpnn_model():
     
     return {"seq": np.array(seqs)}
 
-  def _get_score(self, O):
+  def _get_score(self, I, O):
     ''' logits to score/sequence_recovery '''
-    mask = self._inputs["mask"].copy()
-    if "fix_pos" in self._inputs:
-      mask[self._inputs["fix_pos"]] = 0
+    mask = I["mask"].copy()
+    if "fix_pos" in I:
+      mask[I["fix_pos"]] = 0
 
     log_q = log_softmax(O["logits"],-1)[...,:20]
     q = softmax(O["logits"][...,:20],-1)
@@ -196,7 +196,7 @@ class mk_mpnn_model():
     I.update(kwargs)
     key = I.pop("key",self.key())
     O = jax.tree_map(np.array, self._score(**I, key=key))
-    O.update(self._get_score(O))
+    O.update(self._get_score(I,O))
     return O
 
   def get_logits(self, **kwargs):

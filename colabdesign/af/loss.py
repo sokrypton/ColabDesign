@@ -203,11 +203,18 @@ def get_ptm(inputs, outputs, interface=False):
     pae["asym_id"] = inputs["asym_id"]
   return confidence_jax.predicted_tm_score_jax(**pae, interface=interface)
 
+def get_dgram_bins(outputs):
+  dgram = outputs["distogram"]["logits"]
+  if dgram.shape[-1] == 64:
+    dgram_bins = jnp.append(0,jnp.linspace(2.3125,21.6875,63))
+  if dgram.shape[-1] == 39:
+    dgram_bins = jnp.linspace(3.25,50.75,39)
+  return dgram_bins
+
 def get_contact_map(outputs, dist=8.0):
   '''get contact map from distogram'''
   dist_logits = outputs["distogram"]["logits"]
-  dist_bins = jax.numpy.append(0,outputs["distogram"]["bin_edges"])
-  dist_mtx = dist_bins[dist_logits.argmax(-1)]
+  dist_bins = get_dgram_bins(outputs)
   return (jax.nn.softmax(dist_logits) * (dist_bins < dist)).sum(-1)
 
 ####################
@@ -241,14 +248,6 @@ def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   if mask_2d is None: mask_2d = jnp.ones((L,L))
   mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
   return mask_loss(p, mask_2d)
-
-def get_dgram_bins(outputs):
-  dgram = outputs["distogram"]["logits"]
-  if dgram.shape[-1] == 64:
-    dgram_bins = jnp.append(0,jnp.linspace(2.3125,21.6875,63))
-  if dgram.shape[-1] == 39:
-    dgram_bins = jnp.linspace(3.25,50.75,39)
-  return dgram_bins
 
 def get_con_loss(inputs, outputs, con_opt,
                  mask_1d=None, mask_1b=None, mask_2d=None):

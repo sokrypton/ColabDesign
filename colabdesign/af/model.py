@@ -44,7 +44,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":optimizer, "best_metric":best_metric, 
-                  "traj_iter":traj_iter, "traj_max":traj_max}
+                  "traj_iter":traj_iter, "traj_max":traj_max,
+                  "clear_prev": True}
 
     self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                

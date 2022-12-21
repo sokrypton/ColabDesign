@@ -158,9 +158,10 @@ class _af_design:
       L = self._inputs["residue_index"].shape[0]
       
       # intialize previous
-      self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                              'prev_pair': np.zeros([L,L,128]),
-                              'prev_pos': np.zeros([L,37,3])}
+      if "prev" not in self._inputs or self._args["clear_prev"]:
+        self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
+                                'prev_pair': np.zeros([L,L,128]),
+                                'prev_pos': np.zeros([L,37,3])}
 
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)

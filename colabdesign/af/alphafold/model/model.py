@@ -62,10 +62,9 @@ class RunModel:
       else:
         L = feat['aatype'].shape[0]
         prev = {'prev_msa_first_row': np.zeros([L,256]),
-                'prev_pair': np.zeros([L,L,128])}
-        if self.config.model.use_struct:
-          prev['prev_pos'] = np.zeros([L,37,3])
-        else:
+                'prev_pair': np.zeros([L,L,128]),
+                'prev_pos': np.zeros([L,37,3])}
+        if self.config.global_config.use_dgram:
           prev['prev_dgram'] = np.zeros([L,L,64])
         feat["prev"] = prev
 

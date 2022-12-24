@@ -139,11 +139,7 @@ class AlphaFoldIteration(hk.Module):
     representations['msa'] = msa_representation
     
     num_residues = batch['aatype'].shape
-
-    if self.config.use_struct:
-      struct_module = folding.StructureModule
-    else:
-      struct_module = folding.dummy
+    struct_module = folding.StructureModule
       
     heads = {}
     for head_name, head_config in sorted(self.config.heads.items()):
@@ -175,21 +171,20 @@ class AlphaFoldIteration(hk.Module):
           # to provide activations for the PredictedLDDTHead.
           representations.update(ret[name].pop('representations'))
 
-    if self.config.use_struct:
-      if self.config.heads.get('predicted_lddt.weight', 0.0):
-        # Add PredictedLDDTHead after StructureModule executes.
-        name = 'predicted_lddt'
-        # Feed all previous results to give access to structure_module result.
-        head_config, module = heads[name]
-        ret[name] = module(representations, batch, is_training)
+    if self.config.heads.get('predicted_lddt.weight', 0.0):
+      # Add PredictedLDDTHead after StructureModule executes.
+      name = 'predicted_lddt'
+      # Feed all previous results to give access to structure_module result.
+      head_config, module = heads[name]
+      ret[name] = module(representations, batch, is_training)
 
-      if ('predicted_aligned_error' in self.config.heads
-          and self.config.heads.get('predicted_aligned_error.weight', 0.0)):
-        # Add PredictedAlignedErrorHead after StructureModule executes.
-        name = 'predicted_aligned_error'
-        # Feed all previous results to give access to structure_module result.
-        head_config, module = heads[name]
-        ret[name] = module(representations, batch, is_training)
+    if ('predicted_aligned_error' in self.config.heads
+        and self.config.heads.get('predicted_aligned_error.weight', 0.0)):
+      # Add PredictedAlignedErrorHead after StructureModule executes.
+      name = 'predicted_aligned_error'
+      # Feed all previous results to give access to structure_module result.
+      head_config, module = heads[name]
+      ret[name] = module(representations, batch, is_training)
 
     return ret
 
@@ -231,10 +226,9 @@ class AlphaFold(hk.Module):
       new_prev = {
           'prev_msa_first_row': ret['representations']['msa_first_row'],
           'prev_pair': ret['representations']['pair'],
+          'prev_pos': ret['structure_module']['final_atom_positions']
       }
-      if self.config.use_struct:
-        new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
-      else:
+      if self.global_config.use_dgram:
         new_prev['prev_dgram'] = ret["distogram"]["logits"]
       return new_prev
     
@@ -1408,7 +1402,13 @@ class EmbeddingsAndEvoformer(hk.Module):
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 6
     # Jumper et al. (2021) Suppl. Alg. 32 "RecyclingEmbedder"
     
-    if "prev_pos" in batch:
+    if gc.use_dgram:
+      # use predicted distogram input (from Sergey)
+      dgram = jax.nn.softmax(batch["prev_dgram"])
+      dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
+      dgram = dgram @ dgram_map
+
+    else:
       # use predicted position input
       prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
       if c.backprop_dgram:
@@ -1416,11 +1416,6 @@ class EmbeddingsAndEvoformer(hk.Module):
       else:
         dgram = dgram_from_positions(prev_pseudo_beta, **c.prev_pos)
     
-    elif 'prev_dgram' in batch:
-      # use predicted distogram input (from Sergey)
-      dgram = jax.nn.softmax(batch["prev_dgram"])
-      dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
-      dgram = dgram @ dgram_map
       
     pair_activations += common_modules.Linear(c.pair_channel, name='prev_pos_linear')(dgram)
 

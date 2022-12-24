@@ -162,6 +162,8 @@ class _af_design:
         self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
                                 'prev_pair': np.zeros([L,L,128]),
                                 'prev_pos': np.zeros([L,37,3])}
+        if self._args["use_dgram"]:
+          self._inputs["prev"]['prev_dgram'] = np.zeros([L,L,64])
 
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)

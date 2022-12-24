@@ -372,8 +372,7 @@ CONFIG = ml_collections.ConfigDict({
                 'weight': 2.0
             },
         },
-        'num_recycle': 3,
-        'use_struct': True,
+        'num_recycle': 3
     },
 })
 
@@ -524,7 +523,8 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
             'multimer_mode': True,
             'subbatch_size': 4,
             'use_remat': False,
-            'zero_init': True
+            'zero_init': True,
+            'use_dgram': False
         },
         'heads': {
             'distogram': {

@@ -55,7 +55,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0},
-                "cmap_cutoff": 10.0, "fape_cutoff":10.0}
+                "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
       self.opt["mlm_dropout"] = 0.0
@@ -191,7 +191,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "pae":            get_pae(outputs), 
                   "ptm":            get_ptm(inputs, outputs),
                   "i_ptm":          get_ptm(inputs, outputs, interface=True), 
-                  "cmap":           get_contact_map(outputs, opt["cmap_cutoff"]),
+                  "cmap":           get_contact_map(outputs, opt["con"]["cutoff"]),
+                  "i_cmap":         get_contact_map(outputs, opt["i_con"]["cutoff"]),
                   "prev":           outputs["prev"]})
 
       #######################################################################

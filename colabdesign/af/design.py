@@ -251,7 +251,7 @@ class _af_design:
       if self._args["best_metric"] in ["plddt","ptm","i_ptm","seqid","composite"] or metric_higher_better:
         metric = -metric
       if "metric" not in self._tmp["best"] or metric < self._tmp["best"]["metric"]:
-        self._tmp["best"]["aux"] = aux
+        self._tmp["best"]["aux"] = copy_dict(aux)
         self._tmp["best"]["metric"] = metric
 
     if verbose and ((self._k+1) % verbose) == 0:

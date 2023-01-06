@@ -34,8 +34,13 @@ def pdb_to_string(pdb_file, chains=None, models=None):
   lines = []
   seen = []
   model = 1
-  for line in open(pdb_file,"rb"):
-    line = line.decode("utf-8","ignore").rstrip()
+  
+  if "\n" in pdb_file:
+    old_lines = pdb_file.split("\n")
+  else:
+    with open(pdb_file,"rb") as f:
+      old_lines = [line.decode("utf-8","ignore").rstrip() for line in f]  
+  for line in old_lines:
     if line[:5] == "MODEL":
       model = int(line[5:])
     if models is None or model in models:

@@ -12,7 +12,7 @@ from colabdesign.af.alphafold.model import model, config
 ############################################################################
 class _af_inputs:
 
-  def _get_seq(self, inputs, aux, key):
+  def _get_seq(self, inputs, aux, key=None):
     params, opt = inputs["params"], inputs["opt"]
     '''get sequence features'''
     seq = soft_seq(params["seq"], inputs["bias"], opt, key)

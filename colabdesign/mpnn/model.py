@@ -102,8 +102,12 @@ class mk_mpnn_model():
 
     self._inputs["residue_idx"] = af._inputs["residue_index"]
     self._inputs["chain_idx"]   = af._inputs["asym_id"]
-    self._inputs["bias"]        = af._inputs["bias"]
     self._inputs["lengths"]     = np.array(self._lengths)
+
+    # set bias
+    L = sum(self._lengths)
+    self._inputs["bias"] = np.zeros((L,20))
+    self._inputs["bias"][-af._len:] = af._inputs["bias"]
     
     if "offset" in af._inputs:
       self._inputs["offset"] = af._inputs["offset"]
@@ -115,10 +119,17 @@ class mk_mpnn_model():
       self._inputs["mask"] = batch["all_atom_mask"][:,1]
       self._inputs["S"]    = batch["aatype"]
 
-    if "fix_pos" in af.opt:
-      self._inputs["fix_pos"] = p = af.opt["fix_pos"]
+    # fix positions
+    if af.protocol == "binder":
+      p = np.arange(af._target_len)
+    else:
+      p = af.opt.get("fix_pos",None)
+    
+    if p is not None:
+      self._inputs["fix_pos"] = p
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
 
+    # tie positions
     if af._args["homooligomer"]:
       assert min(self._lengths) == max(self._lengths)
       self._tied_lengths = True
@@ -190,9 +201,12 @@ class mk_mpnn_model():
     '''score sequence'''
     I = copy_dict(self._inputs)
     if seq is not None:
+      p = np.arange(I["S"].shape[0])
       if self._tied_lengths and len(seq) == self._lengths[0]:
         seq = seq * len(self._lengths)
-      I["S"] = np.array([aa_order.get(aa,-1) for aa in seq])
+      if "fix_pos" in I and len(seq) == (I["S"].shape[0] - I["fix_pos"].shape[0]):
+        p = np.delete(p,I["fix_pos"])
+      I["S"][p] = np.array([aa_order.get(aa,-1) for aa in seq])
     I.update(kwargs)
     key = I.pop("key",self.key())
     O = jax.tree_map(np.array, self._score(**I, key=key))

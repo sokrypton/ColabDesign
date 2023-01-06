@@ -27,7 +27,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
                use_openfold=False, use_alphafold=True,
-               use_multimer=False, use_mlm=False,
+               use_multimer=False, use_mlm=False, shuffle_msa=True,
                use_dgram=False,
                pre_callback=None, post_callback=None,
                pre_design_callback=None, post_design_callback=None,
@@ -143,7 +143,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       L = inputs["aatype"].shape[0]
 
       # get sequence
-      seq = self._get_seq(inputs, aux, key())
+      seq_key = key() if a["shuffle_msa"] else None
+      seq = self._get_seq(inputs, aux, seq_key)
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])

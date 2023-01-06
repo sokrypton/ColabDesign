@@ -26,9 +26,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
-               use_openfold=False, use_alphafold=True,
-               use_multimer=False, use_mlm=False, shuffle_msa=True,
-               use_dgram=False,
+               use_openfold=False, use_alphafold=True, use_multimer=False,
                pre_callback=None, post_callback=None,
                pre_design_callback=None, post_design_callback=None,
                loss_callback=None, traj_iter=1, traj_max=10000, debug=False, data_dir="."):
@@ -42,11 +40,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
-                  "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
+                  "recycle_mode":recycle_mode, "use_mlm": False, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":optimizer, "best_metric":best_metric, 
                   "traj_iter":traj_iter, "traj_max":traj_max,
-                  "clear_prev": True, "use_dgram":use_dgram}
+                  "clear_prev": True, "use_dgram":False, "shuffle_msa":True}
 
     self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
@@ -86,7 +84,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if recycle_mode in ["average","first","last","sample"]: num_recycles = 0
     cfg.model.num_recycle = num_recycles
     cfg.model.global_config.use_remat = True
-    cfg.model.global_config.use_dgram = use_dgram
+    cfg.model.global_config.use_dgram = self._args["use_dgram"]
 
     # setup model
     self._cfg = cfg 

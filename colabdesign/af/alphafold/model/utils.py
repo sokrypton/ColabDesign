@@ -52,8 +52,6 @@ def mask_mean(mask, value, axis=None, drop_mask_channel=False, eps=1e-10):
     axis = [axis]
   elif axis is None:
     axis = list(range(len(mask_shape)))
-  assert isinstance(axis, collections.Iterable), (
-      'axis needs to be either an iterable, integer or "None"')
 
   broadcast_factor = 1.
   for axis_ in axis:

@@ -158,9 +158,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       inputs["seq"] = aux["seq"]
 
       # update template features
+      inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       if a["use_templates"]:
         self._update_template(inputs, key())
-        inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)

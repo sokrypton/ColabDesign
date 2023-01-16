@@ -420,8 +420,7 @@ class _af_design:
       seq = self._params["seq"].argmax(-1)
 
     # bias sampling towards the defined bias
-    if seq_logits is None:
-      seq_logits = self._inputs["bias"].copy()
+    if seq_logits is None: seq_logits = 0
     
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
@@ -440,7 +439,7 @@ class _af_design:
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
       for t in range(int(num_tries)):
-        mut_seq = self._mutate(seq, plddt, logits=seq_logits)
+        mut_seq = self._mutate(seq, plddt, logits=(seq_logits + self._inputs["bias"]))
         aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
                            verbose=False, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})

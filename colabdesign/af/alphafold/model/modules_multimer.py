@@ -611,29 +611,23 @@ class SingleTemplateEmbedding(hk.Module):
       to_concat.append((aatype[None, :, :], 1))
       to_concat.append((aatype[:, None, :], 1))
 
-      if "template_dgram" in template_batch:
-        num_res = template_batch["template_aatype"].shape[0]
-        unit_vector = [jnp.zeros((num_res,num_res))] * 3
-        backbone_mask_2d = jnp.zeros((num_res,num_res))
+      # Compute a feature representing the normalized vector between each
+      # backbone affine - i.e. in each residues local frame, what direction are
+      # each of the other residues.
+      raw_atom_pos = template_batch["template_all_atom_positions"]
+      atom_pos = geometry.Vec3Array.from_array(raw_atom_pos)
+      rigid, backbone_mask = folding_multimer.make_backbone_affine(
+          atom_pos,
+          template_batch["template_all_atom_mask"],
+          template_batch["template_aatype"])
+      points = rigid.translation
+      rigid_vec = rigid[:, None].inverse().apply_to_point(points)
+      unit_vector = rigid_vec.normalized()
+      unit_vector = [unit_vector.x, unit_vector.y, unit_vector.z]
 
-      else:
-        # Compute a feature representing the normalized vector between each
-        # backbone affine - i.e. in each residues local frame, what direction are
-        # each of the other residues.
-        raw_atom_pos = template_batch["template_all_atom_positions"]
-        atom_pos = geometry.Vec3Array.from_array(raw_atom_pos)
-        rigid, backbone_mask = folding_multimer.make_backbone_affine(
-            atom_pos,
-            template_batch["template_all_atom_mask"],
-            template_batch["template_aatype"])
-        points = rigid.translation
-        rigid_vec = rigid[:, None].inverse().apply_to_point(points)
-        unit_vector = rigid_vec.normalized()
-        unit_vector = [unit_vector.x, unit_vector.y, unit_vector.z]
-
-        backbone_mask_2d = backbone_mask[:, None] * backbone_mask[None, :]
-        backbone_mask_2d *= multichain_mask_2d
-        unit_vector = [x*backbone_mask_2d for x in unit_vector]
+      backbone_mask_2d = jnp.sqrt(backbone_mask[:,None] * backbone_mask[None,:])
+      backbone_mask_2d *= multichain_mask_2d
+      unit_vector = [x*backbone_mask_2d for x in unit_vector]
 
       # Note that the backbone_mask takes into account C, CA and N (unlike
       # pseudo beta mask which just needs CB) so we add both masks as features.
@@ -693,7 +687,6 @@ class SingleTemplateEmbedding(hk.Module):
         name='output_layer_norm')(
             act)
     return act
-
 
 class TemplateEmbeddingIteration(hk.Module):
   """Single Iteration of Template Embedding."""

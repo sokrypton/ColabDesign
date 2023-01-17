@@ -26,9 +26,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
-               use_openfold=False, use_alphafold=True,
-               use_multimer=False, use_mlm=False,
-               use_dgram=False,
+               use_openfold=False, use_alphafold=True, use_multimer=False,
                pre_callback=None, post_callback=None,
                pre_design_callback=None, post_design_callback=None,
                loss_callback=None, traj_iter=1, traj_max=10000, debug=False, data_dir="."):
@@ -42,11 +40,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._num = num_seq
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
-                  "recycle_mode":recycle_mode, "use_mlm": use_mlm, "realign": True,
+                  "recycle_mode":recycle_mode, "use_mlm": False, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":optimizer, "best_metric":best_metric, 
                   "traj_iter":traj_iter, "traj_max":traj_max,
-                  "clear_prev": True, "use_dgram":use_dgram}
+                  "clear_prev": True, "use_dgram":False, "shuffle_msa":True}
 
     self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
@@ -55,7 +53,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"dropout":0.0, "rm_ic":False},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0},
-                "cmap_cutoff": 10.0, "fape_cutoff":10.0}
+                "fape_cutoff":10.0}
 
     if self._args["use_mlm"]:
       self.opt["mlm_dropout"] = 0.0
@@ -86,7 +84,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     if recycle_mode in ["average","first","last","sample"]: num_recycles = 0
     cfg.model.num_recycle = num_recycles
     cfg.model.global_config.use_remat = True
-    cfg.model.global_config.use_dgram = use_dgram
+    cfg.model.global_config.use_dgram = self._args["use_dgram"]
 
     # setup model
     self._cfg = cfg 
@@ -143,7 +141,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       L = inputs["aatype"].shape[0]
 
       # get sequence
-      seq = self._get_seq(inputs, aux, key())
+      seq_key = key() if a["shuffle_msa"] else None
+      seq = self._get_seq(inputs, aux, seq_key)
             
       # update sequence features
       pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
@@ -159,9 +158,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       inputs["seq"] = aux["seq"]
 
       # update template features
+      inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       if a["use_templates"]:
         self._update_template(inputs, key())
-        inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       
       # set dropout
       inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
@@ -191,7 +190,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "pae":            get_pae(outputs), 
                   "ptm":            get_ptm(inputs, outputs),
                   "i_ptm":          get_ptm(inputs, outputs, interface=True), 
-                  "cmap":           get_contact_map(outputs, opt["cmap_cutoff"]),
+                  "cmap":           get_contact_map(outputs, opt["con"]["cutoff"]),
+                  "i_cmap":         get_contact_map(outputs, opt["i_con"]["cutoff"]),
                   "prev":           outputs["prev"]})
 
       #######################################################################

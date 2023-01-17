@@ -415,7 +415,7 @@ class _af_design:
 
     # get starting sequence
     if hasattr(self,"aux"):
-      seq = self.aux["seq_pseudo"].argmax(-1)
+      seq = self.aux["seq"]["logits"].argmax(-1)
     else:
       seq = (self._params["seq"] + self._inputs["bias"]).argmax(-1)
 

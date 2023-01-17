@@ -417,7 +417,7 @@ class _af_design:
     if hasattr(self,"aux"):
       seq = self.aux["seq_pseudo"].argmax(-1)
     else:
-      seq = self._params["seq"].argmax(-1)
+      seq = (self._params["seq"] + self._inputs["bias"]).argmax(-1)
 
     # bias sampling towards the defined bias
     if seq_logits is None: seq_logits = 0

@@ -22,6 +22,7 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 import numpy as np
+import io
 
 
 def final_init(config):
@@ -65,14 +66,25 @@ def mask_mean(mask, value, axis=None, drop_mask_channel=False, eps=1e-10):
   return (jnp.sum(mask * value, axis=axis) /
           (jnp.sum(mask, axis=axis) * broadcast_factor + eps))
 
-
-def flat_params_to_haiku(params: Mapping[str, np.ndarray]) -> hk.Params:
+def flat_params_to_haiku(params, fuse=True):
   """Convert a dictionary of NumPy arrays to Haiku parameters."""
-  hk_params = {}
+  P = {}
   for path, array in params.items():
     scope, name = path.split('//')
-    if scope not in hk_params:
-      hk_params[scope] = {}
-    hk_params[scope][name] = jnp.array(array)
-
-  return hk_params
+    if scope not in P:
+      P[scope] = {}
+    P[scope][name] = jnp.array(array)
+  if fuse:
+    for a in ["evoformer_iteration","extra_msa_stack","template_embedding/single_template_embedding/template_embedding_iteration"]:
+      for b in ["triangle_multiplication_incoming","triangle_multiplication_outgoing"]:
+        k = f"alphafold/alphafold_iteration/evoformer/{a}/{b}"
+        if f"{k}/center_layer_norm" in P:
+          for c in ["gate","projection"]:
+            L = P.pop(f"{k}/left_{c}")
+            R = P.pop(f"{k}/right_{c}")
+            P[f"{k}/{c}"] = {}
+            for d in ["bias","weights"]:
+              P[f"{k}/{c}"][d] = jnp.concatenate([L[d],R[d]],-1)
+          P[f"{k}/center_norm"] = P.pop(f"{k}/center_layer_norm")
+          P[f"{k}/left_norm_input"] = P.pop(f"{k}/layer_norm_input")
+  return P

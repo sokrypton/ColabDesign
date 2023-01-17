@@ -257,7 +257,7 @@ class _af_design:
     if verbose and ((self._k+1) % verbose) == 0:
       self._print_log(f"{self._k+1}", aux=aux)
 
-  def predict(self, seq=None,
+  def predict(self, seq=None, bias=None,
               num_models=None, num_recycles=None, models=None, sample_models=False,
               dropout=False, hard=True, soft=False, temp=1,
               return_aux=False, verbose=True,  seed=None, **kwargs):
@@ -265,11 +265,11 @@ class _af_design:
 
     def load_settings():    
       if "save" in self._tmp:
-        (self.opt, self._args, self._params, self._inputs) = self._tmp.pop("save")
+        [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
 
     def save_settings():
       load_settings()
-      self._tmp["save"] = (copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs])
+      self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
 
     save_settings()
 
@@ -277,7 +277,7 @@ class _af_design:
     if seed is not None: self.set_seed(seed)
 
     # set [seq]uence/[opt]ions
-    if seq is not None: self.set_seq(seq=seq)    
+    if seq is not None: self.set_seq(seq=seq, bias=bias)    
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, use_pssm=False)
     
     # run
@@ -439,9 +439,9 @@ class _af_design:
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
       for t in range(int(num_tries)):
-        mut_seq = self._mutate(seq, plddt, logits=(seq_logits + self._inputs["bias"]))
-        aux = self.predict(mut_seq, return_aux=True, model_nums=model_nums,
-                           verbose=False, **kwargs)
+        mut_seq = self._mutate(seq=seq, plddt=plddt,
+                               logits=seq_logits + self._inputs["bias"])
+        aux = self.predict(seq=mut_seq, return_aux=True, model_nums=model_nums, verbose=False, **kwargs)
         buff.append({"aux":aux, "seq":np.array(mut_seq)})
 
       # accept best
@@ -505,7 +505,8 @@ class _af_design:
 
     # initialize
     plddt, best_loss, current_loss = None, np.inf, np.inf 
-    current_seq = self._params["seq"].argmax(-1)
+    current_seq = (self._params["seq"] + self._inputs["bias"]).argmax(-1)
+    if seq_logits is None: seq_logits = 0
 
     # run!
     if verbose: print("Running MCMC with simulated annealing...")
@@ -515,12 +516,16 @@ class _af_design:
       T = T_init * (np.exp(np.log(0.5) / half_life) ** i) 
 
       # mutate sequence
-      if i == 0: mut_seq = current_seq
-      else:      mut_seq = self._mutate(current_seq, plddt, seq_logits, mutation_rate)
+      if i == 0:
+        mut_seq = current_seq
+      else:
+        mut_seq = self._mutate(seq=current_seq, plddt=plddt,
+                               logits=seq_logits + self._inputs["bias"],
+                               mutation_rate=mutation_rate)
 
       # get loss
       model_nums = self._get_model_nums(**model_flags)
-      aux = self.predict(mut_seq, return_aux=True, verbose=False, model_nums=model_nums, **kwargs)
+      aux = self.predict(seq=mut_seq, return_aux=True, verbose=False, model_nums=model_nums, **kwargs)
       loss = aux["log"]["loss"]
   
       # decide

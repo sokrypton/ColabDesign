@@ -75,7 +75,10 @@ def flat_params_to_haiku(params, fuse=True):
       P[scope] = {}
     P[scope][name] = jnp.array(array)
   if fuse:
-    for a in ["evoformer_iteration","extra_msa_stack","template_embedding/single_template_embedding/template_embedding_iteration"]:
+    for a in ["evoformer_iteration",
+              "extra_msa_stack",
+              "template_embedding/single_template_embedding/template_embedding_iteration",
+              "template_embedding/single_template_embedding/template_pair_stack/__layer_stack_no_state"]:
       for b in ["triangle_multiplication_incoming","triangle_multiplication_outgoing"]:
         k = f"alphafold/alphafold_iteration/evoformer/{a}/{b}"
         if f"{k}/center_layer_norm" in P:

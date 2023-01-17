@@ -448,7 +448,7 @@ class _af_design:
       losses = [x["aux"]["loss"] for x in buff]
       best = buff[np.argmin(losses)]
       self.aux, seq = best["aux"], jnp.array(best["seq"])
-      self.set_seq(seq=seq)
+      self.set_seq(seq=seq, bias=self._inputs["bias"])
       self._save_results(save_best=save_best, verbose=verbose)
 
       # update plddt
@@ -535,5 +535,5 @@ class _af_design:
         
         if loss < best_loss:
           (best_loss, self._k) = (loss, i)
-          self.set_seq(seq=current_seq)
+          self.set_seq(seq=current_seq, bias=self._inputs["bias"])
           self._save_results(save_best=save_best, verbose=verbose)

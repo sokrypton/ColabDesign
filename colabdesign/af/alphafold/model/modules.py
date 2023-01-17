@@ -351,7 +351,7 @@ class Transition(hk.Module):
     num_intermediate = int(nc * self.config.num_intermediate_factor)
     mask = jnp.expand_dims(mask, axis=-1)
 
-    act = common_modules.LayerNorm(
+    act = hk.LayerNorm(
         axis=[-1],
         create_scale=True,
         create_offset=True,
@@ -596,11 +596,11 @@ class MSARowAttentionWithPairBias(hk.Module):
     bias = (1e9 * (msa_mask - 1.))[:, None, None, :]
     assert len(bias.shape) == 4
 
-    msa_act = common_modules.LayerNorm(
+    msa_act = hk.LayerNorm(
         axis=[-1], create_scale=True, create_offset=True, name='query_norm')(
             msa_act)
 
-    pair_act = common_modules.LayerNorm(
+    pair_act = hk.LayerNorm(
         axis=[-1],
         create_scale=True,
         create_offset=True,
@@ -663,7 +663,7 @@ class MSAColumnAttention(hk.Module):
     bias = (1e9 * (msa_mask - 1.))[:, None, None, :]
     assert len(bias.shape) == 4
 
-    msa_act = common_modules.LayerNorm(
+    msa_act = hk.LayerNorm(
         axis=[-1], create_scale=True, create_offset=True, name='query_norm')(
             msa_act)
 
@@ -718,7 +718,7 @@ class MSAColumnGlobalAttention(hk.Module):
     bias = (1e9 * (msa_mask - 1.))[:, None, None, :]
     assert len(bias.shape) == 4
 
-    msa_act = common_modules.LayerNorm(
+    msa_act = hk.LayerNorm(
         axis=[-1], create_scale=True, create_offset=True, name='query_norm')(
             msa_act)
 
@@ -775,7 +775,7 @@ class TriangleAttention(hk.Module):
     bias = (1e9 * (pair_mask - 1.))[:, None, None, :]
     assert len(bias.shape) == 4
 
-    pair_act = common_modules.LayerNorm(
+    pair_act = hk.LayerNorm(
         axis=[-1], create_scale=True, create_offset=True, name='query_norm')(
             pair_act)
 
@@ -871,7 +871,7 @@ class PredictedLDDTHead(hk.Module):
     """
     act = representations['structure_module']
 
-    act = common_modules.LayerNorm(
+    act = hk.LayerNorm(
         axis=[-1],
         create_scale=True,
         create_offset=True,
@@ -977,20 +977,9 @@ class ExperimentallyResolvedHead(hk.Module):
     return dict(logits=logits)
 
 
-def _layer_norm(axis=-1, name='layer_norm'):
-  return common_modules.LayerNorm(
-      axis=axis,
-      create_scale=True,
-      create_offset=True,
-      eps=1e-5,
-      use_fast_variance=True,
-      scale_init=hk.initializers.Constant(1.),
-      offset_init=hk.initializers.Constant(0.),
-      param_axis=axis,
-      name=name)
-
 class TriangleMultiplication(hk.Module):
   """Triangle multiplication layer ("outgoing" or "incoming").
+
   Jumper et al. (2021) Suppl. Alg. 11 "TriangleMultiplicationOutgoing"
   Jumper et al. (2021) Suppl. Alg. 12 "TriangleMultiplicationIncoming"
   """
@@ -1000,32 +989,25 @@ class TriangleMultiplication(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, left_act, left_mask, is_training=True):
+  def __call__(self, act, mask, is_training=True):
     """Builds TriangleMultiplication module.
+
     Arguments:
-      left_act: Pair activations, shape [N_res, N_res, c_z]
-      left_mask: Pair mask, shape [N_res, N_res].
+      act: Pair activations, shape [N_res, N_res, c_z]
+      mask: Pair mask, shape [N_res, N_res].
       is_training: Whether the module is in training mode.
+
     Returns:
-      Outputs, same shape/type as left_act.
+      Outputs, same shape/type as act.
     """
     del is_training
-
-    if self.config.fuse_projection_weights:
-      return self._fused_triangle_multiplication(left_act, left_mask)
-    else:
-      return self._triangle_multiplication(left_act, left_mask)
-
-  @hk.transparent
-  def _triangle_multiplication(self, left_act, left_mask):
-    """Implementation of TriangleMultiplication used in AF2 and AF-M<2.3."""
     c = self.config
     gc = self.global_config
 
-    mask = left_mask[..., None]
+    mask = mask[..., None]
 
-    act = common_modules.LayerNorm(axis=[-1], create_scale=True, create_offset=True,
-                       name='layer_norm_input')(left_act)
+    act = hk.LayerNorm(axis=[-1], create_scale=True, create_offset=True,
+                       name='layer_norm_input')(act)
     input_act = act
 
     left_projection = common_modules.Linear(
@@ -1061,7 +1043,7 @@ class TriangleMultiplication(hk.Module):
     #   b = left_proj_act and a = right_proj_act
     act = jnp.einsum(c.equation, left_proj_act, right_proj_act)
 
-    act = common_modules.LayerNorm(
+    act = hk.LayerNorm(
         axis=[-1],
         create_scale=True,
         create_offset=True,
@@ -1081,50 +1063,6 @@ class TriangleMultiplication(hk.Module):
         initializer=utils.final_init(gc),
         name='gating_linear')(input_act))
     act *= gate_values
-
-    return act
-
-  @hk.transparent
-  def _fused_triangle_multiplication(self, left_act, left_mask):
-    """TriangleMultiplication with fused projection weights."""
-    mask = left_mask[..., None]
-    c = self.config
-    gc = self.global_config
-
-    left_act = _layer_norm(axis=-1, name='left_norm_input')(left_act)
-
-    # Both left and right projections are fused into projection.
-    projection = common_modules.Linear(
-        2*c.num_intermediate_channel, name='projection')
-    proj_act = mask * projection(left_act)
-
-    # Both left + right gate are fused into gate_values.
-    gate_values = common_modules.Linear(
-        2 * c.num_intermediate_channel,
-        name='gate',
-        bias_init=1.,
-        initializer=utils.final_init(gc))(left_act)
-    proj_act *= jax.nn.sigmoid(gate_values)
-
-    left_proj_act = proj_act[:, :, :c.num_intermediate_channel]
-    right_proj_act = proj_act[:, :, c.num_intermediate_channel:]
-    act = jnp.einsum(c.equation, left_proj_act, right_proj_act)
-
-    act = _layer_norm(axis=-1, name='center_norm')(act)
-
-    output_channel = int(left_act.shape[-1])
-
-    act = common_modules.Linear(
-        output_channel,
-        initializer=utils.final_init(gc),
-        name='output_projection')(act)
-
-    gate_values = common_modules.Linear(
-        output_channel,
-        bias_init=1.,
-        initializer=utils.final_init(gc),
-        name='gating_linear')(left_act)
-    act *= jax.nn.sigmoid(gate_values)
 
     return act
 
@@ -1198,7 +1136,7 @@ class OuterProductMean(hk.Module):
     c = self.config
 
     mask = mask[..., None]
-    act = common_modules.LayerNorm([-1], True, True, name='layer_norm_input')(act)
+    act = hk.LayerNorm([-1], True, True, name='layer_norm_input')(act)
 
     left_act = mask * common_modules.Linear(
         c.num_outer_channel,
@@ -1483,7 +1421,7 @@ class EmbeddingsAndEvoformer(hk.Module):
 
     if c.recycle_features:
       if 'prev_msa_first_row' in batch:
-        prev_msa_first_row = common_modules.LayerNorm([-1],
+        prev_msa_first_row = hk.LayerNorm([-1],
                                           True,
                                           True,
                                           name='prev_msa_first_row_norm')(
@@ -1491,7 +1429,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         msa_activations = msa_activations.at[0].add(prev_msa_first_row)
 
       if 'prev_pair' in batch:
-        pair_activations += common_modules.LayerNorm([-1],
+        pair_activations += hk.LayerNorm([-1],
                                          True,
                                          True,
                                          name='prev_pair_norm')(
@@ -1753,7 +1691,7 @@ class SingleTemplateEmbedding(hk.Module):
     act = TemplatePairStack(
         self.config.template_pair_stack, self.global_config)(act, mask_2d, is_training, dropout_scale=dropout_scale)
 
-    act = common_modules.LayerNorm([-1], True, True, name='output_layer_norm')(act)
+    act = hk.LayerNorm([-1], True, True, name='output_layer_norm')(act)
     return act
 
 

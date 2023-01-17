@@ -22,19 +22,15 @@
 - **15Oct2022** - v1.1.0
   - integrating proteinMPNN!
   - bugfix for sidechain loss
-- **17Nov2022**
+- **17Nov2022** - v1.1.1
   - updating pae/plddt loss calculation to be consistent with pae/plddt outputs
-- **24Dec2022** - v1.1.1
-  - adding af_pseudo_diffusion examples
-  - updating to alphafold-multimer v2.3.0
-  - enabling fused_triangle_multiplication by default
 ### setup
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.1
 
 # download alphafold weights
 mkdir params
-curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2022-12-06.tar | tar x -C params
+curl -fsSL https://storage.googleapis.com/alphafold/alphafold_params_2022-03-02.tar | tar x -C params
 ```
 By default `mk_afdesign_model()` assumes alphafold "params" are saved in the run directory (`data_dir="."`). To override:
 ```python

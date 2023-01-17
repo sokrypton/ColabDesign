@@ -199,16 +199,14 @@ CONFIG = ml_collections.ConfigDict({
                     'equation': 'ikc,jkc->ijc',
                     'num_intermediate_channel': 128,
                     'orientation': 'per_row',
-                    'shared_dropout': True,
-                    'fuse_projection_weights': True,
+                    'shared_dropout': True
                 },
                 'triangle_multiplication_incoming': {
                     'dropout_rate': 0.25,
                     'equation': 'kjc,kic->ijc',
                     'num_intermediate_channel': 128,
                     'orientation': 'per_row',
-                    'shared_dropout': True,
-                    'fuse_projection_weights': True,
+                    'shared_dropout': True
                 },
                 'pair_transition': {
                     'dropout_rate': 0.0,
@@ -277,16 +275,14 @@ CONFIG = ml_collections.ConfigDict({
                         'equation': 'ikc,jkc->ijc',
                         'num_intermediate_channel': 64,
                         'orientation': 'per_row',
-                        'shared_dropout': True,
-                        'fuse_projection_weights': True,
+                        'shared_dropout': True
                     },
                     'triangle_multiplication_incoming': {
                         'dropout_rate': 0.25,
                         'equation': 'kjc,kic->ijc',
                         'num_intermediate_channel': 64,
                         'orientation': 'per_row',
-                        'shared_dropout': True,
-                        'fuse_projection_weights': True,
+                        'shared_dropout': True
                     },
                     'pair_transition': {
                         'dropout_rate': 0.0,
@@ -438,16 +434,14 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
                     'equation': 'kjc,kic->ijc',
                     'num_intermediate_channel': 128,
                     'orientation': 'per_row',
-                    'shared_dropout': True,
-                    'fuse_projection_weights': True
+                    'shared_dropout': True
                 },
                 'triangle_multiplication_outgoing': {
                     'dropout_rate': 0.25,
                     'equation': 'ikc,jkc->ijc',
                     'num_intermediate_channel': 128,
                     'orientation': 'per_row',
-                    'shared_dropout': True,
-                    'fuse_projection_weights': True
+                    'shared_dropout': True
                 }
             },
             'extra_msa_channel': 64,
@@ -512,16 +506,14 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
                         'equation': 'kjc,kic->ijc',
                         'num_intermediate_channel': 64,
                         'orientation': 'per_row',
-                        'shared_dropout': True,
-                        'fuse_projection_weights': True,
+                        'shared_dropout': True
                     },
                     'triangle_multiplication_outgoing': {
                         'dropout_rate': 0.25,
                         'equation': 'ikc,jkc->ijc',
                         'num_intermediate_channel': 64,
                         'orientation': 'per_row',
-                        'shared_dropout': True,
-                        'fuse_projection_weights': True,
+                        'shared_dropout': True
                     }
                 }
             },

@@ -300,6 +300,8 @@ CONFIG = ml_collections.ConfigDict({
             }
         },
         'global_config': {
+            'bfloat16': True,
+            'bfloat16_output': False,
             'deterministic': False,
             'multimer_mode': False,
             'subbatch_size': 4,
@@ -527,6 +529,8 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
             },
         },
         'global_config': {
+            'bfloat16': True,
+            'bfloat16_output': False,
             'deterministic': False,
             'multimer_mode': True,
             'subbatch_size': 4,

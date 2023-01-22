@@ -419,12 +419,15 @@ class Attention(hk.Module):
 
     q_weights = hk.get_parameter(
         'query_w', shape=(q_data.shape[-1], num_head, key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     k_weights = hk.get_parameter(
         'key_w', shape=(m_data.shape[-1], num_head, key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     v_weights = hk.get_parameter(
         'value_w', shape=(m_data.shape[-1], num_head, value_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
 
     q = jnp.einsum('bqa,ahc->bqhc', q_data, q_weights) * key_dim**(-0.5)
@@ -445,10 +448,12 @@ class Attention(hk.Module):
       gating_weights = hk.get_parameter(
           'gating_w',
           shape=(q_data.shape[-1], num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(0.0))
       gating_bias = hk.get_parameter(
           'gating_b',
           shape=(num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(1.0))
 
       gate_values = jnp.einsum('bqc, chv->bqhv', q_data,
@@ -460,8 +465,10 @@ class Attention(hk.Module):
 
     o_weights = hk.get_parameter(
         'output_w', shape=(num_head, value_dim, self.output_dim),
+        dtype=q_data.dtype,
         init=init)
     o_bias = hk.get_parameter('output_b', shape=(self.output_dim,),
+                              dtype=q_data.dtype,
                               init=hk.initializers.Constant(0.0))
 
     output = jnp.einsum('bqhc,hco->bqo', weighted_avg, o_weights) + o_bias
@@ -509,12 +516,15 @@ class GlobalAttention(hk.Module):
 
     q_weights = hk.get_parameter(
         'query_w', shape=(q_data.shape[-1], num_head, key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     k_weights = hk.get_parameter(
         'key_w', shape=(m_data.shape[-1], key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     v_weights = hk.get_parameter(
         'value_w', shape=(m_data.shape[-1], value_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
 
     v = jnp.einsum('bka,ac->bkc', m_data, v_weights)
@@ -535,18 +545,22 @@ class GlobalAttention(hk.Module):
 
     o_weights = hk.get_parameter(
         'output_w', shape=(num_head, value_dim, self.output_dim),
+        dtype=q_data.dtype,
         init=init)
     o_bias = hk.get_parameter('output_b', shape=(self.output_dim,),
+                              dtype=q_data.dtype,
                               init=hk.initializers.Constant(0.0))
 
     if self.config.gating:
       gating_weights = hk.get_parameter(
           'gating_w',
           shape=(q_data.shape[-1], num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(0.0))
       gating_bias = hk.get_parameter(
           'gating_b',
           shape=(num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(1.0))
 
       gate_values = jnp.einsum('bqc, chv->bqhv', q_data, gating_weights)
@@ -611,6 +625,7 @@ class MSARowAttentionWithPairBias(hk.Module):
     weights = hk.get_parameter(
         'feat_2d_weights',
         shape=(pair_act.shape[-1], c.num_head),
+        dtype=msa_act.dtype,
         init=hk.initializers.RandomNormal(stddev=init_factor))
     nonbatched_bias = jnp.einsum('qkc,ch->hqk', pair_act, weights)
 
@@ -783,6 +798,7 @@ class TriangleAttention(hk.Module):
     weights = hk.get_parameter(
         'feat_2d_weights',
         shape=(pair_act.shape[-1], c.num_head),
+        dtype=pair_act.dtype,
         init=hk.initializers.RandomNormal(stddev=init_factor))
     nonbatched_bias = jnp.einsum('qkc,ch->hqk', pair_act, weights)
 
@@ -1221,9 +1237,11 @@ class OuterProductMean(hk.Module):
         'output_w',
         shape=(c.num_outer_channel, c.num_outer_channel,
                self.num_output_channel),
+        dtype=act.dtype,
         init=init_w)
     output_b = hk.get_parameter(
         'output_b', shape=(self.num_output_channel,),
+        dtype=act.dtype,
         init=hk.initializers.Constant(0.0))
 
     def compute_chunk(left_act):
@@ -1782,8 +1800,7 @@ class TemplateEmbedding(hk.Module):
     """
 
     num_templates = template_batch['template_mask'].shape[0]
-    num_channels = (self.config.template_pair_stack
-                    .triangle_attention_ending_node.value_dim)
+    num_channels = (self.config.template_pair_stack.triangle_attention_ending_node.value_dim)
     num_res = query_embedding.shape[0]
 
     dtype = query_embedding.dtype

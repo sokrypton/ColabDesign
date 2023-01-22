@@ -26,7 +26,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                recycle_mode="last", num_recycles=0,
                use_templates=False, best_metric="loss",
                model_names=None, optimizer="sgd", learning_rate=0.1,
-               use_openfold=False, use_alphafold=True, use_multimer=False,
+               use_bfloat16=True, use_multimer=False,
                pre_callback=None, post_callback=None,
                pre_design_callback=None, post_design_callback=None,
                loss_callback=None, traj_iter=1, traj_max=10000, debug=False, data_dir="."):
@@ -86,6 +86,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     cfg.model.num_recycle = num_recycles
     cfg.model.global_config.use_remat = True
     cfg.model.global_config.use_dgram = self._args["use_dgram"]
+    cfg.model.global_config.bfloat16 = use_bfloat16
 
     # setup model
     self._cfg = cfg 
@@ -97,11 +98,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         model_names += [f"model_{k}_multimer_v3" for k in [1,2,3,4,5]]
       else:
         if use_templates:
-          if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2]]
-          if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]]    
+          model_names += [f"model_{k}_ptm" for k in [1,2]]
         else:
-          if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
-          if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
+          model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
 
     self._model_params, self._model_names = [],[]
     for model_name in model_names:

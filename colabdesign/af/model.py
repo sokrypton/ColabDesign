@@ -46,7 +46,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "traj_iter":traj_iter, "traj_max":traj_max,
                   "clear_prev": True, "use_dgram":False, "shuffle_msa":True}
 
-    self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
+    self.opt = {"dropout":True, "pssm_hard":False, "learning_rate":learning_rate, "norm_seq_grad":True,
                 "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
                 "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
@@ -79,6 +79,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     if use_multimer:
       cfg = config.model_config("model_1_multimer")
+      self.opt["pssm_hard"] = True
     else:
       cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
     if recycle_mode in ["average","first","last","sample"]: num_recycles = 0
@@ -104,7 +105,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
-      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
+      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir, fuse=True)
       if params is not None:
         if not use_multimer and not use_templates:
           params = {k:v for k,v in params.items() if "template" not in k}
@@ -144,8 +145,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       seq_key = key() if a["shuffle_msa"] else None
       seq = self._get_seq(inputs, aux, seq_key)
             
-      # update sequence features
-      pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
+      # update sequence features      
+      pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
       if a["use_mlm"]:
         mlm = opt.get("mlm",jax.random.bernoulli(key(),opt["mlm_dropout"],(L,)))
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)

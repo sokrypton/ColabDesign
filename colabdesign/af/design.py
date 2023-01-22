@@ -278,7 +278,7 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, bias=bias)    
-    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, use_pssm=False)
+    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, pssm_hard=True)
     
     # run
     self.run(num_recycles=num_recycles, num_models=num_models,

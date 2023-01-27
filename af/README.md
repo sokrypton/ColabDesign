@@ -29,6 +29,11 @@
   - updating to alphafold-multimer v2.3.0
   - enabling fused_triangle_multiplication by default
 ### setup
+first install jax (with GPU support)
+```bash
+pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+```
+second install colabdesign
 ```bash
 pip install git+https://github.com/sokrypton/ColabDesign.git@v1.1.1
 

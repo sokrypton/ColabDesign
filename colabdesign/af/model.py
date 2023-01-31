@@ -21,11 +21,7 @@ from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
 ################################################################
 
 class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
-  def __init__(self, protocol="fixbb", model_names=None, 
-               pre_callback=None, post_callback=None,
-               pre_design_callback=None, post_design_callback=None,
-               loss_callback=None, data_dir=".", **kwargs):
-    
+  def __init__(self, protocol="fixbb", data_dir=".", **kwargs):  
     assert protocol in ["fixbb","hallucination","binder","partial"]
 
     self.protocol = protocol
@@ -55,26 +51,30 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                  "log":[],"best":{}}
 
     # set arguments/options
+    model_names = kwargs.pop("model_names",None)
     keys = list(kwargs.keys())
     for k in keys:
       if k in self._args: self._args[k] = kwargs.pop(k)
       if k in self.opt: self.opt[k] = kwargs.pop(k)
-    if len(kwargs) > 0:
-      print(f"ERROR: the following inputs were not set: {kwargs}")
-
-    if self._args["use_mlm"]:
-      self.opt["mlm_dropout"] = 0.15
-      self.opt["weights"]["mlm"] = 0.1
 
     # collect callbacks
-    self._callbacks = {"model":{"pre":pre_callback,"post":post_callback,"loss":loss_callback},
-                       "design":{"pre":pre_design_callback,"post":post_design_callback}}
+    self._callbacks = {"model": {"pre": kwargs.pop("pre_callback",None),
+                                 "post":kwargs.pop("post_callback",None),
+                                 "loss":kwargs.pop("loss_callback",None)},
+                       "design":{"pre": kwargs.pop("pre_design_callback",None),
+                                 "post":kwargs.pop("post_design_callback",None)}}
     
     for m,n in self._callbacks.items():
       for k,v in n.items():
         if v is None: v = []
         if not isinstance(v,list): v = [v]
         self._callbacks[m][k] = v
+
+    if self._args["use_mlm"]:
+      self.opt["mlm_dropout"] = 0.15
+      self.opt["weights"]["mlm"] = 0.1
+
+    assert len(kwargs) == 0, f"ERROR: the following inputs were not set: {kwargs}"
 
     #############################
     # configure AlphaFold

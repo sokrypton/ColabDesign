@@ -202,7 +202,7 @@ def soft_seq(x, bias, opt, key=None, num_seq=None, shuffle_first=True):
         n = jax.random.permutation(sub_key,n)
       else:
         n = jnp.append(0,jax.random.permutation(sub_key,n[1:]))
-      seq["inputs"] = seq["inputs"][n[:num_seq]]
+      seq["input"] = seq["input"][n[:num_seq]]
 
   # straight-through/reparameterization
   seq["logits"] = seq["input"] * opt["alpha"]

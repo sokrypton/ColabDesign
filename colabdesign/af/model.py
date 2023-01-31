@@ -59,7 +59,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                  "log":[],"best":{}}
 
     # set arguments/options
-    for k in kwargs.keys():
+    keys = list(kwargs.keys())
+    for k in keys:
       if k in self._args: self._args[k] = kwargs.pop(k)
       if k in self.opt: self.opt[k] = kwargs.pop(k)
     if len(kwargs) > 0:

@@ -49,10 +49,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0},
                 "fape_cutoff":10.0}
 
-    if self._args["use_mlm"]:
-      self.opt["mlm_dropout"] = 0.0
-      self.opt["weights"]["mlm"] = 0.1
-
     self._params = {}
     self._inputs = {}
     self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
@@ -65,6 +61,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if k in self.opt: self.opt[k] = kwargs.pop(k)
     if len(kwargs) > 0:
       print(f"ERROR: the following inputs were not set: {kwargs}")
+
+    if self._args["use_mlm"]:
+      self.opt["mlm_dropout"] = 0.0
+      self.opt["weights"]["mlm"] = 0.1
 
     # collect callbacks
     self._callbacks = {"model":{"pre":pre_callback,"post":post_callback,"loss":loss_callback},

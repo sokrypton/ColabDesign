@@ -30,7 +30,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
-    self._args = {"use_templates":False, "use_multimer":False,
+    self._args = {"use_templates":False, "use_multimer":False, "use_bfloat16":True,
                   "recycle_mode":"last", "use_mlm": False, "realign": True,
                   "debug":False, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
@@ -85,7 +85,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
     
-    num_recycles = 0 if recycle_mode in ["average","first","last","sample"] else self.opt["num_recycles"]      
+    if self._args["recycle_mode"] in ["average","first","last","sample"]:
+      num_recycles = 0
+    else:
+      num_recycles = self.opt["num_recycles"]
     self._cfg.model.num_recycle = num_recycles
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
     self._cfg.model.global_config.use_dgram = self._args["use_dgram"]

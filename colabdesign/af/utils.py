@@ -39,7 +39,7 @@ class _af_utils:
     '''
     set [arg]uments
     '''
-    for k in ["best_metric","traj_iter"]:
+    for k in ["best_metric", "traj_iter", "shuffle_first"]:
       if k in kwargs: self._args[k] = kwargs.pop(k)
             
     if "recycle_mode" in kwargs:

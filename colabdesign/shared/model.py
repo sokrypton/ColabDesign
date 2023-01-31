@@ -100,7 +100,10 @@ class design_model:
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
       
-      x = np.broadcast_to(seq, shape)
+      if seq.ndim == 2:
+        x = np.pad(seq[None],[[0,shape[0]],[0,0],[0,0]])
+      else:
+        x = seq
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)
@@ -183,13 +186,23 @@ class design_model:
     # make default
     if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
-def soft_seq(x, bias, opt, key=None):
+def soft_seq(x, bias, opt, key=None, num_seq=None, shuffle_first=True):
   seq = {"input":x}
-  # shuffle msa (randomly pick which sequence is query)
+  # shuffle msa
   if x.ndim == 3 and x.shape[0] > 1 and key is not None:
     key, sub_key = jax.random.split(key)
-    n = jax.random.randint(sub_key,[],0,x.shape[0])
-    seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
+    if num_seq is None or x.shape[0] == num_seq:
+      # randomly pick which sequence is query
+      if shuffle_first:
+        n = jax.random.randint(sub_key,[],0,x.shape[0])
+        seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
+    else:
+      n = jnp.arange(x.shape[0])
+      if shuffle_first:
+        n = jax.random.permutation(sub_key,n)
+      else:
+        n = jnp.append(0,jax.random.permutation(sub_key,n[1:]))
+      seq["inputs"] = seq["inputs"][n[:num_seq]]
 
   # straight-through/reparameterization
   seq["logits"] = seq["input"] * opt["alpha"]

@@ -63,7 +63,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       print(f"ERROR: the following inputs were not set: {kwargs}")
 
     if self._args["use_mlm"]:
-      self.opt["mlm_dropout"] = 0.0
+      self.opt["mlm_dropout"] = 0.15
       self.opt["weights"]["mlm"] = 0.1
 
     # collect callbacks
@@ -142,15 +142,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # INPUTS
       #######################################################################
-      L = inputs["aatype"].shape[0]
-
       # get sequence
       seq = self._get_seq(inputs, aux, key())
             
       # update sequence features      
       pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
       if a["use_mlm"]:
-        mlm = opt.get("mlm",jax.random.bernoulli(key(),opt["mlm_dropout"],(L,)))
+        shape = seq["pseudo"].shape[:2]
+        mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       else:
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)

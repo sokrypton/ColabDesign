@@ -305,9 +305,7 @@ class EmbeddingsAndEvoformer(hk.Module):
     with utils.bfloat16_context():
       
       msa_feat = batch['msa_feat'].astype(dtype)
-      tmp = msa_feat[0]
-      target_feat = jnp.concatenate([tmp[:,:20],tmp[:,22:23]],-1).astype(dtype)
-      
+      target_feat = jnp.pad(batch["target_feat"].astype(dtype),[[0,0],[0,1]])
       preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
       preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(msa_feat)
       msa_activations = preprocess_1d[None] + preprocess_msa

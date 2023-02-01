@@ -52,7 +52,7 @@ class design_model:
     if mode is None: mode = []
 
     # decide on shape
-    shape = (self._num, self._len, 20)
+    shape = (self._num, self._len, self._args.get("alphabet_size",20))
     
     # initialize bias
     if bias is None:
@@ -67,7 +67,7 @@ class design_model:
         
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
-      wt_seq = np.eye(20)[self._wt_aatype]
+      wt_seq = np.eye(shape[-1])[self._wt_aatype]
       wt_seq[self._wt_aatype == -1] = 0
       if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
         seq = np.zeros(shape)
@@ -86,14 +86,17 @@ class design_model:
         seq = [seq]
       if isinstance(seq, list):
         if isinstance(seq[0], str):
-          seq = np.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
+          aa_dict = copy_dict(aa_order)
+          if shape[-1] > 21:
+            aa_dict[21] = "-" # add gap character
+          seq = np.asarray([[aa_dict.get(aa,-1) for aa in s] for s in seq])
         else:
           seq = np.asarray(seq)
       else:
         seq = np.asarray(seq)
 
       if np.issubdtype(seq.dtype, np.integer):
-        seq_ = np.eye(20)[seq]
+        seq_ = np.eye(shape[-1])[seq]
         seq_[seq == -1] = 0
         seq = seq_
       
@@ -209,7 +212,7 @@ def soft_seq(x, bias, opt, key=None, num_seq=None, shuffle_first=True):
   if bias is not None: seq["logits"] = seq["logits"] + bias
   seq["pssm"] = jax.nn.softmax(seq["logits"])
   seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
-  seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
+  seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), seq["soft"].shape[-1])
   seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
 
   # create pseudo sequence

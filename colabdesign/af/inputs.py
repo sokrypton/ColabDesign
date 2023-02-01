@@ -23,7 +23,7 @@ class _af_inputs:
     # protocol specific modifications to seq features
     if self.protocol == "binder":
       # concatenate target and binder sequence
-      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],20)
+      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],self._args["alphabet_size"])
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
@@ -35,11 +35,11 @@ class _af_inputs:
   def _fix_pos(self, seq, return_p=False):
     if "fix_pos" in self.opt:
       if "pos" in self.opt:
-        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
+        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,self._args["alphabet_size"])
         p = self.opt["pos"][self.opt["fix_pos"]]
         fix_seq = lambda x: x.at[...,p,:].set(seq_ref)
       else:
-        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
+        seq_ref = jax.nn.one_hot(self._wt_aatype,self._args["alphabet_size"])
         p = self.opt["fix_pos"]
         fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
       seq = jax.tree_map(fix_seq, seq)

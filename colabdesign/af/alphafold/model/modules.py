@@ -106,121 +106,57 @@ def create_extra_msa_feature(batch):
               jnp.expand_dims(batch['extra_deletion_value'], axis=-1)]
   return jnp.concatenate(msa_feat, axis=-1)
 
-
 class AlphaFoldIteration(hk.Module):
   """A single recycling iteration of AlphaFold architecture.
-
-  Computes ensembled (averaged) representations from the provided features.
-  These representations are then passed to the various heads
-  that have been requested by the configuration file. 
-
   Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 3-22
   """
-
   def __init__(self, config, global_config, name='alphafold_iteration'):
     super().__init__(name=name)
     self.config = config
     self.global_config = global_config
 
-  def __call__(self,
-               batch,
-               is_training,
-               return_representations=False):
+  def __call__(self, batch, is_training, **kwargs):
 
     # Compute representations for each batch element and average.
     evoformer_module = EmbeddingsAndEvoformer(self.config.embeddings_and_evoformer, self.global_config)
-    representations = evoformer_module(batch, is_training)
-
-    # MSA representations are not ensembled so
-    # we don't pass tensor into the loop.
-    msa_representation = representations['msa']
-    del representations['msa']
-
-    representations['msa'] = msa_representation
+    representations = evoformer_module(batch, is_training)    
     
-    num_residues = batch['aatype'].shape
-    struct_module = folding.StructureModule
-      
-    heads = {}
-    for head_name, head_config in sorted(self.config.heads.items()):
-      if not head_config.weight:
-        continue  # Do not instantiate zero-weight heads.
-      head_factory = {
+    head_factory = {
           'masked_msa': MaskedMsaHead,
           'distogram': DistogramHead,
-          'structure_module': struct_module,
+          'structure_module': folding.StructureModule,
           'predicted_lddt': PredictedLDDTHead,
           'predicted_aligned_error': PredictedAlignedErrorHead,
-          'experimentally_resolved': ExperimentallyResolvedHead,
-      }[head_name]
-      heads[head_name] = (head_config,
-                          head_factory(head_config, self.global_config))
+          'experimentally_resolved': ExperimentallyResolvedHead} 
 
-    ret = {}
-    ret['representations'] = representations
-
-    for name, (head_config, module) in heads.items():
-      # Skip PredictedLDDTHead and PredictedAlignedErrorHead until
-      # StructureModule is executed.
+    heads = {}
+    for name, head_config in sorted(self.config.heads.items()):
+      if not head_config.weight: continue
+      heads[name] = head_factory[name](head_config, self.global_config)
+    
+    ret = {'representations':representations}
+    for name, head in heads.items():
       if name in ('predicted_lddt', 'predicted_aligned_error'):
         continue
       else:
-        ret[name] = module(representations, batch, is_training)
+        ret[name] = head(representations, batch, is_training)
         if 'representations' in ret[name]:
-          # Extra representations from the head. Used by the structure module
-          # to provide activations for the PredictedLDDTHead.
           representations.update(ret[name].pop('representations'))
 
-    if self.config.heads.get('predicted_lddt.weight', 0.0):
-      # Add PredictedLDDTHead after StructureModule executes.
-      name = 'predicted_lddt'
-      # Feed all previous results to give access to structure_module result.
-      head_config, module = heads[name]
-      ret[name] = module(representations, batch, is_training)
-
-    if ('predicted_aligned_error' in self.config.heads
-        and self.config.heads.get('predicted_aligned_error.weight', 0.0)):
-      # Add PredictedAlignedErrorHead after StructureModule executes.
-      name = 'predicted_aligned_error'
-      # Feed all previous results to give access to structure_module result.
-      head_config, module = heads[name]
-      ret[name] = module(representations, batch, is_training)
-
+    for name in ('predicted_lddt', 'predicted_aligned_error'):
+      ret[name] = heads[name](representations, batch, is_training)
     return ret
 
 class AlphaFold(hk.Module):
-  """AlphaFold model with recycling.
-
-  Jumper et al. (2021) Suppl. Alg. 2 "Inference"
-  """
-
+  """AlphaFold Jumper et al. (2021) Suppl. Alg. 2 "Inference"""
   def __init__(self, config, name='alphafold'):
     super().__init__(name=name)
     self.config = config
     self.global_config = config.global_config
 
-  def __call__(
-      self,
-      batch,
-      is_training,
-      return_representations=False):
-    """Run the AlphaFold model.
-
-    Arguments:
-      batch: Dictionary with inputs to the AlphaFold model.
-      is_training: Whether the system is in training or inference mode.
-      return_representations: Whether to also return the intermediate
-        representations.
-
-    Returns:
-      just output of AlphaFoldIteration.
-
-      The output of AlphaFoldIteration is a nested dictionary containing
-      predictions from the various heads.
-    """
-    num_res = batch['aatype'].shape
+  def __call__(self,batch, is_training, **kwargs):
+    """Run the AlphaFold model."""
     impl = AlphaFoldIteration(self.config, self.global_config)
-
 
     def get_prev(ret):
       new_prev = {
@@ -230,13 +166,10 @@ class AlphaFold(hk.Module):
       }
       if self.global_config.use_dgram:
         new_prev['prev_dgram'] = ret["distogram"]["logits"]
-      return new_prev
-    
-    emb_config = self.config.embeddings_and_evoformer
-    prev = batch.pop("prev")                      
-    ret = impl(batch={**batch, **prev},
-               is_training=is_training)
+      return new_prev    
 
+    prev = batch.pop("prev")                      
+    ret = impl(batch={**batch, **prev}, is_training=is_training)
     ret["prev"] = get_prev(ret)        
     return ret
 

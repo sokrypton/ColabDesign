@@ -180,7 +180,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # OUTPUTS
       #######################################################################
-
       outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs

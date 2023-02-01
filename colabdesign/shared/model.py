@@ -88,7 +88,7 @@ class design_model:
         if isinstance(seq[0], str):
           aa_dict = copy_dict(aa_order)
           if shape[-1] > 21:
-            aa_dict[21] = "-" # add gap character
+            aa_dict["-"] = 21 # add gap character
           seq = np.asarray([[aa_dict.get(aa,-1) for aa in s] for s in seq])
         else:
           seq = np.asarray(seq)

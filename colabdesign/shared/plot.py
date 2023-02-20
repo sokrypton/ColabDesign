@@ -108,7 +108,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
   
   if chainbreak is not None:
     dist = np.linalg.norm(xyz[:-1] - xyz[1:], axis=-1)
-    colors[...,3] = (dist < chainbreak).astype(np.float)
+    colors[...,3] = (dist < chainbreak).astype(float)
 
   # add shade/tint based on z-dimension
   z = rescale(seg_z,zmin,zmax)[:,None]

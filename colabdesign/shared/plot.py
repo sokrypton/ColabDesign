@@ -184,18 +184,19 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   if xyz is not None:
     if pos_ref is None:
       pos_ref = xyz[-1]
-    
+
+    if length is None:
+      L = len(pos_ref)
+      Ls = None
+    elif isinstance(length, list):
+      L = length[0]
+      Ls = length
+    else:
+      L = length
+      Ls = None
+
+    # align to reference
     if align_xyz:
-      # align to reference
-      if length is None:
-        L = len(pos_ref)
-        Ls = None
-      elif isinstance(length, list):
-        L = length[0]
-        Ls = length
-      else:
-        L = length
-        Ls = None
         
       pos_ref_trim = pos_ref[:L]
       pos_ref_trim_mu = np.nanmean(pos_ref_trim,0)

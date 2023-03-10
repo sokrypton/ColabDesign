@@ -5,7 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
-from colabdesign.af.alphafold.common import confidence_jax, residue_constants
+from colabdesign.af.alphafold.common import confidence, residue_constants
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -36,12 +36,16 @@ class _af_loss:
     '''get losses'''
     opt = inputs["opt"]
     zeros = jnp.zeros(sum(self._lengths))
-    binder_id = zeros.at[self._target_len:].set(1)
+    mask_1d = inputs["seq_mask"]
+    binder_id = zeros.at[-self._binder_len:].set(1)
+    binder_id = jnp.where(mask_1d, binder_id, 0)
     if "hotspot" in opt:
       target_id = zeros.at[opt["hotspot"]].set(1)
+      target_id = jnp.where(mask_1d, target_id, 0)
       i_con_loss = get_con_loss(inputs, outputs, opt["i_con"], mask_1d=target_id, mask_1b=binder_id)
     else:
       target_id = zeros.at[:self._target_len].set(1)
+      target_id = jnp.where(mask_1d, target_id, 0)
       i_con_loss = get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id)
 
     # unsupervised losses
@@ -68,10 +72,17 @@ class _af_loss:
       # compute fape
       fape = get_fape_loss(inputs, outputs, clamp=opt["fape_cutoff"], return_mtx=True)
 
+      mask_1d = inputs["batch"]["all_atom_mask"][:,1]
+      mask_2d = mask_1d[:,None] * mask_1d[None,:]
+      def exclude_target(x):
+        x = x[-self._binder_len:,:]
+        m = mask_2d[-self._binder_len:,:]
+        return (x*m).sum() / (m.sum() + 1e-8)
+
       aux["losses"].update({
         "rmsd":      aln["rmsd"],
-        "dgram_cce": cce[self._target_len:,:].mean(),
-        "fape":      fape[self._target_len:,:].mean()
+        "dgram_cce": exclude_target(cce),
+        "fape":      exclude_target(fape)
       })
 
     else:
@@ -198,10 +209,15 @@ def get_pae(outputs):
   return (prob*bin_centers).sum(-1)
 
 def get_ptm(inputs, outputs, interface=False):
-  pae = outputs["predicted_aligned_error"]
-  if "asym_id" not in pae:
-    pae["asym_id"] = inputs["asym_id"]
-  return confidence_jax.predicted_tm_score_jax(**pae, interface=interface)
+  pae = {"residue_weights":inputs["seq_mask"],
+         **outputs["predicted_aligned_error"]}
+  if interface:
+    if "asym_id" not in pae:
+      pae["asym_id"] = inputs["asym_id"]
+  else:
+    if "asym_id" in pae:
+      pae.pop("asym_id")
+  return confidence.predicted_tm_score(**pae, use_jnp=True)
 
 def get_contact_map(outputs, dist=8.0):
   '''get contact map from distogram'''

@@ -127,7 +127,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def _get_model(self, cfg, callback=None):
 
     a = self._args
-    runner = model.RunModel(cfg, is_training=True,
+    runner = model.RunModel(cfg,
                             recycle_mode=a["recycle_mode"],
                             use_multimer=a["use_multimer"])
 

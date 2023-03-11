@@ -354,7 +354,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         # Construct a mask such that only intra-chain template features are
         # computed, since all templates are for each chain individually.
         multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
-        multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, False)
+        multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, True)
 
         safe_key, safe_subkey = safe_key.split()
         template_act = template_module(

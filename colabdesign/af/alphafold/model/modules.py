@@ -1475,7 +1475,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         template_batch = {k: batch[k] for k in batch if k.startswith('template_')}
 
         multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
-        multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, False)
+        multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, True)
 
         template_pair_representation = TemplateEmbedding(c.template, gc)(
             pair_activations,

@@ -33,35 +33,29 @@ import jax.numpy as jnp
 
 from colabdesign.af.alphafold.model.r3 import Rigids, Rots, Vecs
 
-def apply_dropout(*, tensor, safe_key, rate, is_training, broadcast_dim=None):
+def apply_dropout(*, tensor, safe_key, rate, broadcast_dim=None):
   """Applies dropout to a tensor."""
-  if is_training: # and rate != 0.0:
-    shape = list(tensor.shape)
-    if broadcast_dim is not None:
-      shape[broadcast_dim] = 1
-    keep_rate = 1.0 - rate
-    keep = jax.random.bernoulli(safe_key.get(), keep_rate, shape=shape)
-    return keep * tensor / keep_rate
-  else:
-    return tensor
-
+  shape = list(tensor.shape)
+  if broadcast_dim is not None:
+    shape[broadcast_dim] = 1
+  keep_rate = 1.0 - rate
+  keep = jax.random.bernoulli(safe_key.get(), keep_rate, shape=shape)
+  return keep * tensor / keep_rate
 
 def dropout_wrapper(module,
                     input_act,
                     mask,
                     safe_key,
                     global_config,
+                    use_dropout,
                     output_act=None,
-                    is_training=True,
-                    dropout_scale=1.0,
                     **kwargs):
   """Applies module + dropout + residual update."""
   if output_act is None:
     output_act = input_act
 
   gc = global_config
-  residual = module(input_act, mask, is_training=is_training, **kwargs)
-  dropout_rate = 0.0 if gc.deterministic else module.config.dropout_rate
+  residual = module(input_act, mask, **kwargs)
 
   if module.config.shared_dropout:
     if module.config.orientation == 'per_row':
@@ -73,8 +67,7 @@ def dropout_wrapper(module,
 
   residual = apply_dropout(tensor=residual,
                            safe_key=safe_key,
-                           rate=dropout_rate * dropout_scale,
-                           is_training=is_training,
+                           rate=jnp.where(use_dropout, module.config.dropout_rate, 0),
                            broadcast_dim=broadcast_dim)
 
   new_act = output_act + residual
@@ -115,11 +108,11 @@ class AlphaFoldIteration(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, batch, is_training, **kwargs):
+  def __call__(self, batch, **kwargs):
 
     # Compute representations for each batch element and average.
     evoformer_module = EmbeddingsAndEvoformer(self.config.embeddings_and_evoformer, self.global_config)
-    representations = evoformer_module(batch, is_training)    
+    representations = evoformer_module(batch)    
     
     head_factory = {
           'masked_msa': MaskedMsaHead,
@@ -139,12 +132,12 @@ class AlphaFoldIteration(hk.Module):
       if name in ('predicted_lddt', 'predicted_aligned_error'):
         continue
       else:
-        ret[name] = head(representations, batch, is_training)
+        ret[name] = head(representations, batch)
         if 'representations' in ret[name]:
           representations.update(ret[name].pop('representations'))
 
     for name in ('predicted_lddt', 'predicted_aligned_error'):
-      ret[name] = heads[name](representations, batch, is_training)
+      ret[name] = heads[name](representations, batch)
     return ret
 
 class AlphaFold(hk.Module):
@@ -154,7 +147,7 @@ class AlphaFold(hk.Module):
     self.config = config
     self.global_config = config.global_config
 
-  def __call__(self,batch, is_training, **kwargs):
+  def __call__(self, batch, **kwargs):
     """Run the AlphaFold model."""
     impl = AlphaFoldIteration(self.config, self.global_config)
 
@@ -169,7 +162,7 @@ class AlphaFold(hk.Module):
       return new_prev    
 
     prev = batch.pop("prev")                      
-    ret = impl(batch={**batch, **prev}, is_training=is_training)
+    ret = impl(batch={**batch, **prev})
     ret["prev"] = get_prev(ret)        
     return ret
 
@@ -184,13 +177,12 @@ class TemplatePairStack(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, pair_act, pair_mask, is_training, safe_key=None, dropout_scale=1.0):
+  def __call__(self, pair_act, pair_mask, use_dropout, safe_key=None):
     """Builds TemplatePairStack module.
 
     Arguments:
       pair_act: Pair activations for single template, shape [N_res, N_res, c_t].
       pair_mask: Pair mask, shape [N_res, N_res].
-      is_training: Whether the module is in training mode.
       safe_key: Safe key object encapsulating the random number generation key.
 
     Returns:
@@ -211,7 +203,7 @@ class TemplatePairStack(hk.Module):
       pair_act, safe_key = x
 
       dropout_wrapper_fn = functools.partial(
-          dropout_wrapper, is_training=is_training, global_config=gc, dropout_scale=dropout_scale)
+          dropout_wrapper, global_config=gc, use_dropout=use_dropout)
 
       safe_key, *sub_keys = safe_key.split(6)
       sub_keys = iter(sub_keys)
@@ -268,13 +260,12 @@ class Transition(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, act, mask, is_training=True):
+  def __call__(self, act, mask):
     """Builds Transition module.
 
     Arguments:
       act: A tensor of queries of size [batch_size, N_res, N_channel].
       mask: A tensor denoting the mask of size [batch_size, N_res].
-      is_training: Whether the module is in training mode.
 
     Returns:
       A float32 tensor of size [batch_size, N_res, N_channel].
@@ -521,15 +512,13 @@ class MSARowAttentionWithPairBias(hk.Module):
   def __call__(self,
                msa_act,
                msa_mask,
-               pair_act,
-               is_training=False):
+               pair_act):
     """Builds MSARowAttentionWithPairBias module.
 
     Arguments:
       msa_act: [N_seq, N_res, c_m] MSA representation.
       msa_mask: [N_seq, N_res] mask of non-padded regions.
       pair_act: [N_res, N_res, c_z] pair representation.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to msa_act, shape [N_seq, N_res, c_m].
@@ -587,14 +576,12 @@ class MSAColumnAttention(hk.Module):
 
   def __call__(self,
                msa_act,
-               msa_mask,
-               is_training=False):
+               msa_mask):
     """Builds MSAColumnAttention module.
 
     Arguments:
       msa_act: [N_seq, N_res, c_m] MSA representation.
       msa_mask: [N_seq, N_res] mask of non-padded regions.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to msa_act, shape [N_seq, N_res, c_m]
@@ -642,14 +629,12 @@ class MSAColumnGlobalAttention(hk.Module):
 
   def __call__(self,
                msa_act,
-               msa_mask,
-               is_training=False):
+               msa_mask):
     """Builds MSAColumnGlobalAttention module.
 
     Arguments:
       msa_act: [N_seq, N_res, c_m] MSA representation.
       msa_mask: [N_seq, N_res] mask of non-padded regions.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to msa_act, shape [N_seq, N_res, c_m].
@@ -699,13 +684,12 @@ class TriangleAttention(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, pair_act, pair_mask, is_training=False):
+  def __call__(self, pair_act, pair_mask):
     """Builds TriangleAttention module.
 
     Arguments:
       pair_act: [N_res, N_res, c_z] pair activations tensor
       pair_mask: [N_res, N_res] mask of non-padded regions in the tensor.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to pair_act, shape [N_res, N_res, c_z].
@@ -769,14 +753,13 @@ class MaskedMsaHead(hk.Module):
     else:
       self.num_output = config.num_output
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds MaskedMsaHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'msa': MSA representation, shape [N_seq, N_res, c_m].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -803,7 +786,7 @@ class PredictedLDDTHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds ExperimentallyResolvedHead module.
 
     Arguments:
@@ -811,7 +794,6 @@ class PredictedLDDTHead(hk.Module):
         * 'structure_module': Single representation from the structure module,
              shape [N_res, c_s].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing :
@@ -863,14 +845,13 @@ class PredictedAlignedErrorHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds PredictedAlignedErrorHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'pair': pair representation, shape [N_res, N_res, c_z].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -904,14 +885,13 @@ class ExperimentallyResolvedHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds ExperimentallyResolvedHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'single': Single representation, shape [N_res, c_s].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -949,16 +929,14 @@ class TriangleMultiplication(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, left_act, left_mask, is_training=True):
+  def __call__(self, left_act, left_mask):
     """Builds TriangleMultiplication module.
     Arguments:
       left_act: Pair activations, shape [N_res, N_res, c_z]
       left_mask: Pair mask, shape [N_res, N_res].
-      is_training: Whether the module is in training mode.
     Returns:
       Outputs, same shape/type as left_act.
     """
-    del is_training
 
     if self.config.fuse_projection_weights:
       return self._fused_triangle_multiplication(left_act, left_mask)
@@ -1089,14 +1067,13 @@ class DistogramHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds DistogramHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'pair': pair representation, shape [N_res, N_res, c_z].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -1132,13 +1109,12 @@ class OuterProductMean(hk.Module):
     self.config = config
     self.num_output_channel = num_output_channel
 
-  def __call__(self, act, mask, is_training=True):
+  def __call__(self, act, mask):
     """Builds OuterProductMean module.
 
     Arguments:
       act: MSA representation, shape [N_seq, N_res, c_m].
       mask: MSA mask, shape [N_seq, N_res].
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to pair representation, shape [N_res, N_res, c_z].
@@ -1267,7 +1243,7 @@ class EvoformerIteration(hk.Module):
     self.global_config = global_config
     self.is_extra_msa = is_extra_msa
 
-  def __call__(self, activations, masks, is_training=True, safe_key=None, dropout_scale=1.0):
+  def __call__(self, activations, masks, use_dropout, safe_key=None):
     """Builds EvoformerIteration module.
 
     Arguments:
@@ -1277,7 +1253,6 @@ class EvoformerIteration(hk.Module):
       masks: Dictionary of masks:
         * 'msa': MSA mask, shape [N_seq, N_res].
         * 'pair': pair mask, shape [N_res, N_res].
-      is_training: Whether the module is in training mode.
       safe_key: prng.SafeKey encapsulating rng key.
 
     Returns:
@@ -1295,9 +1270,8 @@ class EvoformerIteration(hk.Module):
 
     dropout_wrapper_fn = functools.partial(
         dropout_wrapper,
-        is_training=is_training,
         global_config=gc,
-        dropout_scale=dropout_scale)
+        use_dropout=use_dropout)
 
     safe_key, *sub_keys = safe_key.split(10)
     sub_keys = iter(sub_keys)
@@ -1387,7 +1361,7 @@ class EmbeddingsAndEvoformer(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, batch, is_training, safe_key=None):
+  def __call__(self, batch, safe_key=None):
 
     c = self.config
     gc = self.global_config
@@ -1482,8 +1456,7 @@ class EmbeddingsAndEvoformer(hk.Module):
             template_batch,
             mask_2d,
             multichain_mask,
-            is_training=is_training,
-            dropout_scale=batch["dropout_scale"].astype(dtype))
+            use_dropout=batch["use_dropout"])
 
         pair_activations += template_pair_representation
 
@@ -1506,9 +1479,8 @@ class EmbeddingsAndEvoformer(hk.Module):
               activations=act,
               masks={'msa': batch['extra_msa_mask'].astype(dtype),
                      'pair': mask_2d},
-              is_training=is_training,
               safe_key=safe_subkey,
-              dropout_scale=batch["dropout_scale"].astype(dtype))
+              use_dropout=batch["use_dropout"])
           return (extra_evoformer_output, safe_key)
         if gc.use_remat: extra_msa_stack_fn = hk.remat(extra_msa_stack_fn)
         extra_msa_stack = layer_stack.layer_stack(c.extra_msa_stack_num_block)(extra_msa_stack_fn)
@@ -1573,9 +1545,8 @@ class EmbeddingsAndEvoformer(hk.Module):
           evoformer_output = evoformer_iteration(
               activations=act,
               masks=evoformer_masks,
-              is_training=is_training,
               safe_key=safe_subkey,
-              dropout_scale=batch["dropout_scale"].astype(dtype))
+              use_dropout=batch["use_dropout"])
           return (evoformer_output, safe_key)
         if gc.use_remat: evoformer_fn = hk.remat(evoformer_fn)
         evoformer_stack = layer_stack.layer_stack(c.evoformer_num_block)(evoformer_fn)
@@ -1613,7 +1584,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, batch, mask_2d, multichain_mask_2d, is_training, dropout_scale=1.0):
+  def __call__(self, query_embedding, batch, mask_2d, multichain_mask_2d, use_dropout):
     """Build the single template embedding.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
@@ -1621,7 +1592,6 @@ class SingleTemplateEmbedding(hk.Module):
         stripped out as this module only runs over a single template).
       mask_2d: Padding mask (Note: this doesn't care if a template exists,
         unlike the template_pseudo_beta_mask).
-      is_training: Whether the module is in training mode.
     Returns:
       A template embedding [N_res, N_res, c_z].
     """
@@ -1715,7 +1685,7 @@ class SingleTemplateEmbedding(hk.Module):
 
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 11
     act = TemplatePairStack(
-        self.config.template_pair_stack, self.global_config)(act, mask_2d, is_training, dropout_scale=dropout_scale)
+        self.config.template_pair_stack, self.global_config)(act, mask_2d, use_dropout=use_dropout)
 
     act = common_modules.LayerNorm([-1], True, True, name='output_layer_norm')(act)
     return act
@@ -1732,15 +1702,13 @@ class TemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, template_batch, mask_2d, multichain_mask_2d, 
-               is_training, dropout_scale=1.0):
+  def __call__(self, query_embedding, template_batch, mask_2d, multichain_mask_2d, use_dropout):
     """Build TemplateEmbedding module.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
       template_batch: A batch of template features.
       mask_2d: Padding mask (Note: this doesn't care if a template exists,
         unlike the template_pseudo_beta_mask).
-      is_training: Whether the module is in training mode.
     Returns:
       A template embedding [N_res, N_res, c_z].
     """
@@ -1763,7 +1731,7 @@ class TemplateEmbedding(hk.Module):
 
     def map_fn(batch):
       return template_embedder(query_embedding, batch, mask_2d, multichain_mask_2d,
-                               is_training, dropout_scale=dropout_scale)
+        use_dropout=use_dropout)
 
     template_pair_representation = mapping.sharded_map(map_fn, in_axes=0)(template_batch)
 

@@ -76,7 +76,6 @@ class AlphaFoldIteration(hk.Module):
 
   def __call__(self,
                batch,
-               is_training,
                return_representations=False,
                safe_key=None):
 
@@ -86,7 +85,7 @@ class AlphaFoldIteration(hk.Module):
         self.config.embeddings_and_evoformer, self.global_config)
 
     safe_key, safe_subkey = safe_key.split()
-    representations = embedding_module(batch, is_training, safe_key=safe_subkey)
+    representations = embedding_module(batch, safe_key=safe_subkey)
 
     self.representations = representations
     self.batch = batch
@@ -115,7 +114,7 @@ class AlphaFoldIteration(hk.Module):
     structure_module_output = None
     if 'entity_id' in batch and 'all_atom_positions' in batch:
       _, fold_module = self.heads['structure_module']
-      structure_module_output = fold_module(representations, batch, is_training)
+      structure_module_output = fold_module(representations, batch)
 
 
     ret = {}
@@ -130,24 +129,24 @@ class AlphaFoldIteration(hk.Module):
                     'experimentally_resolved'}:
         continue
       else:
-        ret[name] = module(representations, batch, is_training)
+        ret[name] = module(representations, batch)
 
 
     # Add confidence heads after StructureModule is executed.
     if self.config.heads.get('predicted_lddt.weight', 0.0):
       name = 'predicted_lddt'
       head_config, module = self.heads[name]
-      ret[name] = module(representations, batch, is_training)
+      ret[name] = module(representations, batch)
 
     if self.config.heads.experimentally_resolved.weight:
       name = 'experimentally_resolved'
       head_config, module = self.heads[name]
-      ret[name] = module(representations, batch, is_training)
+      ret[name] = module(representations, batch)
 
     if self.config.heads.get('predicted_aligned_error.weight', 0.0):
       name = 'predicted_aligned_error'
       head_config, module = self.heads[name]
-      ret[name] = module(representations, batch, is_training)
+      ret[name] = module(representations, batch)
       # Will be used for ipTM computation.
       ret[name]['asym_id'] = batch['asym_id']
 
@@ -165,7 +164,6 @@ class AlphaFold(hk.Module):
   def __call__(
       self,
       batch,
-      is_training,
       return_representations=False,
       safe_key=None):
 
@@ -192,7 +190,6 @@ class AlphaFold(hk.Module):
       recycled_batch = {**batch, **prev}
       return impl(
           batch=recycled_batch,
-          is_training=is_training,
           safe_key=safe_key)
         
     ret = apply_network(prev=batch.pop("prev"), safe_key=safe_key)
@@ -290,7 +287,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         c.pair_channel,
         name='position_activations')(rel_feat)
 
-  def __call__(self, batch, is_training, safe_key=None):
+  def __call__(self, batch, safe_key=None):
 
     c = self.config
     gc = self.global_config
@@ -362,8 +359,7 @@ class EmbeddingsAndEvoformer(hk.Module):
             template_batch=template_batch,
             padding_mask_2d=mask_2d,
             multichain_mask_2d=multichain_mask,
-            is_training=is_training,
-            dropout_scale=batch["dropout_scale"].astype(dtype),
+            use_dropout=batch["use_dropout"],
             safe_key=safe_subkey)
         pair_activations += template_act
 
@@ -382,8 +378,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         extra_evoformer_output = extra_evoformer_iteration(
             activations=act,
             masks=extra_masks,
-            is_training=is_training,
-            dropout_scale=batch["dropout_scale"].astype(dtype),
+            use_dropout=batch["use_dropout"],
             safe_key=safe_subkey)
         return (extra_evoformer_output, safe_key)
 
@@ -422,8 +417,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         evoformer_output = evoformer_iteration(
             activations=act,
             masks=evoformer_masks,
-            is_training=is_training,
-            dropout_scale=batch["dropout_scale"].astype(dtype),
+            use_dropout=batch["use_dropout"],
             safe_key=safe_subkey)
         return (evoformer_output, safe_key)
 
@@ -475,8 +469,7 @@ class TemplateEmbedding(hk.Module):
     self.global_config = global_config
 
   def __call__(self, query_embedding, template_batch, padding_mask_2d,
-               multichain_mask_2d, is_training, dropout_scale,
-               safe_key=None):
+               multichain_mask_2d, use_dropout, safe_key=None):
     """Generate an embedding for a set of templates.
 
     Args:
@@ -493,7 +486,6 @@ class TemplateEmbedding(hk.Module):
       multichain_mask_2d: [num_res, num_res] Mask indicating which residue pairs
         are intra-chain, used to mask out residue distance based features
         between chains.
-      is_training: bool indicating where we are running in training mode.
       safe_key: random key generator.
 
     Returns:
@@ -514,8 +506,7 @@ class TemplateEmbedding(hk.Module):
                                template_batch,
                                padding_mask_2d,
                                multichain_mask_2d,
-                               is_training,
-                               dropout_scale,
+                               use_dropout,
                                safe_key)
 
     safe_key, unsafe_key = safe_key.split()
@@ -546,8 +537,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.global_config = global_config
 
   def __call__(self, query_embedding, template_batch,               
-               padding_mask_2d, multichain_mask_2d, is_training, dropout_scale,
-               safe_key):
+               padding_mask_2d, multichain_mask_2d, use_dropout, safe_key):
     """Build the single template embedding graph.
 
     Args:
@@ -562,7 +552,6 @@ class SingleTemplateEmbedding(hk.Module):
       multichain_mask_2d: A mask indicating intra-chain residue pairs, used
         to mask out between chain distances/features when templates are for
         single chains.
-      is_training: Are we in training mode.
       safe_key: Random key generator.
 
     Returns:
@@ -662,8 +651,7 @@ class SingleTemplateEmbedding(hk.Module):
       act = template_iteration(
           act=act,
           pair_mask=padding_mask_2d,
-          is_training=is_training,
-          dropout_scale=dropout_scale,
+          use_dropout=use_dropout,
           safe_key=safe_subkey)
       return (act, safe_key)
 
@@ -693,14 +681,12 @@ class TemplateEmbeddingIteration(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, act, pair_mask, is_training=True, dropout_scale=1.0,
-               safe_key=None):
+  def __call__(self, act, pair_mask, use_dropout, safe_key=None):
     """Build a single iteration of the template embedder.
 
     Args:
       act: [num_res, num_res, num_channel] Input pairwise activations.
       pair_mask: [num_res, num_res] padding mask.
-      is_training: Whether to run in training mode.
       safe_key: Safe pseudo-random generator key.
 
     Returns:
@@ -714,8 +700,7 @@ class TemplateEmbeddingIteration(hk.Module):
 
     dropout_wrapper_fn = functools.partial(
         modules.dropout_wrapper,
-        is_training=is_training,
-        dropout_scale=dropout_scale,
+        use_dropout=use_dropout,
         global_config=gc)
 
     safe_key, *sub_keys = safe_key.split(20)

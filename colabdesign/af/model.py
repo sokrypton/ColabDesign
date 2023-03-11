@@ -165,7 +165,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         self._update_template(inputs, key())
       
       # set dropout
-      inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
+      inputs["use_dropout"] = opt["dropout"]
 
       if "batch" not in inputs:
         inputs["batch"] = None

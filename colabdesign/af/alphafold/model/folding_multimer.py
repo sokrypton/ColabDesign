@@ -394,11 +394,10 @@ class FoldIteration(hk.Module):
       aatype: jnp.ndarray,
       sequence_mask: jnp.ndarray,
       update_rigid: bool,
-      is_training: bool,
       initial_act: jnp.ndarray,
+      use_dropout: bool,
       safe_key: Optional[prng.SafeKey] = None,
       static_feat_2d: Optional[jnp.ndarray] = None,
-      dropout_scale=1.0,
   ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     c = self.config
@@ -410,8 +409,7 @@ class FoldIteration(hk.Module):
       return modules.apply_dropout(
           tensor=tensor,
           safe_key=safe_key,
-          rate=0.0 if self.global_config.deterministic else (c.dropout * dropout_scale),
-          is_training=is_training)
+          rate=jnp.where(use_dropout, c.dropout, 0))
 
     rigid = activations['rigid']
 
@@ -480,7 +478,6 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
                             batch: Mapping[str, jnp.ndarray],
                             config: ml_collections.ConfigDict,
                             global_config: ml_collections.ConfigDict,
-                            is_training: bool,
                             safe_key: prng.SafeKey
                             ) -> Dict[str, Any]:
   """Generate predicted Rigid's for a single chain.
@@ -493,7 +490,6 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
     batch: Batch dictionary.
     config: config for the iterative fold head.
     global_config: global config.
-    is_training: is training.
     safe_key: A prng.SafeKey object that wraps a PRNG key.
 
   Returns:
@@ -541,8 +537,7 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
           safe_key=prng.SafeKey(key),
           sequence_mask=sequence_mask,
           update_rigid=True,
-          is_training=is_training,
-          dropout_scale=batch["dropout_scale"])
+          use_dropout=batch["use_dropout"])
       return act, out
 
   keys = jax.random.split(safe_key.get(), c.num_layer)
@@ -569,7 +564,6 @@ class StructureModule(hk.Module):
   def __call__(self,
                representations: Mapping[str, jnp.ndarray],
                batch: Mapping[str, Any],
-               is_training: bool,
                safe_key: Optional[prng.SafeKey] = None,
                ) -> Dict[str, Any]:
     c = self.config
@@ -583,7 +577,6 @@ class StructureModule(hk.Module):
         batch=batch,
         config=self.config,
         global_config=self.global_config,
-        is_training=is_training,
         safe_key=safe_key)
 
     ret['traj'] = output['rigid'].scale_translation(c.position_scale).to_array()

@@ -143,8 +143,8 @@ CONFIG = ml_collections.ConfigDict({
                 'prev_pos': [NUM_RES, None, None],
                 'prev_pair': [NUM_RES, NUM_RES, None],
                 'prev_msa_first_row': [NUM_RES, None],
-                'rm_template_seq': [NUM_RES, None],
-                'rm_template_sc': [NUM_RES, None]
+                'rm_template_seq': [NUM_RES],
+                'rm_template_sc': [NUM_RES]
             },
         },
     },
@@ -302,7 +302,6 @@ CONFIG = ml_collections.ConfigDict({
         'global_config': {
             'bfloat16': True,
             'bfloat16_output': False,
-            'deterministic': False,
             'multimer_mode': False,
             'subbatch_size': 4,
             'use_remat': False,
@@ -531,7 +530,6 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
         'global_config': {
             'bfloat16': True,
             'bfloat16_output': False,
-            'deterministic': False,
             'multimer_mode': True,
             'subbatch_size': 4,
             'use_remat': False,

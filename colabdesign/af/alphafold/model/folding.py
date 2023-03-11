@@ -299,12 +299,11 @@ class FoldIteration(hk.Module):
                activations,
                sequence_mask,
                update_affine,
-               is_training,
                initial_act,
+               use_dropout,
                safe_key=None,
                static_feat_2d=None,
-               aatype=None,
-               dropout_scale=1.0):
+               aatype=None):
     c = self.config
 
     if safe_key is None:
@@ -314,9 +313,7 @@ class FoldIteration(hk.Module):
       return prng.safe_dropout(
           tensor=tensor,
           safe_key=safe_key,
-          rate=c.dropout * dropout_scale,
-          is_deterministic=self.global_config.deterministic,
-          is_training=is_training)
+          rate=jnp.where(use_dropout, c.dropout, 0))
 
     affine = quat_affine.QuatAffine.from_tensor(activations['affine'])
 
@@ -388,8 +385,7 @@ class FoldIteration(hk.Module):
     return new_activations, outputs
 
 
-def generate_affines(representations, batch, config, global_config,
-                     is_training, safe_key):
+def generate_affines(representations, batch, config, global_config, safe_key):
   """Generate predicted affines for a single chain.
 
   Jumper et al. (2021) Suppl. Alg. 20 "StructureModule"
@@ -402,7 +398,6 @@ def generate_affines(representations, batch, config, global_config,
     batch: Batch dictionary.
     config: Config for the structure module.
     global_config: Global config.
-    is_training: Whether the model is being trained.
     safe_key: A prng.SafeKey object that wraps a PRNG key.
 
   Returns:
@@ -449,9 +444,8 @@ def generate_affines(representations, batch, config, global_config,
         safe_key=prng.SafeKey(key),
         sequence_mask=sequence_mask,
         update_affine=True,
-        is_training=is_training,
         aatype=batch['aatype'],
-        dropout_scale=batch["dropout_scale"])
+        use_dropout=batch["use_dropout"])
     return act, out  
   keys = jax.random.split(safe_key.get(), c.num_layer)
   activations, output = hk.scan(fold_iter, activations, keys)
@@ -465,7 +459,7 @@ def generate_affines(representations, batch, config, global_config,
 class dummy(hk.Module):
   def __init__(self, config, global_config):
     super().__init__(name="dummy")
-  def __call__(self, representations, batch, is_training, safe_key=None):
+  def __call__(self, representations, batch, safe_key=None):
     if safe_key is None:
       safe_key = prng.SafeKey(hk.next_rng_key())
     return {}
@@ -482,8 +476,7 @@ class StructureModule(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training,
-               safe_key=None):
+  def __call__(self, representations, batch, safe_key=None):
     c = self.config
     ret = {}
 
@@ -495,7 +488,6 @@ class StructureModule(hk.Module):
         batch=batch,
         config=self.config,
         global_config=self.global_config,
-        is_training=is_training,
         safe_key=safe_key)
 
     ret['representations'] = {'structure_module': output['act']}

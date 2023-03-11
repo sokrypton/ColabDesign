@@ -31,7 +31,6 @@ class RunModel:
   def __init__(self,
                config: ml_collections.ConfigDict,
                params: Optional[Mapping[str, Mapping[str, np.ndarray]]] = None,
-               is_training=True,
                return_representations=True,
                recycle_mode=None,
                use_multimer=False):
@@ -49,7 +48,6 @@ class RunModel:
         model = modules.AlphaFold(self.config.model)
       return model(
           batch,
-          is_training=is_training,
           return_representations=return_representations)
     
     self.init = jax.jit(hk.transform(_forward_fn).init)

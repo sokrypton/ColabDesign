@@ -17,14 +17,11 @@
 import haiku as hk
 import jax
 
-def safe_dropout(*, tensor, safe_key, rate, is_deterministic, is_training):
+def safe_dropout(*, tensor, safe_key, rate):
   """Applies dropout to a tensor."""
-  if is_training and not is_deterministic:
-    keep_rate = 1.0 - rate
-    keep = jax.random.bernoulli(safe_key.get(), keep_rate, shape=tensor.shape)
-    return keep * tensor / keep_rate
-  else:
-    return tensor
+  keep_rate = 1.0 - rate
+  keep = jax.random.bernoulli(safe_key.get(), keep_rate, shape=tensor.shape)
+  return keep * tensor / keep_rate
 
 class SafeKey:
   """Safety wrapper for PRNG keys."""

@@ -76,7 +76,7 @@ def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
   if animate: view.animate()
   return view
 
-def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
+def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
                    cmap="gist_rainbow", line_w=2.0,
                    cmin=None, cmax=None, zmin=None, zmax=None):
 
@@ -88,27 +88,40 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
     a[a > amax] = amax
     return (a - amin)/(amax - amin)
 
-  # make segments
+  # make segments and colors for each segment
   xyz = np.asarray(xyz)
-  seg = np.concatenate([xyz[:-1,None,:],xyz[1:,None,:]],axis=-2)
+  if Ls is None:
+    seg = np.concatenate([xyz[:,None],np.roll(xyz,1,0)[:,None]],axis=1)
+    c_seg = np.arange(len(seg))[::-1] if c is None else (c + np.roll(c,1,0))/2
+  else:
+    Ln = 0
+    seg = []
+    c_seg = []
+    for L in Ls:
+      sub_xyz = xyz[Ln:Ln+L]
+      seg.append(np.concatenate([sub_xyz[:,None],np.roll(sub_xyz,1,0)[:,None]],axis=1))
+      if c is not None:
+        sub_c = c[Ln:Ln+L]
+        c_seg.append((sub_c + np.roll(sub_c,1,0))/2)
+      Ln += L
+    seg = np.concatenate(seg,0)
+    c_seg = np.arange(len(seg))[::-1] if c is None else np.concatenate(c_seg,0)
+  
   seg_xy = seg[...,:2]
   seg_z = seg[...,2].mean(-1)
-  ord = seg_z.argsort()
-
-  # set colors
-  if c is None: c = np.arange(len(seg))[::-1]
-  else: c = (c[1:] + c[:-1])/2
-  c = rescale(c,cmin,cmax)  
+  order = seg_z.argsort()
+  c_seg = rescale(c_seg,cmin,cmax)  
 
   if isinstance(cmap, str):
-    if cmap == "gist_rainbow": c *= 0.75
-    colors = matplotlib.cm.get_cmap(cmap)(c)
+    if cmap == "gist_rainbow": 
+      c_seg *= 0.75
+    colors = matplotlib.cm.get_cmap(cmap)(c_seg)
   else:
-    colors = cmap(c)
+    colors = cmap(c_seg)
   
   if chainbreak is not None:
-    dist = np.linalg.norm(xyz[:-1] - xyz[1:], axis=-1)
-    colors[...,3] = (dist < chainbreak).astype(np.float)
+    dist = np.linalg.norm(seg[:,0] - seg[:,1], axis=-1)
+    colors[...,3] = (dist < chainbreak).astype(float)
 
   # add shade/tint based on z-dimension
   z = rescale(seg_z,zmin,zmax)[:,None]
@@ -139,7 +152,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5,
   width = fig.bbox_inches.width * ax.get_position().width
   linewidths = line_w * 72 * width / np.diff(ax.get_xlim())
 
-  lines = mcoll.LineCollection(seg_xy[ord], colors=colors[ord], linewidths=linewidths,
+  lines = mcoll.LineCollection(seg_xy[order], colors=colors[order], linewidths=linewidths,
                                path_effects=[matplotlib.patheffects.Stroke(capstyle="round")])
   
   return ax.add_collection(lines)
@@ -171,15 +184,19 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
   if xyz is not None:
     if pos_ref is None:
       pos_ref = xyz[-1]
-    
+
+    if length is None:
+      L = len(pos_ref)
+      Ls = None
+    elif isinstance(length, list):
+      L = length[0]
+      Ls = length
+    else:
+      L = length
+      Ls = None
+
+    # align to reference
     if align_xyz:
-      # align to reference
-      if length is None:
-        L = len(pos_ref)
-      elif isinstance(length, list):
-        L = length[0]
-      else:
-        L = length
         
       pos_ref_trim = pos_ref[:L]
       pos_ref_trim_mu = np.nanmean(pos_ref_trim,0)
@@ -261,13 +278,13 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
     if xyz is not None:
       flags = dict(ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max)
       if color_by == "plddt" and plddt is not None:
-        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], cmin=0.5, cmax=0.9, **flags))
+        ims[-1].append(plot_pseudo_3D(pos[k], c=plddt[k], Ls=Ls, cmin=0.5, cmax=0.9, **flags))
       elif color_by == "chain":
         c = np.concatenate([[n]*L for n,L in enumerate(length)])
-        ims[-1].append(plot_pseudo_3D(pos[k], c=c, cmap=pymol_cmap, cmin=0, cmax=39, **flags))
+        ims[-1].append(plot_pseudo_3D(pos[k], c=c,  Ls=Ls, cmap=pymol_cmap, cmin=0, cmax=39, **flags))
       else:
         L = pos[k].shape[0]
-        ims[-1].append(plot_pseudo_3D(pos[k], c=np.arange(L)[::-1], cmin=0, cmax=L, **flags))  
+        ims[-1].append(plot_pseudo_3D(pos[k], c=np.arange(L)[::-1],  Ls=Ls, cmin=0, cmax=L, **flags))  
     else:
       L = con[k].shape[0]
       ims[-1].append(ax1.imshow(con[k], animated=True, cmap="Greys",vmin=0, vmax=1, extent=(0, L, L, 0)))

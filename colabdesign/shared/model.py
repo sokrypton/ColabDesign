@@ -52,7 +52,7 @@ class design_model:
     if mode is None: mode = []
 
     # decide on shape
-    shape = (self._num, self._len, 20)
+    shape = (self._num, self._len, self._args.get("alphabet_size",20))
     
     # initialize bias
     if bias is None:
@@ -67,7 +67,7 @@ class design_model:
         
     # use wildtype sequence
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
-      wt_seq = np.eye(20)[self._wt_aatype]
+      wt_seq = np.eye(shape[-1])[self._wt_aatype]
       wt_seq[self._wt_aatype == -1] = 0
       if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
         seq = np.zeros(shape)
@@ -86,21 +86,27 @@ class design_model:
         seq = [seq]
       if isinstance(seq, list):
         if isinstance(seq[0], str):
-          seq = np.asarray([[aa_order.get(aa,-1) for aa in s] for s in seq])
+          aa_dict = copy_dict(aa_order)
+          if shape[-1] > 21:
+            aa_dict["-"] = 21 # add gap character
+          seq = np.asarray([[aa_dict.get(aa,-1) for aa in s] for s in seq])
         else:
           seq = np.asarray(seq)
       else:
         seq = np.asarray(seq)
 
       if np.issubdtype(seq.dtype, np.integer):
-        seq_ = np.eye(20)[seq]
+        seq_ = np.eye(shape[-1])[seq]
         seq_[seq == -1] = 0
         seq = seq_
       
       if kwargs.pop("add_seq",False):
         b = b + seq * 1e7
       
-      x = np.broadcast_to(seq, shape)
+      if seq.ndim == 2:
+        x = np.pad(seq[None],[[0,shape[0]],[0,0],[0,0]])
+      else:
+        x = seq
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)
@@ -183,20 +189,30 @@ class design_model:
     # make default
     if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
-def soft_seq(x, bias, opt, key=None):
+def soft_seq(x, bias, opt, key=None, num_seq=None, shuffle_first=True):
   seq = {"input":x}
-  # shuffle msa (randomly pick which sequence is query)
+  # shuffle msa
   if x.ndim == 3 and x.shape[0] > 1 and key is not None:
     key, sub_key = jax.random.split(key)
-    n = jax.random.randint(sub_key,[],0,x.shape[0])
-    seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
+    if num_seq is None or x.shape[0] == num_seq:
+      # randomly pick which sequence is query
+      if shuffle_first:
+        n = jax.random.randint(sub_key,[],0,x.shape[0])
+        seq["input"] = seq["input"].at[0].set(seq["input"][n]).at[n].set(seq["input"][0])
+    else:
+      n = jnp.arange(x.shape[0])
+      if shuffle_first:
+        n = jax.random.permutation(sub_key,n)
+      else:
+        n = jnp.append(0,jax.random.permutation(sub_key,n[1:]))
+      seq["input"] = seq["input"][n[:num_seq]]
 
   # straight-through/reparameterization
   seq["logits"] = seq["input"] * opt["alpha"]
   if bias is not None: seq["logits"] = seq["logits"] + bias
   seq["pssm"] = jax.nn.softmax(seq["logits"])
   seq["soft"] = jax.nn.softmax(seq["logits"] / opt["temp"])
-  seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), 20)
+  seq["hard"] = jax.nn.one_hot(seq["soft"].argmax(-1), seq["soft"].shape[-1])
   seq["hard"] = jax.lax.stop_gradient(seq["hard"] - seq["soft"]) + seq["soft"]
 
   # create pseudo sequence

@@ -278,7 +278,8 @@ class _af_design:
 
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, bias=bias)    
-    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, use_pssm=False)
+    self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, pssm_hard=True)
+    self.set_args(shuffle_first=False)
     
     # run
     self.run(num_recycles=num_recycles, num_models=num_models,
@@ -399,7 +400,7 @@ class _af_design:
       logits = np.array(0 if logits is None else logits)
       if logits.ndim == 3: logits = logits[:,i]
       elif logits.ndim == 2: logits = logits[i]
-      a_logits = logits - np.eye(20)[seq[:,i]] * 1e8
+      a_logits = logits - np.eye(self._args["alphabet_size"])[seq[:,i]] * 1e8
       a = categorical(softmax(a_logits))
 
       # return mutant

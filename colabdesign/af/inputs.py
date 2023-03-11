@@ -15,14 +15,15 @@ class _af_inputs:
   def _get_seq(self, inputs, aux, key=None):
     params, opt = inputs["params"], inputs["opt"]
     '''get sequence features'''
-    seq = soft_seq(params["seq"], inputs["bias"], opt, key)
+    seq = soft_seq(params["seq"], inputs["bias"], opt, key, num_seq=self._num,
+                   shuffle_first=self._args["shuffle_first"])
     seq = self._fix_pos(seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     # protocol specific modifications to seq features
     if self.protocol == "binder":
       # concatenate target and binder sequence
-      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],20)
+      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],self._args["alphabet_size"])
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
@@ -34,11 +35,11 @@ class _af_inputs:
   def _fix_pos(self, seq, return_p=False):
     if "fix_pos" in self.opt:
       if "pos" in self.opt:
-        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,20)
+        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,self._args["alphabet_size"])
         p = self.opt["pos"][self.opt["fix_pos"]]
         fix_seq = lambda x: x.at[...,p,:].set(seq_ref)
       else:
-        seq_ref = jax.nn.one_hot(self._wt_aatype,20)
+        seq_ref = jax.nn.one_hot(self._wt_aatype,self._args["alphabet_size"])
         p = self.opt["fix_pos"]
         fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
       seq = jax.tree_map(fix_seq, seq)
@@ -119,18 +120,19 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   
   if seq_1hot is None: seq_1hot = seq 
   if seq_pssm is None: seq_pssm = seq
-  
+  target_feat = seq_1hot[0,:,:20]
+
   seq_1hot = jnp.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]]])
   seq_pssm = jnp.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
-  
   msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
 
+  # masked language modeling (randomly mask positions)
   if mlm is not None:    
     X = jax.nn.one_hot(22,23)
     X = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
-    msa_feat = jnp.where(mlm[None,:,None],X,msa_feat)
+    msa_feat = jnp.where(mlm[...,None],X,msa_feat)
     
-  inputs.update({"msa_feat":msa_feat})
+  inputs.update({"msa_feat":msa_feat, "target_feat":target_feat})
 
 def update_aatype(aatype, inputs):
   r = residue_constants

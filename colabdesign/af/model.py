@@ -21,33 +21,29 @@ from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
 ################################################################
 
 class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
-  def __init__(self, protocol="fixbb", num_seq=1,
-               num_models=1, sample_models=True,
-               recycle_mode="last", num_recycles=0,
-               use_templates=False, best_metric="loss",
-               model_names=None, optimizer="sgd", learning_rate=0.1,
-               use_openfold=False, use_alphafold=True, use_multimer=False,
-               pre_callback=None, post_callback=None,
-               pre_design_callback=None, post_design_callback=None,
-               loss_callback=None, traj_iter=1, traj_max=10000, debug=False, data_dir="."):
-    
+  def __init__(self,
+               protocol="fixbb", 
+               use_multimer=False,
+               use_templates=False,
+               debug=False,
+               data_dir=".", 
+               **kwargs):  
     assert protocol in ["fixbb","hallucination","binder","partial"]
-    assert recycle_mode in ["average","first","last","sample","add_prev","backprop"]
-
-    # decide if templates should be used
-    if protocol == "binder": use_templates = True
 
     self.protocol = protocol
-    self._num = num_seq
-    self._args = {"use_templates":use_templates, "use_multimer":use_multimer,
-                  "recycle_mode":recycle_mode, "use_mlm": False, "realign": True,
+    self._num = kwargs.pop("num_seq",1)
+    self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
+                  "recycle_mode":"last", "use_mlm": False, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
-                  "optimizer":optimizer, "best_metric":best_metric, 
-                  "traj_iter":traj_iter, "traj_max":traj_max,
-                  "clear_prev": True, "use_dgram":False, "shuffle_msa":True}
+                  "optimizer":"sgd", "best_metric":"loss", 
+                  "traj_iter":1, "traj_max":10000,
+                  "clear_prev": True, "use_dgram":False,
+                  "shuffle_first":True, "use_remat":True, "alphabet_size":20}
 
-    self.opt = {"dropout":True, "use_pssm":False, "learning_rate":learning_rate, "norm_seq_grad":True,
-                "num_recycles":num_recycles, "num_models":num_models, "sample_models":sample_models,                
+    if self.protocol == "binder": self._args["use_templates"] = True
+
+    self.opt = {"dropout":True, "pssm_hard":False, "learning_rate":0.1, "norm_seq_grad":True,
+                "num_recycles":0, "num_models":1, "sample_models":True,                
                 "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
@@ -55,18 +51,24 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0},
                 "fape_cutoff":10.0}
 
-    if self._args["use_mlm"]:
-      self.opt["mlm_dropout"] = 0.0
-      self.opt["weights"]["mlm"] = 0.1
-
     self._params = {}
     self._inputs = {}
     self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
                  "log":[],"best":{}}
 
+    # set arguments/options
+    model_names = kwargs.pop("model_names",None)
+    keys = list(kwargs.keys())
+    for k in keys:
+      if k in self._args: self._args[k] = kwargs.pop(k)
+      if k in self.opt: self.opt[k] = kwargs.pop(k)
+
     # collect callbacks
-    self._callbacks = {"model":{"pre":pre_callback,"post":post_callback,"loss":loss_callback},
-                       "design":{"pre":pre_design_callback,"post":post_design_callback}}
+    self._callbacks = {"model": {"pre": kwargs.pop("pre_callback",None),
+                                 "post":kwargs.pop("post_callback",None),
+                                 "loss":kwargs.pop("loss_callback",None)},
+                       "design":{"pre": kwargs.pop("pre_design_callback",None),
+                                 "post":kwargs.pop("post_design_callback",None)}}
     
     for m,n in self._callbacks.items():
       for k,v in n.items():
@@ -74,39 +76,47 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         if not isinstance(v,list): v = [v]
         self._callbacks[m][k] = v
 
+    if self._args["use_mlm"]:
+      self.opt["mlm_dropout"] = 0.15
+      self.opt["weights"]["mlm"] = 0.1
+
+    assert len(kwargs) == 0, f"ERROR: the following inputs were not set: {kwargs}"
+
     #############################
     # configure AlphaFold
     #############################
-    if use_multimer:
-      cfg = config.model_config("model_1_multimer")
+    if self._args["use_multimer"]:
+      self._cfg = config.model_config("model_1_multimer")
+      # TODO
+      self.opt["pssm_hard"] = True
     else:
-      cfg = config.model_config("model_1_ptm" if use_templates else "model_3_ptm")
-    if recycle_mode in ["average","first","last","sample"]: num_recycles = 0
-    cfg.model.num_recycle = num_recycles
-    cfg.model.global_config.use_remat = True
-    cfg.model.global_config.use_dgram = self._args["use_dgram"]
-
-    # setup model
-    self._cfg = cfg 
+      self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
+    
+    if self._args["recycle_mode"] in ["average","first","last","sample"]:
+      num_recycles = 0
+    else:
+      num_recycles = self.opt["num_recycles"]
+    self._cfg.model.num_recycle = num_recycles
+    self._cfg.model.global_config.use_remat = self._args["use_remat"]
+    self._cfg.model.global_config.use_dgram = self._args["use_dgram"]
+    self._cfg.model.global_config.bfloat16  = self._args["use_bfloat16"]
 
     # load model_params
     if model_names is None:
       model_names = []
-      if use_multimer:
-        model_names += [f"model_{k}_multimer_v2" for k in [1,2,3,4,5]]
+      if self._args["use_multimer"]:
+        model_names += [f"model_{k}_multimer_v3" for k in [1,2,3,4,5]]
       else:
-        if use_templates:
-          if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2]]
-          if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]]    
+        if self._args["use_templates"]:
+          model_names += [f"model_{k}_ptm" for k in [1,2]]
         else:
-          if use_alphafold: model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
-          if use_openfold:  model_names += [f"openfold_model_ptm_{k}" for k in [1,2]] + ["openfold_model_no_templ_ptm_1"]
+          model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
 
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
-      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir)
+      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir, fuse=True)
       if params is not None:
-        if not use_multimer and not use_templates:
+        if not self._args["use_multimer"] and not self._args["use_templates"]:
           params = {k:v for k,v in params.items() if "template" not in k}
         self._model_params.append(params)
         self._model_names.append(model_name)
@@ -123,7 +133,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def _get_model(self, cfg, callback=None):
 
     a = self._args
-    runner = model.RunModel(cfg, is_training=True,
+    runner = model.RunModel(cfg,
                             recycle_mode=a["recycle_mode"],
                             use_multimer=a["use_multimer"])
 
@@ -138,16 +148,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # INPUTS
       #######################################################################
-      L = inputs["aatype"].shape[0]
-
       # get sequence
       seq_key = key() if a["shuffle_msa"] else None
       seq = self._get_seq(inputs, aux, seq_key)
             
-      # update sequence features
-      pssm = jnp.where(opt["use_pssm"], seq["pssm"], seq["pseudo"])
+      # update sequence features      
+      pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
       if a["use_mlm"]:
-        mlm = opt.get("mlm",jax.random.bernoulli(key(),opt["mlm_dropout"],(L,)))
+        shape = seq["pseudo"].shape[:2]
+        mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
       else:
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
@@ -163,7 +172,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         self._update_template(inputs, key())
       
       # set dropout
-      inputs["dropout_scale"] = jnp.array(opt["dropout"], dtype=float)
+      inputs["use_dropout"] = opt["dropout"]
 
       if "batch" not in inputs:
         inputs["batch"] = None
@@ -178,7 +187,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # OUTPUTS
       #######################################################################
-
       outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs

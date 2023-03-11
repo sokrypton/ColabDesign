@@ -5,7 +5,7 @@ import numpy as np
 from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom
-from colabdesign.af.alphafold.common import confidence_jax, residue_constants
+from colabdesign.af.alphafold.common import confidence, residue_constants
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -198,11 +198,16 @@ def get_pae(outputs):
   return (prob*bin_centers).sum(-1)
 
 def get_ptm(inputs, outputs, interface=False):
-  pae = outputs["predicted_aligned_error"]
-  if "asym_id" not in pae:
-    pae["asym_id"] = inputs["asym_id"]
-  return confidence_jax.predicted_tm_score_jax(**pae, interface=interface)
-
+  pae = {"residue_weights":inputs["seq_mask"],
+         **outputs["predicted_aligned_error"]}
+  if interface:
+    if "asym_id" not in pae:
+      pae["asym_id"] = inputs["asym_id"]
+  else:
+    if "asym_id" in pae:
+      pae.pop("asym_id")
+  return confidence.predicted_tm_score(**pae, use_jnp=True)
+  
 def get_dgram_bins(outputs):
   dgram = outputs["distogram"]["logits"]
   if dgram.shape[-1] == 64:

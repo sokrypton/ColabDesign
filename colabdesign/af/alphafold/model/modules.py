@@ -33,35 +33,29 @@ import jax.numpy as jnp
 
 from colabdesign.af.alphafold.model.r3 import Rigids, Rots, Vecs
 
-def apply_dropout(*, tensor, safe_key, rate, is_training, broadcast_dim=None):
+def apply_dropout(*, tensor, safe_key, rate, broadcast_dim=None):
   """Applies dropout to a tensor."""
-  if is_training: # and rate != 0.0:
-    shape = list(tensor.shape)
-    if broadcast_dim is not None:
-      shape[broadcast_dim] = 1
-    keep_rate = 1.0 - rate
-    keep = jax.random.bernoulli(safe_key.get(), keep_rate, shape=shape)
-    return keep * tensor / keep_rate
-  else:
-    return tensor
-
+  shape = list(tensor.shape)
+  if broadcast_dim is not None:
+    shape[broadcast_dim] = 1
+  keep_rate = 1.0 - rate
+  keep = jax.random.bernoulli(safe_key.get(), keep_rate, shape=shape)
+  return keep * tensor / keep_rate
 
 def dropout_wrapper(module,
                     input_act,
                     mask,
                     safe_key,
                     global_config,
+                    use_dropout,
                     output_act=None,
-                    is_training=True,
-                    dropout_scale=1.0,
                     **kwargs):
   """Applies module + dropout + residual update."""
   if output_act is None:
     output_act = input_act
 
   gc = global_config
-  residual = module(input_act, mask, is_training=is_training, **kwargs)
-  dropout_rate = 0.0 if gc.deterministic else module.config.dropout_rate
+  residual = module(input_act, mask, **kwargs)
 
   if module.config.shared_dropout:
     if module.config.orientation == 'per_row':
@@ -73,8 +67,7 @@ def dropout_wrapper(module,
 
   residual = apply_dropout(tensor=residual,
                            safe_key=safe_key,
-                           rate=dropout_rate * dropout_scale,
-                           is_training=is_training,
+                           rate=jnp.where(use_dropout, module.config.dropout_rate, 0),
                            broadcast_dim=broadcast_dim)
 
   new_act = output_act + residual
@@ -106,121 +99,57 @@ def create_extra_msa_feature(batch):
               jnp.expand_dims(batch['extra_deletion_value'], axis=-1)]
   return jnp.concatenate(msa_feat, axis=-1)
 
-
 class AlphaFoldIteration(hk.Module):
   """A single recycling iteration of AlphaFold architecture.
-
-  Computes ensembled (averaged) representations from the provided features.
-  These representations are then passed to the various heads
-  that have been requested by the configuration file. 
-
   Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 3-22
   """
-
   def __init__(self, config, global_config, name='alphafold_iteration'):
     super().__init__(name=name)
     self.config = config
     self.global_config = global_config
 
-  def __call__(self,
-               batch,
-               is_training,
-               return_representations=False):
+  def __call__(self, batch, **kwargs):
 
     # Compute representations for each batch element and average.
     evoformer_module = EmbeddingsAndEvoformer(self.config.embeddings_and_evoformer, self.global_config)
-    representations = evoformer_module(batch, is_training)
-
-    # MSA representations are not ensembled so
-    # we don't pass tensor into the loop.
-    msa_representation = representations['msa']
-    del representations['msa']
-
-    representations['msa'] = msa_representation
+    representations = evoformer_module(batch)    
     
-    num_residues = batch['aatype'].shape
-    struct_module = folding.StructureModule
-      
-    heads = {}
-    for head_name, head_config in sorted(self.config.heads.items()):
-      if not head_config.weight:
-        continue  # Do not instantiate zero-weight heads.
-      head_factory = {
+    head_factory = {
           'masked_msa': MaskedMsaHead,
           'distogram': DistogramHead,
-          'structure_module': struct_module,
+          'structure_module': folding.StructureModule,
           'predicted_lddt': PredictedLDDTHead,
           'predicted_aligned_error': PredictedAlignedErrorHead,
-          'experimentally_resolved': ExperimentallyResolvedHead,
-      }[head_name]
-      heads[head_name] = (head_config,
-                          head_factory(head_config, self.global_config))
+          'experimentally_resolved': ExperimentallyResolvedHead} 
 
-    ret = {}
-    ret['representations'] = representations
-
-    for name, (head_config, module) in heads.items():
-      # Skip PredictedLDDTHead and PredictedAlignedErrorHead until
-      # StructureModule is executed.
+    heads = {}
+    for name, head_config in sorted(self.config.heads.items()):
+      if not head_config.weight: continue
+      heads[name] = head_factory[name](head_config, self.global_config)
+    
+    ret = {'representations':representations}
+    for name, head in heads.items():
       if name in ('predicted_lddt', 'predicted_aligned_error'):
         continue
       else:
-        ret[name] = module(representations, batch, is_training)
+        ret[name] = head(representations, batch)
         if 'representations' in ret[name]:
-          # Extra representations from the head. Used by the structure module
-          # to provide activations for the PredictedLDDTHead.
           representations.update(ret[name].pop('representations'))
 
-    if self.config.heads.get('predicted_lddt.weight', 0.0):
-      # Add PredictedLDDTHead after StructureModule executes.
-      name = 'predicted_lddt'
-      # Feed all previous results to give access to structure_module result.
-      head_config, module = heads[name]
-      ret[name] = module(representations, batch, is_training)
-
-    if ('predicted_aligned_error' in self.config.heads
-        and self.config.heads.get('predicted_aligned_error.weight', 0.0)):
-      # Add PredictedAlignedErrorHead after StructureModule executes.
-      name = 'predicted_aligned_error'
-      # Feed all previous results to give access to structure_module result.
-      head_config, module = heads[name]
-      ret[name] = module(representations, batch, is_training)
-
+    for name in ('predicted_lddt', 'predicted_aligned_error'):
+      ret[name] = heads[name](representations, batch)
     return ret
 
 class AlphaFold(hk.Module):
-  """AlphaFold model with recycling.
-
-  Jumper et al. (2021) Suppl. Alg. 2 "Inference"
-  """
-
+  """AlphaFold Jumper et al. (2021) Suppl. Alg. 2 "Inference"""
   def __init__(self, config, name='alphafold'):
     super().__init__(name=name)
     self.config = config
     self.global_config = config.global_config
 
-  def __call__(
-      self,
-      batch,
-      is_training,
-      return_representations=False):
-    """Run the AlphaFold model.
-
-    Arguments:
-      batch: Dictionary with inputs to the AlphaFold model.
-      is_training: Whether the system is in training or inference mode.
-      return_representations: Whether to also return the intermediate
-        representations.
-
-    Returns:
-      just output of AlphaFoldIteration.
-
-      The output of AlphaFoldIteration is a nested dictionary containing
-      predictions from the various heads.
-    """
-    num_res = batch['aatype'].shape
+  def __call__(self, batch, **kwargs):
+    """Run the AlphaFold model."""
     impl = AlphaFoldIteration(self.config, self.global_config)
-
 
     def get_prev(ret):
       new_prev = {
@@ -230,13 +159,10 @@ class AlphaFold(hk.Module):
       }
       if self.global_config.use_dgram:
         new_prev['prev_dgram'] = ret["distogram"]["logits"]
-      return new_prev
-    
-    emb_config = self.config.embeddings_and_evoformer
-    prev = batch.pop("prev")                      
-    ret = impl(batch={**batch, **prev},
-               is_training=is_training)
+      return new_prev    
 
+    prev = batch.pop("prev")                      
+    ret = impl(batch={**batch, **prev})
     ret["prev"] = get_prev(ret)        
     return ret
 
@@ -251,13 +177,12 @@ class TemplatePairStack(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, pair_act, pair_mask, is_training, safe_key=None, dropout_scale=1.0):
+  def __call__(self, pair_act, pair_mask, use_dropout, safe_key=None):
     """Builds TemplatePairStack module.
 
     Arguments:
       pair_act: Pair activations for single template, shape [N_res, N_res, c_t].
       pair_mask: Pair mask, shape [N_res, N_res].
-      is_training: Whether the module is in training mode.
       safe_key: Safe key object encapsulating the random number generation key.
 
     Returns:
@@ -278,7 +203,7 @@ class TemplatePairStack(hk.Module):
       pair_act, safe_key = x
 
       dropout_wrapper_fn = functools.partial(
-          dropout_wrapper, is_training=is_training, global_config=gc, dropout_scale=dropout_scale)
+          dropout_wrapper, global_config=gc, use_dropout=use_dropout)
 
       safe_key, *sub_keys = safe_key.split(6)
       sub_keys = iter(sub_keys)
@@ -335,13 +260,12 @@ class Transition(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, act, mask, is_training=True):
+  def __call__(self, act, mask):
     """Builds Transition module.
 
     Arguments:
       act: A tensor of queries of size [batch_size, N_res, N_channel].
       mask: A tensor denoting the mask of size [batch_size, N_res].
-      is_training: Whether the module is in training mode.
 
     Returns:
       A float32 tensor of size [batch_size, N_res, N_channel].
@@ -419,12 +343,15 @@ class Attention(hk.Module):
 
     q_weights = hk.get_parameter(
         'query_w', shape=(q_data.shape[-1], num_head, key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     k_weights = hk.get_parameter(
         'key_w', shape=(m_data.shape[-1], num_head, key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     v_weights = hk.get_parameter(
         'value_w', shape=(m_data.shape[-1], num_head, value_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
 
     q = jnp.einsum('bqa,ahc->bqhc', q_data, q_weights) * key_dim**(-0.5)
@@ -445,10 +372,12 @@ class Attention(hk.Module):
       gating_weights = hk.get_parameter(
           'gating_w',
           shape=(q_data.shape[-1], num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(0.0))
       gating_bias = hk.get_parameter(
           'gating_b',
           shape=(num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(1.0))
 
       gate_values = jnp.einsum('bqc, chv->bqhv', q_data,
@@ -460,8 +389,10 @@ class Attention(hk.Module):
 
     o_weights = hk.get_parameter(
         'output_w', shape=(num_head, value_dim, self.output_dim),
+        dtype=q_data.dtype,
         init=init)
     o_bias = hk.get_parameter('output_b', shape=(self.output_dim,),
+                              dtype=q_data.dtype,
                               init=hk.initializers.Constant(0.0))
 
     output = jnp.einsum('bqhc,hco->bqo', weighted_avg, o_weights) + o_bias
@@ -509,12 +440,15 @@ class GlobalAttention(hk.Module):
 
     q_weights = hk.get_parameter(
         'query_w', shape=(q_data.shape[-1], num_head, key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     k_weights = hk.get_parameter(
         'key_w', shape=(m_data.shape[-1], key_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
     v_weights = hk.get_parameter(
         'value_w', shape=(m_data.shape[-1], value_dim),
+        dtype=q_data.dtype,
         init=glorot_uniform())
 
     v = jnp.einsum('bka,ac->bkc', m_data, v_weights)
@@ -535,18 +469,22 @@ class GlobalAttention(hk.Module):
 
     o_weights = hk.get_parameter(
         'output_w', shape=(num_head, value_dim, self.output_dim),
+        dtype=q_data.dtype,
         init=init)
     o_bias = hk.get_parameter('output_b', shape=(self.output_dim,),
+                              dtype=q_data.dtype,
                               init=hk.initializers.Constant(0.0))
 
     if self.config.gating:
       gating_weights = hk.get_parameter(
           'gating_w',
           shape=(q_data.shape[-1], num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(0.0))
       gating_bias = hk.get_parameter(
           'gating_b',
           shape=(num_head, value_dim),
+          dtype=q_data.dtype,
           init=hk.initializers.Constant(1.0))
 
       gate_values = jnp.einsum('bqc, chv->bqhv', q_data, gating_weights)
@@ -574,15 +512,13 @@ class MSARowAttentionWithPairBias(hk.Module):
   def __call__(self,
                msa_act,
                msa_mask,
-               pair_act,
-               is_training=False):
+               pair_act):
     """Builds MSARowAttentionWithPairBias module.
 
     Arguments:
       msa_act: [N_seq, N_res, c_m] MSA representation.
       msa_mask: [N_seq, N_res] mask of non-padded regions.
       pair_act: [N_res, N_res, c_z] pair representation.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to msa_act, shape [N_seq, N_res, c_m].
@@ -611,6 +547,7 @@ class MSARowAttentionWithPairBias(hk.Module):
     weights = hk.get_parameter(
         'feat_2d_weights',
         shape=(pair_act.shape[-1], c.num_head),
+        dtype=msa_act.dtype,
         init=hk.initializers.RandomNormal(stddev=init_factor))
     nonbatched_bias = jnp.einsum('qkc,ch->hqk', pair_act, weights)
 
@@ -639,14 +576,12 @@ class MSAColumnAttention(hk.Module):
 
   def __call__(self,
                msa_act,
-               msa_mask,
-               is_training=False):
+               msa_mask):
     """Builds MSAColumnAttention module.
 
     Arguments:
       msa_act: [N_seq, N_res, c_m] MSA representation.
       msa_mask: [N_seq, N_res] mask of non-padded regions.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to msa_act, shape [N_seq, N_res, c_m]
@@ -694,14 +629,12 @@ class MSAColumnGlobalAttention(hk.Module):
 
   def __call__(self,
                msa_act,
-               msa_mask,
-               is_training=False):
+               msa_mask):
     """Builds MSAColumnGlobalAttention module.
 
     Arguments:
       msa_act: [N_seq, N_res, c_m] MSA representation.
       msa_mask: [N_seq, N_res] mask of non-padded regions.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to msa_act, shape [N_seq, N_res, c_m].
@@ -751,13 +684,12 @@ class TriangleAttention(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, pair_act, pair_mask, is_training=False):
+  def __call__(self, pair_act, pair_mask):
     """Builds TriangleAttention module.
 
     Arguments:
       pair_act: [N_res, N_res, c_z] pair activations tensor
       pair_mask: [N_res, N_res] mask of non-padded regions in the tensor.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to pair_act, shape [N_res, N_res, c_z].
@@ -783,6 +715,7 @@ class TriangleAttention(hk.Module):
     weights = hk.get_parameter(
         'feat_2d_weights',
         shape=(pair_act.shape[-1], c.num_head),
+        dtype=pair_act.dtype,
         init=hk.initializers.RandomNormal(stddev=init_factor))
     nonbatched_bias = jnp.einsum('qkc,ch->hqk', pair_act, weights)
 
@@ -820,14 +753,13 @@ class MaskedMsaHead(hk.Module):
     else:
       self.num_output = config.num_output
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds MaskedMsaHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'msa': MSA representation, shape [N_seq, N_res, c_m].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -854,7 +786,7 @@ class PredictedLDDTHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds ExperimentallyResolvedHead module.
 
     Arguments:
@@ -862,7 +794,6 @@ class PredictedLDDTHead(hk.Module):
         * 'structure_module': Single representation from the structure module,
              shape [N_res, c_s].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing :
@@ -914,14 +845,13 @@ class PredictedAlignedErrorHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds PredictedAlignedErrorHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'pair': pair representation, shape [N_res, N_res, c_z].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -955,14 +885,13 @@ class ExperimentallyResolvedHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds ExperimentallyResolvedHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'single': Single representation, shape [N_res, c_s].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -989,18 +918,24 @@ class TriangleMultiplication(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, act, mask, is_training=True):
+  def __call__(self, left_act, left_mask):
     """Builds TriangleMultiplication module.
 
     Arguments:
-      act: Pair activations, shape [N_res, N_res, c_z]
-      mask: Pair mask, shape [N_res, N_res].
-      is_training: Whether the module is in training mode.
-
+      left_act: Pair activations, shape [N_res, N_res, c_z]
+      left_mask: Pair mask, shape [N_res, N_res].
     Returns:
       Outputs, same shape/type as act.
     """
-    del is_training
+
+    if self.config.fuse_projection_weights:
+      return self._fused_triangle_multiplication(left_act, left_mask)
+    else:
+      return self._triangle_multiplication(left_act, left_mask)
+
+  @hk.transparent
+  def _triangle_multiplication(self, left_act, left_mask):
+    """Implementation of TriangleMultiplication used in AF2 and AF-M<2.3."""
     c = self.config
     gc = self.global_config
 
@@ -1078,14 +1013,13 @@ class DistogramHead(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, representations, batch, is_training):
+  def __call__(self, representations, batch):
     """Builds DistogramHead module.
 
     Arguments:
       representations: Dictionary of representations, must contain:
         * 'pair': pair representation, shape [N_res, N_res, c_z].
       batch: Batch, unused.
-      is_training: Whether the module is in training mode.
 
     Returns:
       Dictionary containing:
@@ -1121,13 +1055,12 @@ class OuterProductMean(hk.Module):
     self.config = config
     self.num_output_channel = num_output_channel
 
-  def __call__(self, act, mask, is_training=True):
+  def __call__(self, act, mask):
     """Builds OuterProductMean module.
 
     Arguments:
       act: MSA representation, shape [N_seq, N_res, c_m].
       mask: MSA mask, shape [N_seq, N_res].
-      is_training: Whether the module is in training mode.
 
     Returns:
       Update to pair representation, shape [N_res, N_res, c_z].
@@ -1159,9 +1092,11 @@ class OuterProductMean(hk.Module):
         'output_w',
         shape=(c.num_outer_channel, c.num_outer_channel,
                self.num_output_channel),
+        dtype=act.dtype,
         init=init_w)
     output_b = hk.get_parameter(
         'output_b', shape=(self.num_output_channel,),
+        dtype=act.dtype,
         init=hk.initializers.Constant(0.0))
 
     def compute_chunk(left_act):
@@ -1254,7 +1189,7 @@ class EvoformerIteration(hk.Module):
     self.global_config = global_config
     self.is_extra_msa = is_extra_msa
 
-  def __call__(self, activations, masks, is_training=True, safe_key=None, dropout_scale=1.0):
+  def __call__(self, activations, masks, use_dropout, safe_key=None):
     """Builds EvoformerIteration module.
 
     Arguments:
@@ -1264,7 +1199,6 @@ class EvoformerIteration(hk.Module):
       masks: Dictionary of masks:
         * 'msa': MSA mask, shape [N_seq, N_res].
         * 'pair': pair mask, shape [N_res, N_res].
-      is_training: Whether the module is in training mode.
       safe_key: prng.SafeKey encapsulating rng key.
 
     Returns:
@@ -1282,9 +1216,8 @@ class EvoformerIteration(hk.Module):
 
     dropout_wrapper_fn = functools.partial(
         dropout_wrapper,
-        is_training=is_training,
         global_config=gc,
-        dropout_scale=dropout_scale)
+        use_dropout=use_dropout)
 
     safe_key, *sub_keys = safe_key.split(10)
     sub_keys = iter(sub_keys)
@@ -1374,201 +1307,202 @@ class EmbeddingsAndEvoformer(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, batch, is_training, safe_key=None):
+  def __call__(self, batch, safe_key=None):
 
     c = self.config
     gc = self.global_config
+    dtype = jnp.bfloat16 if gc.bfloat16 else jnp.float32
 
     if safe_key is None:
       safe_key = prng.SafeKey(hk.next_rng_key())
-
-    # Embed clustered MSA.
-    # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 5
-    # Jumper et al. (2021) Suppl. Alg. 3 "InputEmbedder"
-
-    tmp = batch['msa_feat'][0]
-    target_feat = jnp.concatenate([tmp[:,:20],tmp[:,22:23]],-1)
-    target_feat = jnp.pad(target_feat,[[0,0],[1,0]])
-    preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
-    preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(batch['msa_feat'])
-    msa_activations = preprocess_1d[None] + preprocess_msa
-
-    left_single = common_modules.Linear(c.pair_channel, name='left_single')(target_feat)
-    right_single = common_modules.Linear(c.pair_channel, name='right_single')(target_feat)
-    pair_activations = left_single[:, None] + right_single[None]
-    mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
-
-    # Inject previous outputs for recycling.
-    # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 6
-    # Jumper et al. (2021) Suppl. Alg. 32 "RecyclingEmbedder"
     
-    if gc.use_dgram:
-      # use predicted distogram input (from Sergey)
-      dgram = jax.nn.softmax(batch["prev_dgram"])
-      dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
-      dgram = dgram @ dgram_map
+    with utils.bfloat16_context():
 
-    else:
-      # use predicted position input
-      prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
-      if c.backprop_dgram:
-        dgram = dgram_from_positions_soft(prev_pseudo_beta, temp=c.backprop_dgram_temp, **c.prev_pos)
+      # Embed clustered MSA.
+      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 5
+      # Jumper et al. (2021) Suppl. Alg. 3 "InputEmbedder"
+
+      msa_feat = batch['msa_feat'].astype(dtype)
+      target_feat = jnp.pad(batch["target_feat"].astype(dtype),[[0,0],[1,1]])
+      preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
+      preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(msa_feat)
+      msa_activations = preprocess_1d[None] + preprocess_msa
+
+      left_single = common_modules.Linear(c.pair_channel, name='left_single')(target_feat)
+      right_single = common_modules.Linear(c.pair_channel, name='right_single')(target_feat)
+      pair_activations = left_single[:, None] + right_single[None]
+
+      mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
+      mask_2d = mask_2d.astype(dtype)
+
+      # Inject previous outputs for recycling.
+      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 6
+      # Jumper et al. (2021) Suppl. Alg. 32 "RecyclingEmbedder"
+
+      if gc.use_dgram:
+        # use predicted distogram input (from Sergey)
+        dgram = jax.nn.softmax(batch["prev_dgram"])
+        dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
+        dgram = dgram @ dgram_map
+
       else:
-        dgram = dgram_from_positions(prev_pseudo_beta, **c.prev_pos)
-    
-      
-    pair_activations += common_modules.Linear(c.pair_channel, name='prev_pos_linear')(dgram)
-
-    if c.recycle_features:
-      if 'prev_msa_first_row' in batch:
-        prev_msa_first_row = hk.LayerNorm([-1],
-                                          True,
-                                          True,
-                                          name='prev_msa_first_row_norm')(
-                                              batch['prev_msa_first_row'])
-        msa_activations = msa_activations.at[0].add(prev_msa_first_row)
-
-      if 'prev_pair' in batch:
-        pair_activations += hk.LayerNorm([-1],
-                                         True,
-                                         True,
-                                         name='prev_pair_norm')(
-                                             batch['prev_pair'])
-
-    # Relative position encoding.
-    # Jumper et al. (2021) Suppl. Alg. 4 "relpos"
-    # Jumper et al. (2021) Suppl. Alg. 5 "one_hot"
-    if c.max_relative_feature:
-      # Add one-hot-encoded clipped residue distances to the pair activations.
-      if "rel_pos" in batch:
-        rel_pos = batch['rel_pos']
-      else:
-        if "offset" in batch:
-          offset = batch['offset']
+        # use predicted position input
+        prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
+        if c.backprop_dgram:
+          dgram = dgram_from_positions_soft(prev_pseudo_beta, temp=c.backprop_dgram_temp, **c.prev_pos)
         else:
-          pos = batch['residue_index']
-          offset = pos[:, None] - pos[None, :]
-        rel_pos = jax.nn.one_hot(
-            jnp.clip(
-                offset + c.max_relative_feature,
-                a_min=0,
-                a_max=2 * c.max_relative_feature),
-            2 * c.max_relative_feature + 1)
-      pair_activations += common_modules.Linear(c.pair_channel, name='pair_activiations')(rel_pos)
+          dgram = dgram_from_positions(prev_pseudo_beta, **c.prev_pos)    
+      dgram = dgram.astype(dtype)    
+      pair_activations += common_modules.Linear(c.pair_channel, name='prev_pos_linear')(dgram)
 
-    # Embed templates into the pair activations.
-    # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 9-13
-    
-    if c.template.enabled:
-      template_batch = {k: batch[k] for k in batch if k.startswith('template_')}
+      if c.recycle_features:
+        if 'prev_msa_first_row' in batch:
+          prev_msa_first_row = common_modules.LayerNorm(
+            axis=[-1], create_scale=True, create_offset=True,
+            name='prev_msa_first_row_norm')(batch['prev_msa_first_row']).astype(dtype)
+          msa_activations = msa_activations.at[0].add(prev_msa_first_row)
 
-      multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
-      multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, 1)
+        if 'prev_pair' in batch:
+          pair_activations += common_modules.LayerNorm(
+            axis=[-1], create_scale=True, create_offset=True,
+            name='prev_pair_norm')(batch['prev_pair']).astype(dtype)
 
-      template_pair_representation = TemplateEmbedding(c.template, gc)(
-          pair_activations,
-          template_batch,
-          mask_2d,
-          multichain_mask,
-          is_training=is_training,
-          dropout_scale=batch["dropout_scale"])
+      # Relative position encoding.
+      # Jumper et al. (2021) Suppl. Alg. 4 "relpos"
+      # Jumper et al. (2021) Suppl. Alg. 5 "one_hot"
+      if c.max_relative_feature:
+        # Add one-hot-encoded clipped residue distances to the pair activations.
+        if "rel_pos" in batch:
+          rel_pos = batch['rel_pos'].astype(dtype)
+        else:
+          if "offset" in batch:
+            offset = batch['offset']
+          else:
+            pos = batch['residue_index']
+            offset = pos[:, None] - pos[None, :]
+          rel_pos = jax.nn.one_hot(
+              jnp.clip(
+                  offset + c.max_relative_feature,
+                  a_min=0,
+                  a_max=2 * c.max_relative_feature),
+              2 * c.max_relative_feature + 1).astype(dtype)
+        pair_activations += common_modules.Linear(c.pair_channel, name='pair_activiations')(rel_pos)
 
-      pair_activations += template_pair_representation
-    
-    # Embed extra MSA features.
-    # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 14-16
-    if c.use_extra_msa:
-      extra_msa_feat = create_extra_msa_feature(batch)
-      extra_msa_activations = common_modules.Linear(c.extra_msa_channel,name='extra_msa_activations')(extra_msa_feat)
-      # Extra MSA Stack.
-      # Jumper et al. (2021) Suppl. Alg. 18 "ExtraMsaStack"
-      extra_msa_stack_input = {'msa': extra_msa_activations,'pair': pair_activations}
-      extra_msa_stack_iteration = EvoformerIteration(c.evoformer, gc, is_extra_msa=True, name='extra_msa_stack')
-      def extra_msa_stack_fn(x):
-        act, safe_key = x
-        safe_key, safe_subkey = safe_key.split()
-        extra_evoformer_output = extra_msa_stack_iteration(
-            activations=act,
-            masks={'msa': batch['extra_msa_mask'],'pair': mask_2d},
-            is_training=is_training,
-            safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
-        return (extra_evoformer_output, safe_key)
-      if gc.use_remat: extra_msa_stack_fn = hk.remat(extra_msa_stack_fn)
-      extra_msa_stack = layer_stack.layer_stack(c.extra_msa_stack_num_block)(extra_msa_stack_fn)
-      extra_msa_output, safe_key = extra_msa_stack((extra_msa_stack_input, safe_key))
-      pair_activations = extra_msa_output['pair']
+      # Embed templates into the pair activations.
+      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 9-13
 
-    evoformer_input = {'msa': msa_activations,'pair': pair_activations}
-    evoformer_masks = {'msa': batch['msa_mask'], 'pair': mask_2d}
-    
-    ####################################################################
+      if c.template.enabled:
+        template_batch = {k: batch[k] for k in batch if k.startswith('template_')}
 
-    # Append num_templ rows to msa_activations with template embeddings.
-    # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 7-8
-    if c.template.enabled and c.template.embed_torsion_angles:
-      num_templ, num_res = batch['template_aatype'].shape
-      # Embed the templates aatypes.
-      aatype = batch['template_aatype']
-      aatype_one_hot = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1)
+        multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
+        multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, True)
 
-      # Embed the templates aatype, torsion angles and masks.
-      # Shape (templates, residues, msa_channels)
-      ret = all_atom.atom37_to_torsion_angles(
-          aatype=aatype,
-          all_atom_pos=batch['template_all_atom_positions'],
-          all_atom_mask=batch['template_all_atom_mask'],
-          # Ensure consistent behaviour during testing:
-          placeholder_for_undefined=not gc.zero_init)
+        template_pair_representation = TemplateEmbedding(c.template, gc)(
+            pair_activations,
+            template_batch,
+            mask_2d,
+            multichain_mask,
+            use_dropout=batch["use_dropout"])
 
-      template_features = jnp.concatenate([
-          aatype_one_hot,
-          jnp.reshape(ret['torsion_angles_sin_cos'], [num_templ, num_res, 14]),
-          jnp.reshape(ret['alt_torsion_angles_sin_cos'], [num_templ, num_res, 14]),
-          ret['torsion_angles_mask']], axis=-1)
+        pair_activations += template_pair_representation
 
-      template_activations = common_modules.Linear(
-          c.msa_channel,
-          initializer='relu',
-          name='template_single_embedding')(template_features)
-      template_activations = jax.nn.relu(template_activations)
-      template_activations = common_modules.Linear(
-          c.msa_channel,
-          initializer='relu',
-          name='template_projection')(template_activations)
+      # Embed extra MSA features.
+      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 14-16
+      if c.use_extra_msa:
+        extra_msa_feat = create_extra_msa_feature(batch)
+        extra_msa_activations = common_modules.Linear(c.extra_msa_channel,
+                                                      name='extra_msa_activations')(extra_msa_feat).astype(dtype)
+        # Extra MSA Stack.
+        # Jumper et al. (2021) Suppl. Alg. 18 "ExtraMsaStack"
+        extra_msa_stack_input = {'msa': extra_msa_activations,
+                                 'pair': pair_activations}
+        extra_msa_stack_iteration = EvoformerIteration(c.evoformer, gc,
+                                                       is_extra_msa=True, name='extra_msa_stack')
+        def extra_msa_stack_fn(x):
+          act, safe_key = x
+          safe_key, safe_subkey = safe_key.split()
+          extra_evoformer_output = extra_msa_stack_iteration(
+              activations=act,
+              masks={'msa': batch['extra_msa_mask'].astype(dtype),
+                     'pair': mask_2d},
+              safe_key=safe_subkey,
+              use_dropout=batch["use_dropout"])
+          return (extra_evoformer_output, safe_key)
+        if gc.use_remat: extra_msa_stack_fn = hk.remat(extra_msa_stack_fn)
+        extra_msa_stack = layer_stack.layer_stack(c.extra_msa_stack_num_block)(extra_msa_stack_fn)
+        extra_msa_output, safe_key = extra_msa_stack((extra_msa_stack_input, safe_key))
+        pair_activations = extra_msa_output['pair']
 
-      # Concatenate the templates to the msa.
-      evoformer_input['msa'] = jnp.concatenate([evoformer_input['msa'], template_activations], axis=0)
+      evoformer_input = {'msa': msa_activations,'pair': pair_activations}
+      evoformer_masks = {'msa': batch['msa_mask'].astype(dtype),
+                         'pair': mask_2d}
+      ####################################################################
+
+      # Append num_templ rows to msa_activations with template embeddings.
+      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 7-8
+      if c.template.enabled and c.template.embed_torsion_angles:
+        num_templ, num_res = batch['template_aatype'].shape
+        # Embed the templates aatypes.
+        aatype = batch['template_aatype']
+        aatype_one_hot = jax.nn.one_hot(batch['template_aatype'], 22, axis=-1)
+
+        # Embed the templates aatype, torsion angles and masks.
+        # Shape (templates, residues, msa_channels)
+        ret = all_atom.atom37_to_torsion_angles(
+            aatype=aatype,
+            all_atom_pos=batch['template_all_atom_positions'],
+            all_atom_mask=batch['template_all_atom_mask'],
+            # Ensure consistent behaviour during testing:
+            placeholder_for_undefined=not gc.zero_init)
+
+        template_features = jnp.concatenate([
+            aatype_one_hot,
+            jnp.reshape(ret['torsion_angles_sin_cos'], [num_templ, num_res, 14]),
+            jnp.reshape(ret['alt_torsion_angles_sin_cos'], [num_templ, num_res, 14]),
+            ret['torsion_angles_mask']], axis=-1).astype(dtype)
+
+        template_activations = common_modules.Linear(
+            c.msa_channel,
+            initializer='relu',
+            name='template_single_embedding')(template_features)
+        template_activations = jax.nn.relu(template_activations)
+        template_activations = common_modules.Linear(
+            c.msa_channel,
+            initializer='relu',
+            name='template_projection')(template_activations)
+
+        # Concatenate the templates to the msa.
+        evoformer_input['msa'] = jnp.concatenate([evoformer_input['msa'], template_activations], axis=0)
+
+        # Concatenate templates masks to the msa masks.
+        # Use mask from the psi angle, as it only depends on the backbone atoms
+        # from a single residue.
+        torsion_angle_mask = ret['torsion_angles_mask'][:, :, 2]
+        torsion_angle_mask = torsion_angle_mask.astype(evoformer_masks['msa'].dtype)
+        evoformer_masks['msa'] = jnp.concatenate([evoformer_masks['msa'], torsion_angle_mask], axis=0)    
+      ####################################################################
+      if c.use_msa:
+        # Main trunk of the network
+        # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 17-18
+        evoformer_iteration = EvoformerIteration(c.evoformer, gc, is_extra_msa=False, name='evoformer_iteration')
+        def evoformer_fn(x):
+          act, safe_key = x
+          safe_key, safe_subkey = safe_key.split()
+          evoformer_output = evoformer_iteration(
+              activations=act,
+              masks=evoformer_masks,
+              safe_key=safe_subkey,
+              use_dropout=batch["use_dropout"])
+          return (evoformer_output, safe_key)
+        if gc.use_remat: evoformer_fn = hk.remat(evoformer_fn)
+        evoformer_stack = layer_stack.layer_stack(c.evoformer_num_block)(evoformer_fn)
+        evoformer_output, safe_key = evoformer_stack((evoformer_input, safe_key))
+        msa_activations = evoformer_output['msa']
+        pair_activations = evoformer_output['pair']
+
+      single_activations = common_modules.Linear(c.seq_channel, name='single_activations')(msa_activations[0])
+      num_sequences = batch['msa_feat'].shape[0]
       
-      # Concatenate templates masks to the msa masks.
-      # Use mask from the psi angle, as it only depends on the backbone atoms
-      # from a single residue.
-      torsion_angle_mask = ret['torsion_angles_mask'][:, :, 2]
-      torsion_angle_mask = torsion_angle_mask.astype(evoformer_masks['msa'].dtype)
-      evoformer_masks['msa'] = jnp.concatenate([evoformer_masks['msa'], torsion_angle_mask], axis=0)    
-      
-    ####################################################################
-    if c.use_msa:
-      # Main trunk of the network
-      # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 17-18
-      evoformer_iteration = EvoformerIteration(c.evoformer, gc, is_extra_msa=False, name='evoformer_iteration')
-      def evoformer_fn(x):
-        act, safe_key = x
-        safe_key, safe_subkey = safe_key.split()
-        evoformer_output = evoformer_iteration(
-            activations=act,
-            masks=evoformer_masks,
-            is_training=is_training,
-            safe_key=safe_subkey, dropout_scale=batch["dropout_scale"])
-        return (evoformer_output, safe_key)
-      if gc.use_remat: evoformer_fn = hk.remat(evoformer_fn)
-      evoformer_stack = layer_stack.layer_stack(c.evoformer_num_block)(evoformer_fn)
-      evoformer_output, safe_key = evoformer_stack((evoformer_input, safe_key))
-      msa_activations = evoformer_output['msa']
-      pair_activations = evoformer_output['pair']
-
-    single_activations = common_modules.Linear(c.seq_channel, name='single_activations')(msa_activations[0])
-
-    num_sequences = batch['msa_feat'].shape[0]
     output = {
         'single': single_activations,
         'pair': pair_activations,
@@ -1576,7 +1510,12 @@ class EmbeddingsAndEvoformer(hk.Module):
         'msa': msa_activations[:num_sequences, :, :],
         'msa_first_row': msa_activations[0],
     }
-
+    
+    # Convert back to float32 if we're not saving memory.
+    if not gc.bfloat16_output:
+      for k, v in output.items():
+        if v.dtype == jnp.bfloat16:
+          output[k] = v.astype(jnp.float32)
     return output
   
 ####################################################################
@@ -1591,7 +1530,7 @@ class SingleTemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, batch, mask_2d, multichain_mask_2d, is_training, dropout_scale=1.0):
+  def __call__(self, query_embedding, batch, mask_2d, multichain_mask_2d, use_dropout):
     """Build the single template embedding.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
@@ -1599,7 +1538,6 @@ class SingleTemplateEmbedding(hk.Module):
         stripped out as this module only runs over a single template).
       mask_2d: Padding mask (Note: this doesn't care if a template exists,
         unlike the template_pseudo_beta_mask).
-      is_training: Whether the module is in training mode.
     Returns:
       A template embedding [N_res, N_res, c_z].
     """
@@ -1652,10 +1590,14 @@ class SingleTemplateEmbedding(hk.Module):
 
       # compute unit_vector (not used by default)
       if self.config.use_template_unit_vector:
+        raw_atom_pos = template_batch["template_all_atom_positions"]
+        if gc.bfloat16:
+          raw_atom_pos = raw_atom_pos.astype(jnp.float32)
+
         rot, trans = quat_affine.make_transform_from_reference(
-            n_xyz=batch['template_all_atom_positions'][:, n],
-            ca_xyz=batch['template_all_atom_positions'][:, ca],
-            c_xyz=batch['template_all_atom_positions'][:, c])
+            n_xyz=raw_atom_pos[:, n],
+            ca_xyz=raw_atom_pos[:, ca],
+            c_xyz=raw_atom_pos[:, c])
         affines = quat_affine.QuatAffine(
             quaternion=quat_affine.rot_to_quat(rot, unstack_inputs=True),
             translation=trans,
@@ -1689,7 +1631,7 @@ class SingleTemplateEmbedding(hk.Module):
 
     # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 11
     act = TemplatePairStack(
-        self.config.template_pair_stack, self.global_config)(act, mask_2d, is_training, dropout_scale=dropout_scale)
+        self.config.template_pair_stack, self.global_config)(act, mask_2d, use_dropout=use_dropout)
 
     act = hk.LayerNorm([-1], True, True, name='output_layer_norm')(act)
     return act
@@ -1706,15 +1648,13 @@ class TemplateEmbedding(hk.Module):
     self.config = config
     self.global_config = global_config
 
-  def __call__(self, query_embedding, template_batch, mask_2d, multichain_mask_2d, 
-               is_training, dropout_scale=1.0):
+  def __call__(self, query_embedding, template_batch, mask_2d, multichain_mask_2d, use_dropout):
     """Build TemplateEmbedding module.
     Arguments:
       query_embedding: Query pair representation, shape [N_res, N_res, c_z].
       template_batch: A batch of template features.
       mask_2d: Padding mask (Note: this doesn't care if a template exists,
         unlike the template_pseudo_beta_mask).
-      is_training: Whether the module is in training mode.
     Returns:
       A template embedding [N_res, N_res, c_z].
     """
@@ -1737,7 +1677,7 @@ class TemplateEmbedding(hk.Module):
 
     def map_fn(batch):
       return template_embedder(query_embedding, batch, mask_2d, multichain_mask_2d,
-                               is_training, dropout_scale=dropout_scale)
+        use_dropout=use_dropout)
 
     template_pair_representation = mapping.sharded_map(map_fn, in_axes=0)(template_batch)
 

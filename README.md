@@ -20,3 +20,6 @@
 - Shihao Feng [@JeffSHF](https://github.com/JeffSHF)
 - Justas Dauparas [@dauparas](https://github.com/dauparas)
 - Weikun.Wu [@guyujun](https://github.com/guyujun) (from [Levinthal.bio](http://levinthal.bio/en/))
+
+### Related Projects:
+- [TRILL](https://trill.readthedocs.io/en/latest/home.html) (TRaining and Inference using the Language of Life) is a sandbox for creative protein engineering and discovery.

@@ -21,14 +21,20 @@ from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
 ################################################################
 
 class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
-  def __init__(self, protocol="fixbb", data_dir=".", **kwargs):  
+  def __init__(self,
+               protocol="fixbb", 
+               use_multimer=False,
+               use_templates=False,
+               debug=False,
+               data_dir=".", 
+               **kwargs):  
     assert protocol in ["fixbb","hallucination","binder","partial"]
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
-    self._args = {"use_templates":False, "use_multimer":False, "use_bfloat16":True,
+    self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
                   "recycle_mode":"last", "use_mlm": False, "realign": True,
-                  "debug":False, "repeat":False, "homooligomer":False, "copies":1,
+                  "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
                   "clear_prev": True, "use_dgram":False,

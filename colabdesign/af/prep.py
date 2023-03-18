@@ -169,12 +169,15 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_binder(self, pdb_filename, chain="A",
-                   binder_len=50, binder_chain=None,
-                   rm_template_ic=False,
-                   use_binder_template=False, 
+  def _prep_binder(self, pdb_filename,
+                   target_chain="A", binder_len=50,                                         
+                   rm_target_seq=False, rm_target_sc=False,
+                   
+                   # if binder_chain is defined
+                   binder_chain=None,
+                   use_binder_template=False, rm_template_ic=False,
                    rm_binder_seq=True, rm_binder_sc=True,
-                   rm_target_seq=False,rm_target_sc=False,
+                   
                    hotspot=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for binder design
@@ -189,26 +192,28 @@ class _af_prep:
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''
-    
     redesign = binder_chain is not None
     
     self._args.update({"redesign":redesign})
 
     # get pdb info
-    chains = f"{chain},{binder_chain}" if redesign else chain
-    im = [True] * len(chain.split(",")) 
+    target_chain = kwargs.pop("chain",target_chain) # backward comp
+    chains = f"{target_chain},{binder_chain}" if redesign else target_chain
+    im = [True] * len(target_chain.split(",")) 
     if redesign: im += [ignore_missing] * len(binder_chain.split(","))
 
     self._pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=im)
     res_idx = self._pdb["residue_index"]
 
     if redesign:
-      self._target_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in chain.split(",")])
-      self._binder_len = self._len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      self._target_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in target_chain.split(",")])
+      self._binder_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
     else:
       self._target_len = self._pdb["residue_index"].shape[0]
-      self._binder_len = self._len = binder_len
+      self._binder_len = binder_len
       res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
+    
+    self._len = self._binder_len
     self._lengths = [self._target_len, self._binder_len]
 
     # gather hotspot info

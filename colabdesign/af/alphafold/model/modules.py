@@ -360,6 +360,10 @@ class Attention(hk.Module):
     logits = jnp.einsum('bqhc,bkhc->bhqk', q, k) + bias
     if nonbatched_bias is not None:
       logits += jnp.expand_dims(nonbatched_bias, axis=0)
+
+    # patch for jax > 0.3.25
+    logits = jnp.clip(logits,-1e8,1e8)
+
     weights = jax.nn.softmax(logits)
     weighted_avg = jnp.einsum('bhqk,bkhc->bqhc', weights, v)
 

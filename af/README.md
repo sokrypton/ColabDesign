@@ -31,7 +31,7 @@
 ### setup
 first install jax (with GPU support)
 ```bash
-pip install --upgrade "jax[cuda]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install "jax[cuda]==0.3.25" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 second install colabdesign
 ```bash

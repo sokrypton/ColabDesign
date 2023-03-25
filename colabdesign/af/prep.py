@@ -201,7 +201,7 @@ class _af_prep:
     ---------------------------------------------------
     '''
     redesign = binder_chain is not None
-    rm_binder = kwargs.pop("use_binder_template",rm_binder)
+    rm_binder = not kwargs.pop("use_binder_template", not rm_binder)
     
     self._args.update({"redesign":redesign})
 

@@ -270,7 +270,10 @@ class _af_prep:
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     copies=1, repeat=False, homooligomer=False,
                     pos=None, fix_pos=None, use_sidechains=False, atoms_to_exclude=None,
-                    rm_template_seq=False, rm_template_sc=False, rm_template_ic=False, 
+                    rm_template=False,
+                    rm_template_seq=False,
+                    rm_template_sc=False,
+                    rm_template_ic=False, 
                     ignore_missing=True, **kwargs):
     '''
     prep input for partial hallucination
@@ -370,8 +373,9 @@ class _af_prep:
       self._wt_aatype_sub = self._wt_aatype
 
     self.opt["template"].update({"rm_ic":rm_template_ic})
-    self._inputs.update({"rm_template_seq":rm_template_seq,
-                         "rm_template_sc":rm_template_sc})
+    self._inputs.update({"rm_template":     rm_template,
+                         "rm_template_seq": rm_template_seq,
+                         "rm_template_sc":  rm_template_sc})
   
     self._prep_model(**kwargs)
 

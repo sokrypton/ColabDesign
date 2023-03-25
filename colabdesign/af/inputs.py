@@ -56,7 +56,8 @@ class _af_inputs:
       L = batch["aatype"].shape[0]
       
       # decide which position to remove sequence and/or sidechains
-      rm_seq = jnp.broadcast_to(inputs.get("rm_template_seq",True),L)
+      rm     = jnp.broadcast_to(inputs.get("rm_template",False),L)
+      rm_seq = jnp.where(rm,True,jnp.broadcast_to(inputs.get("rm_template_seq",True),L))
       rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs.get("rm_template_sc",True),L))
                           
       # define template features
@@ -100,20 +101,10 @@ class _af_inputs:
         if k in ["template_all_atom_mask"]:
           if self.protocol == "partial":
             inputs[k] = inputs[k].at[:,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,pos,5:]))
+            inputs[k] = inputs[k].at[:,pos].set(jnp.where(rm[:,None],0,inputs[k][:,pos]))
           else:
-            inputs[k] = inputs[k].at[:,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,:,5:]))
-
-      # dropout template input features
-      L = inputs["template_aatype"].shape[1]
-      n = self._target_len if self.protocol == "binder" else 0
-      pos_mask = jax.random.bernoulli(key, 1-opt["template"]["dropout"],(L,))
-      # if self.protocol == "partial": pos_mask = pos_mask.at[pos].set(0)
-      inputs["template_all_atom_mask"] = inputs["template_all_atom_mask"].at[:,n:,:].multiply(pos_mask[n:,None])
-      inputs["template_pseudo_beta_mask"] = inputs["template_pseudo_beta_mask"].at[:,n:].multiply(pos_mask[n:])
-      if "template_dgram" in inputs:
-        pos_mask_2d = pos_mask[:,None] * pos_mask[None,:]
-        inputs["template_dgram"] = inputs["template_dgram"].at[:,n:,n:,:].multiply(pos_mask_2d[n:,n:,None])
-
+            inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
+            inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   '''update the sequence features'''

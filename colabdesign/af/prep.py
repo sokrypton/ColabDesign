@@ -41,7 +41,10 @@ class _af_prep:
 
   def _prep_fixbb(self, pdb_filename, chain=None,
                   copies=1, repeat=False, homooligomer=False,
-                  rm_template_seq=True, rm_template_sc=True, rm_template_ic=False,
+                  rm_template=False,
+                  rm_template_seq=True,
+                  rm_template_sc=True,
+                  rm_template_ic=False,
                   fix_pos=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for fixed backbone design
@@ -113,8 +116,9 @@ class _af_prep:
 
     # configure template [opt]ions
     rm,L = {},sum(self._lengths)
-    for n,x in [["rm_template_seq",rm_template_seq],
-                ["rm_template_sc", rm_template_sc]]:
+    for n,x in {"rm_template":    rm_template,
+                "rm_template_seq":rm_template_seq,
+                "rm_template_sc": rm_template_sc}.items():
       rm[n] = np.full(L,False)
       if isinstance(x,str):
         rm[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
@@ -171,13 +175,17 @@ class _af_prep:
 
   def _prep_binder(self, pdb_filename,
                    target_chain="A", binder_len=50,                                         
-                   rm_target_seq=False, rm_target_sc=False,
+                   rm_target = False,
+                   rm_target_seq = False,
+                   rm_target_sc = False,
                    
                    # if binder_chain is defined
                    binder_chain=None,
-                   use_binder_template=False, rm_template_ic=False,
-                   rm_binder_seq=True, rm_binder_sc=True,
-                   
+                   rm_binder=True,
+                   rm_binder_seq=True,
+                   rm_binder_sc=True,
+                   rm_template_ic=False,
+                                      
                    hotspot=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for binder design
@@ -193,6 +201,7 @@ class _af_prep:
     ---------------------------------------------------
     '''
     redesign = binder_chain is not None
+    rm_binder = kwargs.pop("use_binder_template",rm_binder)
     
     self._args.update({"redesign":redesign})
 
@@ -238,8 +247,11 @@ class _af_prep:
 
     # configure template rm masks
     (T,L,rm) = (self._lengths[0],sum(self._lengths),{})
-    rm_opt = {"rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
-              "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}}
+    rm_opt = {
+              "rm_template":    {"target":rm_target,    "binder":rm_binder},
+              "rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
+              "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}
+             }
     for n,x in rm_opt.items():
       rm[n] = np.full(L,False)
       for m,y in x.items():
@@ -250,8 +262,7 @@ class _af_prep:
           if m == "binder": rm[n][T:] = y
         
     # set template [opt]ions
-    template_dropout = 0.0 if use_binder_template else 1.0
-    self.opt["template"].update({"rm_ic":rm_template_ic, "dropout":template_dropout})
+    self.opt["template"]["rm_ic"] = rm_template_ic
     self._inputs.update(rm)
 
     self._prep_model(**kwargs)

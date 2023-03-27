@@ -215,7 +215,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # experimental masked-language-modeling
       if a["use_mlm"]:
         aux["mlm"] = outputs["masked_msa"]["logits"]
-        aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
+        mask = jnp.where(inputs["seq_mask"],mlm,0)
+        aux["losses"].update(get_mlm_loss(outputs, mask=mask, truth=seq["pssm"]))
 
       # run user defined callbacks
       for c in ["loss","post"]:

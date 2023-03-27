@@ -161,7 +161,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      update_aatype(seq["pseudo"][0].argmax(-1), inputs)      
+      update_aatype(seq["pseudo"][0].argmax(-1), inputs) 
+
+      # define masks
+      inputs["msa_mask"] = jnp.where(inputs["seq_mask"],inputs["msa_mask"],0)
 
       inputs["seq"] = aux["seq"]
 

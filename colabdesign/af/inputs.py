@@ -131,7 +131,8 @@ def update_aatype(aatype, inputs):
        "atom37_atom_exists":r.restype_atom37_mask,
        "residx_atom14_to_atom37":r.restype_atom14_to_atom37,
        "residx_atom37_to_atom14":r.restype_atom37_to_atom14}
-  inputs.update(jax.tree_map(lambda x:jnp.asarray(x)[aatype],a))
+  mask = inputs["seq_mask"][:,None]
+  inputs.update(jax.tree_map(lambda x:jnp.where(mask,jnp.asarray(x)[aatype],0),a))
   inputs["aatype"] = aatype
 
 def expand_copies(x, copies, block_diag=True):

@@ -530,7 +530,7 @@ def get_seq_ent_loss(inputs):
   opt = inputs["opt"]
   x = inputs["seq"]["logits"] / opt["temp"]
   ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
-  mask = inputs["seq_mask"]
+  mask = inputs["seq_mask"][-x.shape[0]:]
   if "fix_pos" in opt:
     if "pos" in opt:
       p = opt["pos"][opt["fix_pos"]]

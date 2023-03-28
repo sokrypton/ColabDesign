@@ -47,7 +47,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
-                "template": {"dropout":0.0, "rm_ic":False},                
+                "template": {"rm_ic":False},                
                 "weights":  {"seq_ent":0.0, "plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0},
                 "fape_cutoff":10.0}
 
@@ -161,7 +161,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      update_aatype(seq["pseudo"][0].argmax(-1), inputs)      
+      update_aatype(seq["pseudo"][0].argmax(-1), inputs) 
+
+      # define masks
+      inputs["msa_mask"] = jnp.where(inputs["seq_mask"],inputs["msa_mask"],0)
 
       inputs["seq"] = aux["seq"]
 
@@ -215,7 +218,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # experimental masked-language-modeling
       if a["use_mlm"]:
         aux["mlm"] = outputs["masked_msa"]["logits"]
-        aux["losses"].update(get_mlm_loss(outputs, mask=mlm, truth=seq["pssm"]))
+        mask = jnp.where(inputs["seq_mask"],mlm,0)
+        aux["losses"].update(get_mlm_loss(outputs, mask=mask, truth=seq["pssm"]))
 
       # run user defined callbacks
       for c in ["loss","post"]:

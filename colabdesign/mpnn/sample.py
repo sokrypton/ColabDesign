@@ -99,6 +99,7 @@ class mpnn_sample:
          "logits": jnp.zeros((L,21))}
 
     # scan over decoding order
+    t = I["decoding_order"]
     if t.ndim == 1: t = t[:,None]
     XS = {"t":t, "key":jax.random.split(key,t.shape[0])}
     X = hk.scan(lambda x, xs: fwd(x, xs["t"], xs["key"]), X, XS)[0]

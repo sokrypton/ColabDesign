@@ -85,6 +85,8 @@ out = mpnn_model.sample(num=num_seqs//8, batch=8, temperature=sampling_temp)
 print("running AlphaFold...")
 if protocol == "binder":
   af_terms = ["plddt","i_ptm","i_pae","rmsd"]
+elif copies > 1:
+  af_terms = ["plddt","ptm","i_ptm","pae","i_pae","rmsd"]
 else:
   af_terms = ["plddt","ptm","pae","rmsd"]
 for k in af_terms: out[k] = []
@@ -94,9 +96,9 @@ with open(f"{loc}/design.fasta","w") as fasta:
     seq = out["seq"][n][-af_model._len:]
     af_model.predict(seq=seq, num_recycles=3, verbose=False)
     for t in af_terms: out[t].append(af_model.aux["log"][t])
-    if protocol == "binder":
+    if "i_pae" in out:
       out["i_pae"][-1] = out["i_pae"][-1] * 31
-    else:
+    if "pae" in out:
       out["pae"][-1] = out["pae"][-1] * 31
       
     af_model.save_current_pdb(f"{loc}/all_pdb/n{n}.pdb")
@@ -106,7 +108,7 @@ with open(f"{loc}/design.fasta","w") as fasta:
     for t in af_terms:
       score_line.append(f'{t}:{out[t][n]:.3f}')
     print(n, " ".join(score_line)+" "+seq)
-    line = f">{'|'.join(score_line)}\n{seq}"
+    line = f'>{"|".join(score_line)}\n{seq}'
     fasta.write(line+"\n")
 
 af_model.save_pdb(f"{loc}/best.pdb")

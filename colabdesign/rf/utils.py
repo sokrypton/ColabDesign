@@ -11,8 +11,8 @@ def fix_contig(contig, parsed_pdb):
         S = int(x[:-1])
       elif "-" in x:
         (S,E) = (int(y) for y in x.split("-"))
-      elif len(x) > 0:
-        S = E = int(x[1:])
+      elif x.isnumeric():
+        S = E = int(x)
       new_x = ""
       c_,i_ = None,0
       for c, i in parsed_pdb["pdb_idx"]:

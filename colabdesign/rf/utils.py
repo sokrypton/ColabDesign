@@ -1,3 +1,6 @@
+from string import ascii_uppercase, ascii_lowercase
+alphabet_list = list(ascii_uppercase+ascii_lowercase)
+
 def fix_contig(contig, parsed_pdb):
   INF = float("inf")
   X = contig.split("/")

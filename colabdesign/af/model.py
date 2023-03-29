@@ -38,7 +38,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
                   "clear_prev": True, "use_dgram":False,
-                  "shuffle_first":True, "use_remat":True, "alphabet_size":20}
+                  "shuffle_first":True, "use_remat":True,
+                  "alphabet_size":20, "initial_guess":False}
 
     if self.protocol == "binder": self._args["use_templates"] = True
 

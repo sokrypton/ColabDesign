@@ -146,7 +146,8 @@ class _af_design:
 
   def _recycle(self, model_params, num_recycles=None, backprop=True):   
     '''multiple passes through the model (aka recycle)'''
-    mode = self._args["recycle_mode"]
+    a = self._args
+    mode = a["recycle_mode"]
     if num_recycles is None:
       num_recycles = self.opt["num_recycles"]
 
@@ -158,13 +159,20 @@ class _af_design:
       L = self._inputs["residue_index"].shape[0]
       
       # intialize previous
-      if "prev" not in self._inputs or self._args["clear_prev"]:
-        self._inputs["prev"] = {'prev_msa_first_row': np.zeros([L,256]),
-                                'prev_pair': np.zeros([L,L,128]),
-                                'prev_pos': np.zeros([L,37,3])}
-        if self._args["use_dgram"]:
-          self._inputs["prev"]['prev_dgram'] = np.zeros([L,L,64])
+      if "prev" not in self._inputs or a["clear_prev"]:
+        prev = {'prev_msa_first_row': np.zeros([L,256]),
+                'prev_pair': np.zeros([L,L,128])}
 
+        if a["initial_guess"]:
+          prev["prev_pos"] = self._inputs["batch"]["all_atom_positions"] 
+        else:
+          prev["prev_pos"] = np.zeros([L,37,3])        
+        
+        if a["use_dgram"]:
+          # TODO: add support for initial_guess + use_dgram
+          prev["prev_dgram"] = np.zeros([L,L,64])
+
+      self._inputs["prev"] = prev
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)
       mask = [0] * cycles

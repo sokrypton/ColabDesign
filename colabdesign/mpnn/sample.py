@@ -7,9 +7,25 @@ from .utils import cat_neighbors_nodes, get_ar_mask
 
 class mpnn_sample:
   def sample(self, I):
+    """
+    I = {
+         [[required]]
+         'X' = (L,4,3) 
+         'mask' = (L,)
+         'residue_index' = (L,)
+         'chain_idx' = (L,)
+         'decoding_order' = (L,)
+         
+         [[optional]]
+         'ar_mask' = (L,L)
+         'bias' = (L,21)
+         'temperature' = 1.0
+        }
+    """
 
     key = hk.next_rng_key()
     L = I["X"].shape[0]
+    temperature = I.get("temperature",1.0)
 
     # prepare node and edge embeddings
     E, E_idx = self.features(I)
@@ -23,7 +39,7 @@ class mpnn_sample:
     for layer in self.encoder_layers:
       h_V, h_E = layer(h_V, h_E, E_idx, I["mask"], mask_attend)
 
-    # get autoregressive mask      
+    # get autoregressive mask  
     ar_mask = I.get("ar_mask",get_ar_mask(I["decoding_order"]))
     
     mask_attend = jnp.take_along_axis(ar_mask, E_idx, 1)
@@ -35,7 +51,7 @@ class mpnn_sample:
     h_EXV_encoder = cat_neighbors_nodes(h_V, h_EX_encoder, E_idx)
     h_EXV_encoder = mask_fw[...,None] * h_EXV_encoder
 
-    def fwd(x, t, key, tied=True):
+    def fwd(x, t, key):
       h_EXV_encoder_t = h_EXV_encoder[t] 
       E_idx_t         = E_idx[t]
       mask_t          = I["mask"][t]
@@ -64,10 +80,10 @@ class mpnn_sample:
       if "bias" in I: logits_t += I["bias"][t]          
 
       # sample character
-      logits_t = logits_t/I["temperature"] + jax.random.gumbel(key, logits_t.shape)
+      logits_t = logits_t/temperature + jax.random.gumbel(key, logits_t.shape)
 
       # tie positions
-      logits_t = jnp.where(tied, logits_t.mean(0, keepdims=True), logits_t)
+      logits_t = logits_t.mean(0, keepdims=True)
 
       S_t = jax.nn.one_hot(logits_t[...,:20].argmax(-1), 21)
 
@@ -83,8 +99,8 @@ class mpnn_sample:
          "logits": jnp.zeros((L,21))}
 
     # scan over decoding order
-    t = I["decoding_order"]
+    if t.ndim == 1: t = t[:,None]
     XS = {"t":t, "key":jax.random.split(key,t.shape[0])}
-    X = hk.scan(lambda x, xs: fwd(x, xs["t"], xs["key"], I.get("tied",True)), X, XS)[0]
+    X = hk.scan(lambda x, xs: fwd(x, xs["t"], xs["key"]), X, XS)[0]
     
     return {"S":X["S"], "logits":X["logits"], "decoding_order":t}

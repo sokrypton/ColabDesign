@@ -7,7 +7,20 @@ from .utils import cat_neighbors_nodes, get_ar_mask
 
 class mpnn_score:
   def score(self, I):
-    """ Graph-conditioned sequence model """
+    """
+    I = {
+         [[required]]
+         'X' = (L,4,3) 
+         'mask' = (L,)
+         'residue_index' = (L,)
+         'chain_idx' = (L,)
+         
+         [[optional]]
+         'S' = (L,21)
+         'decoding_order' = (L,)
+         'ar_mask' = (L,L)
+        }
+    """
     
     key = hk.next_rng_key()
     # Prepare node and edge embeddings
@@ -32,6 +45,7 @@ class mpnn_score:
       h_EXV_encoder_fw = h_EXV_encoder
       for layer in self.decoder_layers:
         h_V = layer(h_V, h_EXV_encoder_fw, I["mask"])
+      decoding_order = None
     else:
       ##########################################
       # conditional_probs
@@ -42,7 +56,12 @@ class mpnn_score:
       h_ES = cat_neighbors_nodes(h_S, h_E, E_idx)
 
       # get autoregressive mask
-      ar_mask = I.get("ar_mask",get_ar_mask(I["decoding_order"]))
+      if "ar_mask" in I:
+        decoding_order = None
+        ar_mask = I["ar_mask"]
+      else:
+        decoding_order = I["decoding_order"]
+        ar_mask = get_ar_mask(decoding_order)
               
       mask_attend = jnp.take_along_axis(ar_mask, E_idx, 1)
       mask_1D = I["mask"][:,None]
@@ -57,6 +76,5 @@ class mpnn_score:
         h_V = layer(h_V, h_ESV, I["mask"])
     
     logits = self.W_out(h_V)
-    decoding_order = I.get("decoding_order",None)
     S = I.get("S",None)
     return {"logits": logits, "decoding_order":decoding_order, "S":S}

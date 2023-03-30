@@ -1,3 +1,6 @@
+import os
+os.environ["XLA_FLAGS"] = "--xla_gpu_enable_triton_gemm=false"
+
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 

@@ -1,9 +1,9 @@
+import os,sys
 from colabdesign.mpnn import mk_mpnn_model
 from colabdesign.af import mk_af_model
 from colabdesign.shared.protein import pdb_to_string
 import pandas as pd
 import numpy as np
-import sys,os
 from string import ascii_uppercase, ascii_lowercase
 alphabet_list = list(ascii_uppercase+ascii_lowercase)
 

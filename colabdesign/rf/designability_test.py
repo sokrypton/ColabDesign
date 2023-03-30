@@ -37,8 +37,8 @@ def main(argv):
   ag.txt("-------------------------------------------------------------------------------------")
   ag.txt("OPTIONAL")
   ag.txt("-------------------------------------------------------------------------------------")
-  ag.add(["copies="       ]      1,   int, ["number of repeating copies"])
-  ag.add(["num="          ]      8,   int, ["number of mpnn designs to evaluate"])
+  ag.add(["copies="       ],     1,   int, ["number of repeating copies"])
+  ag.add(["num_seqs="     ],     8,   int, ["number of mpnn designs to evaluate"])
   ag.add(["initial_guess" ], False,  None, ["initialize previous coordinates"])
   ag.add(["use_multimer"  ], False,  None, ["use alphafold_multimer_v3"])
   ag.add(["num_recycles=" ],     3,   int, ["number of recycles"])
@@ -47,7 +47,7 @@ def main(argv):
   o = ag.parse(argv)
 
   if None in [o.pdb, o.loc, o.contigs]:
-    ag.usage()
+    ag.usage("Missing Required Arguments")
 
 
   contigs = o.contigs.split(":")
@@ -70,7 +70,7 @@ def main(argv):
       if x: target_chains.append(chains[n])
       else: binder_chains.append(chains[n])
     af_model = mk_af_model(protocol="binder",**flags)
-    af_model.prep_inputs(pdb,
+    af_model.prep_inputs(o.pdb,
                          target_chain=",".join(target_chains),
                          binder_chain=",".join(binder_chains),
                          rm_aa=o.rm_aa)
@@ -81,7 +81,7 @@ def main(argv):
                            use_templates=True,
                            **flags)
     rm_template = np.array(fixed_pos) == 0
-    af_model.prep_inputs(pdb,
+    af_model.prep_inputs(o.pdb,
                          chain=",".join(chains),
                          rm_template=rm_template,
                          rm_template_seq=rm_template,
@@ -95,18 +95,17 @@ def main(argv):
     protocol = "fixbb"
     print("protocol=fixbb")
     af_model = mk_af_model(protocol="fixbb",**flags)
-    af_model.prep_inputs(pdb,
+    af_model.prep_inputs(o.pdb,
                          chain=",".join(chains),
                          copies=o.copies,
                          homooligomer=o.copies>1,
                          rm_aa=o.rm_aa)
 
   print("running proteinMPNN...")
-  num_seqs = o.num
   sampling_temp = 0.1
   mpnn_model = mk_mpnn_model()
   mpnn_model.get_af_inputs(af_model)
-  out = mpnn_model.sample(num=num_seqs//8, batch=8, temperature=sampling_temp)
+  out = mpnn_model.sample(num=o.num_seqs//8, batch=8, temperature=sampling_temp)
 
 
   print("running AlphaFold...")
@@ -117,9 +116,9 @@ def main(argv):
   else:
     af_terms = ["plddt","ptm","pae","rmsd"]
   for k in af_terms: out[k] = []
-  os.system(f"mkdir -p {loc}/all_pdb")
-  with open(f"{loc}/design.fasta","w") as fasta:
-    for n in range(num_seqs):
+  os.system(f"mkdir -p {o.loc}/all_pdb")
+  with open(f"{o.loc}/design.fasta","w") as fasta:
+    for n in range(o.num_seqs):
       seq = out["seq"][n][-af_model._len:]
       af_model.predict(seq=seq, num_recycles=o.num_recycles, verbose=False)
       for t in af_terms: out[t].append(af_model.aux["log"][t])
@@ -128,7 +127,7 @@ def main(argv):
       if "pae" in out:
         out["pae"][-1] = out["pae"][-1] * 31
         
-      af_model.save_current_pdb(f"{loc}/all_pdb/n{n}.pdb")
+      af_model.save_current_pdb(f"{o.loc}/all_pdb/n{n}.pdb")
       af_model._save_results(save_best=True, verbose=False)
       af_model._k += 1
       score_line = [f'mpnn:{out["score"][n]:.3f}']
@@ -138,14 +137,14 @@ def main(argv):
       line = f'>{"|".join(score_line)}\n{seq}'
       fasta.write(line+"\n")
 
-  af_model.save_pdb(f"{loc}/best.pdb")
+  af_model.save_pdb(f"{o.loc}/best.pdb")
 
   labels = ["score"] + af_terms + ["seq"]
-  data = [[out[k][n] for k in labels] for n in range(num_seqs)]
+  data = [[out[k][n] for k in labels] for n in range(o.num_seqs)]
   labels[0] = "mpnn"
 
   df = pd.DataFrame(data, columns=labels)
-  df.to_csv(f'{loc}/mpnn_results.csv')
+  df.to_csv(f'{o.loc}/mpnn_results.csv')
 
 if __name__ == "__main__":
    main(sys.argv[1:])

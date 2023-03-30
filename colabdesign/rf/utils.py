@@ -51,7 +51,7 @@ def fix_partial_contigs(contigs, parsed_pdb):
           unseen.append([c,i])
     L = len(unseen)
     if L > 0:
-      new_contig.append(f"{L}")
+      new_contig.append(f"{L}-{L}")
     L = len(seen)
     if L > 0:
       new_contig.append(f"{seen[0][0]}{seen[0][1]}-{seen[-1][1]}")

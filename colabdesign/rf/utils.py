@@ -1,35 +1,94 @@
 from string import ascii_uppercase, ascii_lowercase
 alphabet_list = list(ascii_uppercase+ascii_lowercase)
 
-def fix_contig(contig, parsed_pdb):
+def fix_partial_contigs(contigs, parsed_pdb):
   INF = float("inf")
-  X = contig.split("/")
-  for n,x in enumerate(X):
-    if x[0].isalpha():
-      C,x = x[0],x[1:]
-      S,E = -INF,INF
-      if x.startswith("-"):
-        E = int(x[1:])
-      elif x.endswith("-"):
-        S = int(x[:-1])
-      elif "-" in x:
-        (S,E) = (int(y) for y in x.split("-"))
-      elif x.isnumeric():
-        S = E = int(x)
-      new_x = ""
-      c_,i_ = None,0
-      for c, i in parsed_pdb["pdb_idx"]:
-        if c == C and i >= S and i <= E:
-          if c_ is None:
-            new_x = f"{c}{i}"
-          else:
-            if c != c_ or i != i_+1:
-              new_x += f"-{i_}/{c}{i}"
-          c_,i_ = c,i
-      X[n] = new_x + f"-{i_}"
-    if x.isnumeric() and x != "0":
-      X[n] = f"{x}-{x}"
-  return "/".join(X)
+
+  # get unique chains
+  chains = []
+  for c, i in parsed_pdb["pdb_idx"]:
+    if c not in chains: chains.append(c)
+
+  # get observed positions and chains
+  ok = []
+  for contig in contigs:
+    for x in contig.split("/"):
+      if x[0].isalpha:
+        C,x = x[0],x[1:]
+        S,E = -INF,INF
+        if x.startswith("-"):
+          E = int(x[1:])
+        elif x.endswith("-"):
+          S = int(x[:-1])
+        elif "-" in x:
+          (S,E) = (int(y) for y in x.split("-"))
+        elif x.isnumeric():
+          S = E = int(x)      
+        for c, i in parsed_pdb["pdb_idx"]:
+          if c == C and i >= S and i <= E:
+            if [c,i] not in ok: ok.append([c,i])
+
+  # define new contigs
+  new_contigs = []
+  for C in chains:
+    new_contig = []
+    unseen = []
+    seen = []
+    for c,i in parsed_pdb["pdb_idx"]:
+      if c == C:
+        if [c,i] in ok:
+          L = len(unseen)
+          if L > 0:
+            new_contig.append(f"{L}-{L}")
+            unseen = []
+          seen.append([c,i])
+        else:
+          L = len(seen)
+          if L > 0:
+            new_contig.append(f"{seen[0][0]}{seen[0][1]}-{seen[-1][1]}")
+            seen = []
+          unseen.append([c,i])
+    L = len(unseen)
+    if L > 0:
+      new_contig.append(f"{L}-{L}")
+    L = len(seen)
+    if L > 0:
+      new_contig.append(f"{seen[0][0]}{seen[0][1]}-{seen[-1][1]}")
+    new_contigs.append("/".join(new_contig))
+
+  return new_contigs
+
+def fix_contigs(contigs,parsed_pdb):
+  def fix_contig(contig):
+    INF = float("inf")
+    X = contig.split("/")
+    for n,x in enumerate(X):
+      if x[0].isalpha():
+        C,x = x[0],x[1:]
+        S,E = -INF,INF
+        if x.startswith("-"):
+          E = int(x[1:])
+        elif x.endswith("-"):
+          S = int(x[:-1])
+        elif "-" in x:
+          (S,E) = (int(y) for y in x.split("-"))
+        elif x.isnumeric():
+          S = E = int(x)      
+        new_x = ""
+        c_,i_ = None,0
+        for c, i in parsed_pdb["pdb_idx"]:
+          if c == C and i >= S and i <= E:
+            if c_ is None:
+              new_x = f"{c}{i}"
+            else:
+              if c != c_ or i != i_+1:
+                new_x += f"-{i_}/{c}{i}"
+            c_,i_ = c,i
+        X[n] = new_x + f"-{i_}"
+      if x.isnumeric() and x != "0":
+        X[n] = f"{x}-{x}"
+    return "/".join(X)
+  return [fix_contig(x) for x in contigs]
 
 def fix_pdb(pdb_str, contigs):
   def get_range(contig):

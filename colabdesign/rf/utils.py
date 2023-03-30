@@ -1,5 +1,6 @@
 from string import ascii_uppercase, ascii_lowercase
 alphabet_list = list(ascii_uppercase+ascii_lowercase)
+import numpy as np
 
 def fix_partial_contigs(contigs, parsed_pdb):
   INF = float("inf")
@@ -50,7 +51,7 @@ def fix_partial_contigs(contigs, parsed_pdb):
           unseen.append([c,i])
     L = len(unseen)
     if L > 0:
-      new_contig.append(f"{L}-{L}")
+      new_contig.append(f"{L}")
     L = len(seen)
     if L > 0:
       new_contig.append(f"{seen[0][0]}{seen[0][1]}-{seen[-1][1]}")
@@ -62,6 +63,7 @@ def fix_contigs(contigs,parsed_pdb):
   def fix_contig(contig):
     INF = float("inf")
     X = contig.split("/")
+    Y = []
     for n,x in enumerate(X):
       if x[0].isalpha():
         C,x = x[0],x[1:]
@@ -84,10 +86,15 @@ def fix_contigs(contigs,parsed_pdb):
               if c != c_ or i != i_+1:
                 new_x += f"-{i_}/{c}{i}"
             c_,i_ = c,i
-        X[n] = new_x + f"-{i_}"
-      if x.isnumeric() and x != "0":
-        X[n] = f"{x}-{x}"
-    return "/".join(X)
+        Y.append(new_x + f"-{i_}")
+      elif "-" in x:
+        # sample length
+        s,e = x.split("-")
+        m = np.random.randint(int(s),int(e)+1)
+        Y.append(f"{m}-{m}")
+      elif x.isnumeric() and x != "0":
+        Y.append(f"{x}-{x}")
+    return "/".join(Y)
   return [fix_contig(x) for x in contigs]
 
 def fix_pdb(pdb_str, contigs):

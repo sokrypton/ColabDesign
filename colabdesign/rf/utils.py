@@ -214,6 +214,8 @@ def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0, dpi=100):
 
   xy_min = pos[...,:2].min() - 1
   xy_max = pos[...,:2].max() + 1
+  z_min = None #pos[...,-1].min() - 1
+  z_max = None #pos[...,-1].max() + 1 
 
   for ax in [ax1]:
     ax.set_xlim(xy_min, xy_max)
@@ -223,13 +225,13 @@ def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0, dpi=100):
   ims=[]
   for pos_,plddt_ in zip(pos,plddt):
     if plddt_ is None:
-      if Ls is None or len(Ls) == 1:
-        img = plot_pseudo_3D(pos_, ax=ax1, line_w=line_w)
+      if Ls is None:
+        img = plot_pseudo_3D(pos_, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max)
       else:
         c = np.concatenate([[n]*L for n,L in enumerate(Ls)])
-        img = plot_pseudo_3D(pos_, c=c, cmap=pymol_cmap, cmin=0, cmax=39, line_w=line_w, ax=ax1)
+        img = plot_pseudo_3D(pos_, c=c, cmap=pymol_cmap, cmin=0, cmax=39, line_w=line_w, ax=ax1, zmin=z_min, zmax=z_max)
     else:
-      img = plot_pseudo_3D(pos_, c=plddt_, cmin=50, cmax=90, line_w=line_w, ax=ax1)    
+      img = plot_pseudo_3D(pos_, c=plddt_, cmin=50, cmax=90, line_w=line_w, ax=ax1, zmin=z_min, zmax=z_max)    
     ims.append([img])
     
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=120)

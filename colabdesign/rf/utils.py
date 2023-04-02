@@ -2,6 +2,36 @@ from string import ascii_uppercase, ascii_lowercase
 alphabet_list = list(ascii_uppercase+ascii_lowercase)
 import numpy as np
 
+def sym_it(coords, center, cyclic_symmetry_axis, reflection_axis=None):
+
+  def rotation_matrix(axis, theta):
+      axis = axis / np.linalg.norm(axis)
+      a = np.cos(theta / 2)
+      b, c, d = -axis * np.sin(theta / 2)
+      return np.array([[a*a+b*b-c*c-d*d, 2*(b*c-a*d), 2*(b*d+a*c)],
+                      [2*(b*c+a*d), a*a+c*c-b*b-d*d, 2*(c*d-a*b)],
+                      [2*(b*d-a*c), 2*(c*d+a*b), a*a+d*d-b*b-c*c]])
+
+  def align_axes(coords, source_axis, target_axis):
+      rotation_axis = np.cross(source_axis, target_axis)
+      rotation_angle = np.arccos(np.dot(source_axis, target_axis))
+      rot_matrix = rotation_matrix(rotation_axis, rotation_angle)
+      return np.dot(coords, rot_matrix)
+
+  # Center the coordinates
+  coords = coords - center
+
+  # Align cyclic symmetry axis with Z-axis
+  z_axis = np.array([0, 0, 1])
+  coords = align_axes(coords, cyclic_symmetry_axis, z_axis)
+
+  if reflection_axis is not None:
+    # Align reflection axis with X-axis
+    x_axis = np.array([1, 0, 0])
+    coords = align_axes(coords, reflection_axis, x_axis)
+  return coords
+
+
 def fix_partial_contigs(contigs, parsed_pdb):
   INF = float("inf")
 

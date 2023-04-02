@@ -1,3 +1,7 @@
+import matplotlib
+import matplotlib.pyplot as plt
+from matplotlib import animation
+from colabdesign.shared.plot import plot_pseudo_3D, pymol_cmap, _np_kabsch
 from string import ascii_uppercase, ascii_lowercase
 alphabet_list = list(ascii_uppercase+ascii_lowercase)
 import numpy as np
@@ -30,7 +34,6 @@ def sym_it(coords, center, cyclic_symmetry_axis, reflection_axis=None):
     x_axis = np.array([1, 0, 0])
     coords = align_axes(coords, reflection_axis, x_axis)
   return coords
-
 
 def fix_partial_contigs(contigs, parsed_pdb):
   INF = float("inf")
@@ -167,3 +170,66 @@ def fix_pdb(pdb_str, contigs):
       pdb_out.append(line)
       r_, c_,n = None, None, 0 
   return "\n".join(pdb_out)
+
+def get_ca(pdb_filename):
+  xyz = []
+  for line in open(pdb_filename,"r"):
+    line = line.rstrip()
+    if line[:4] == "ATOM":
+      atom = line[12:12+4].strip()
+      if atom == "CA":
+        x = float(line[30:30+8])
+        y = float(line[38:38+8])
+        z = float(line[46:46+8])
+        xyz.append([x,y,z])
+  return np.array(xyz)
+
+def get_Ls(contigs):
+  Ls = []
+  for n,(a,b) in enumerate(x.split("-") for x in contigs):
+    if a[0].isalpha():
+      L = int(b)-int(a[1:]) + 1
+    else:
+      L = int(b)
+    Ls.append(L)
+  return Ls
+
+def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0, dpi=100):
+  if plddt is None:
+    plddt = [None] * len(pos)
+
+  # center inputs
+  pos = pos - pos[ref,None].mean(1,keepdims=True)
+
+  # align to best view
+  best_view = _np_kabsch(pos[ref], pos[ref], return_v=True, use_jax=False)
+  pos = np.asarray([p @ best_view for p in pos])
+
+  fig, (ax1) = plt.subplots(1)
+  fig.set_figwidth(5)
+  fig.set_figheight(5)
+  fig.set_dpi(dpi)
+
+  xy_min = pos[...,:2].min() - 1
+  xy_max = pos[...,:2].max() + 1
+
+  for ax in [ax1]:
+    ax.set_xlim(xy_min, xy_max)
+    ax.set_ylim(xy_min, xy_max)
+    ax.axis(False)
+
+  ims=[]
+  for pos_,plddt_ in zip(pos,plddt):
+    if plddt_ is None:
+      if Ls is None or len(Ls) == 1:
+        img = plot_pseudo_3D(pos_, ax=ax1, line_w=line_w)
+      else:
+        c = np.concatenate([[n]*L for n,L in enumerate(Ls)])
+        img = plot_pseudo_3D(pos_, c=c, cmap=pymol_cmap, cmin=0, cmax=39, line_w=line_w, ax=ax1)
+    else:
+      img = plot_pseudo_3D(pos_, c=plddt_, cmin=50, cmax=90, line_w=line_w, ax=ax1)    
+    ims.append([img])
+    
+  ani = animation.ArtistAnimation(fig, ims, blit=True, interval=120)
+  plt.close()
+  return ani.to_html5_video()

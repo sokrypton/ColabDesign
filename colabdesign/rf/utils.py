@@ -186,11 +186,13 @@ def get_ca(pdb_filename):
 
 def get_Ls(contigs):
   Ls = []
-  for n,(a,b) in enumerate(x.split("-") for x in contigs):
-    if a[0].isalpha():
-      L = int(b)-int(a[1:]) + 1
-    else:
-      L = int(b)
+  for contig in contigs:
+    L = 0
+    for n,(a,b) in enumerate(x.split("-") for x in contig.split("/")):
+      if a[0].isalpha():
+        L += int(b)-int(a[1:]) + 1
+      else:
+        L += int(b)
     Ls.append(L)
   return Ls
 

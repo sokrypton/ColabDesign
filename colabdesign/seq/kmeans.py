@@ -1,4 +1,4 @@
-simport jax
+import jax
 import jax.numpy as jnp
 import numpy
 from math import log

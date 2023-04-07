@@ -12,17 +12,19 @@ alphabet_list = list(ascii_uppercase+ascii_lowercase)
 
 def get_info(contig):
   F = []
-  fixed_chain = True
+  free_chain = False
+  fixed_chain = False
   sub_contigs = [x.split("-") for x in contig.split("/")]
   for n,(a,b) in enumerate(sub_contigs):
     if a[0].isalpha():
       L = int(b)-int(a[1:]) + 1
       F += [1] * L
+      fixed_chain = True
     else:
       L = int(b)
       F += [0] * L
-      fixed_chain = False
-  return F,fixed_chain
+      free_chain = True
+  return F,[fixed_chain,free_chain]
 
 def main(argv):
   ag = parse_args()
@@ -49,19 +51,36 @@ def main(argv):
   if None in [o.pdb, o.loc, o.contigs]:
     ag.usage("Missing Required Arguments")
 
+  if o.rm_aa == "":
+    o.rm_aa = None
 
-  contigs = o.contigs.split(":")
+  # filter contig input
+  contigs = []
+  for contig_str in o.contigs.replace(" ",":").replace(",",":").split(":"):
+    if len(contig_str) > 0:
+      contig = []
+      for x in contig_str.split("/"):
+        if x != "0": contig.append(x)
+      contigs.append("/".join(contig))
+
   chains = alphabet_list[:len(contigs)]
   info = [get_info(x) for x in contigs]
-  fixed_chains = [y for x,y in info]
-  fixed_pos = sum([x for x,y in info],[])
+  fixed_pos = []
+  fixed_chains = []
+  free_chains = []
+  both_chains = []
+  for pos,(fixed_chain,free_chain) in info:
+    fixed_pos += pos
+    fixed_chains += [fixed_chain and not free_chain]
+    free_chains += [free_chain and not fixed_chain]
+    both_chains += [fixed_chain and free_chain]
 
   flags = {"initial_guess":o.initial_guess,
            "best_metric":"rmsd",
            "use_multimer":o.use_multimer,
            "model_names":["model_1_multimer_v3" if o.use_multimer else "model_1_ptm"]}
 
-  if sum(fixed_chains) > 0 and sum(fixed_chains) < len(fixed_chains):
+  if sum(both_chains) == 0 and sum(fixed_chains) > 0 and sum(free_chains) > 0:
     protocol = "binder"
     print("protocol=binder")
     target_chains = []
@@ -74,6 +93,7 @@ def main(argv):
                          target_chain=",".join(target_chains),
                          binder_chain=",".join(binder_chains),
                          rm_aa=o.rm_aa)
+  
   elif sum(fixed_pos) > 0:
     protocol = "partial"
     print("protocol=partial")

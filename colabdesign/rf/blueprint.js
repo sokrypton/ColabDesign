@@ -14,15 +14,15 @@ function toggleCellContent(cell, row, col) {
         if (k !== row){
           var a = document.getElementById(`cell_${k}_${row}`);
           var b = document.getElementById(`cell_${row}_${k}`);
-          var c = document.getElementById(`cell_${k}_${k}`);
-          if (cell.textContent === "?"){
+          var diagCell = document.getElementById(`cell_${k}_${k}`);
+          if (cell.textContent === "?" || diagCell.textContent === "?" ){
             a.textContent = b.textContent = '?';
             a.style.backgroundColor = b.style.backgroundColor = 'lightgray';
             a.style.opacity = b.style.opacity = 0.1;
-          } else if (c.textContent !== "?"){
+          } else {
             a.textContent = b.textContent = '0';
             a.style.backgroundColor = b.style.backgroundColor = 'white';
-            if (cell.textContent === "C"){
+            if (cell.textContent === "C" || diagCell.textContent === "C" ){
               a.style.opacity = b.style.opacity = 0.1;
             } else {
               a.style.opacity = b.style.opacity = 1.0;

@@ -8,7 +8,7 @@ function textFieldChanged(row, textField) {
 function toggleCellContent(cell, row, col) {
   if (row === col) {
     const textCell = document.getElementById(`cell_${row}`);
-    const diagMap = { 'H': ['E', 'yellow', 5], 'E': ['C', 'limegreen', 3], 'C': ['?', 'lightgray', 0], '?': ['H', 'red', 19],  };
+    const diagMap = { 'H': ['E', 'yellow', 5], 'E': ['C', 'lime', 3], 'C': ['?', 'lightgray', 0], '?': ['H', 'red', 19],  };
     [cell.textContent, cell.style.backgroundColor, textCell.value] = diagMap[cell.textContent] || ['', ''];
     if (cell.textContent === "?" || cell.textContent === "H" || cell.textContent === "C"){
       const gridContainer = document.querySelector('.grid-container');

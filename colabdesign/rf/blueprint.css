@@ -1,0 +1,29 @@
+.grid-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  background-color: lightgray;
+  border: 2px solid black;
+  box-sizing: border-box;
+  color: black;
+}
+.text {
+    height: 25px;
+    width: 50px;
+    border: 2px solid lightgray;
+    box-sizing: border-box;
+}
+.pos {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.button {
+    height: 25px;
+    border: 2px solid black;
+    margin: 2px 0px 2px 0px;
+    box-sizing: border-box;
+    color: black;
+}

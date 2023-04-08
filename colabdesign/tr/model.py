@@ -9,7 +9,6 @@ from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.protein import _np_get_6D_binned
 from colabdesign.shared.model import design_model, soft_seq
 
-from .weights import __file__ as tr_path
 from .trrosetta import TrRosetta, get_model_params
 
 # borrow some stuff from AfDesign
@@ -18,14 +17,14 @@ from colabdesign.af.alphafold.common import protein
 
 class mk_tr_model(design_model):
   def __init__(self, protocol="fixbb", num_models=1,
-               sample_models=True, data_dir=None,
+               sample_models=True, data_dir="params/tr",
                optimizer="sgd", learning_rate=0.1,
                loss_callback=None):
     
     assert protocol in ["fixbb","hallucination","partial"]
 
     self.protocol = protocol
-    self._data_dir = os.path.dirname(mpnn_path) if data_dir is None else data_dir
+    self._data_dir = "." if os.path.isfile("models/model_xaa.npy") else data_dir
     self._loss_callback = loss_callback
     self._num = 1
 

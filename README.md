@@ -10,6 +10,8 @@
 - P(sequence)
   - [WIP] [MSA_transformer](/esm_msa)
   - [WIP] [SEQ](/seq) - (GREMLIN, mfDCA, arDCA, plmDCA, bmDCA, etc)
+- P(structure)
+  - [Rfdiffusion](/rf)
 
 ### Presentations
 [Slides](https://docs.google.com/presentation/d/1Zy7lf_LBK0_G3e7YQLSPP5aj_-AR5I131fTsxJrLdg4/)

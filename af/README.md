@@ -18,7 +18,7 @@
     - The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
   - adding support for [Optax optimizers](#optax-optimizers)
 - **24Sept2022** - v1.0.9
-  - adding [contrib section](https://github.com/sokrypton/ColabDesign/tree/v1.1.1/af/contrib) where user contributed modifications and protocols will go.
+  - adding [contrib section](/af/contrib) where user contributed modifications and protocols will go.
 - **15Oct2022** - v1.1.0
   - integrating proteinMPNN!
   - bugfix for sidechain loss
@@ -28,6 +28,8 @@
   - adding af_pseudo_diffusion examples
   - updating to alphafold-multimer v2.3.0
   - enabling fused_triangle_multiplication by default
+- **01Mar2023**
+  - adding support for [RfDiffusion](/rf)
 ### setup
 first install jax (with GPU support)
 ```bash

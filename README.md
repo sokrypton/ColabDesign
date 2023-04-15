@@ -22,4 +22,4 @@
 - Shihao Feng [@JeffSHF](https://github.com/JeffSHF)
 - Justas Dauparas [@dauparas](https://github.com/dauparas)
 - Weikun.Wu [@guyujun](https://github.com/guyujun) (from [Levinthal.bio](http://levinthal.bio/en/))
-- Christopher Frank
+- Christopher Frank [@chris-kafka](https://github.com/chris-kafka)

@@ -28,6 +28,8 @@
   - adding af_pseudo_diffusion examples
   - updating to alphafold-multimer v2.3.0
   - enabling fused_triangle_multiplication by default
+- **21Jan2023**
+  - add support for bfloat16 (enabled by default
 - **01Mar2023**
   - adding support for [RfDiffusion](/rf)
 ### setup

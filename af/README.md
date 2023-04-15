@@ -6,19 +6,6 @@
 
 # Updates
 - Jump to [Previous Updates](#previous-updates)
-- **14Sept2022** - v1.0.7
-  - refactoring design.py to add `design_pssm_semigreedy()` protocol, which is a wrapper around `design_semigreedy(seq_logits=)`, and can be used to input/learn PSSM for biased optimization.
-  - adding example [peptide_binder_design.ipynb](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/peptide_binder_design.ipynb) targeted for peptide binder hallucination/design.
-  - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used during optimization.
-  - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
-  - fixing integration with TrDesign that got broken in v1.0.6
-- **22Sept2022** - v1.0.8
-  - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible.
-    - Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. 
-    - The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
-  - adding support for [Optax optimizers](#optax-optimizers)
-- **24Sept2022** - v1.0.9
-  - adding [contrib section](/af/contrib) where user contributed modifications and protocols will go.
 - **15Oct2022** - v1.1.0
   - integrating proteinMPNN!
   - bugfix for sidechain loss
@@ -334,3 +321,16 @@ Minor changes changes include renaming intra_pae/inter_con to pae/con and inter_
   - WARNING: the returned pLDDT is now in the "correct" direction (higher is better)
   - removing recycle dimension from the input features (to standardize with multimer inputs)
   - removing all dependence on TensorFlow
+- **14Sept2022** - v1.0.7
+  - refactoring design.py to add `design_pssm_semigreedy()` protocol, which is a wrapper around `design_semigreedy(seq_logits=)`, and can be used to input/learn PSSM for biased optimization.
+  - adding example [peptide_binder_design.ipynb](https://colab.research.google.com/github/sokrypton/ColabDesign/blob/main/af/examples/peptide_binder_design.ipynb) targeted for peptide binder hallucination/design.
+  - adding [finer control](#how-do-i-control-which-model-params-are-used-during-design) over what models are used during optimization.
+  - fixing RAM memory leaks, `clear_mem()` now also does garbage collection
+  - fixing integration with TrDesign that got broken in v1.0.6
+- **22Sept2022** - v1.0.8
+  - [custom callback functions](#custom-callback-examples) (\[pre|loss|pos\]_callback) have been refactored to be more flexible.
+    - Supported input arguments include: ["inputs", "outputs", "params", "opt", "seq", "aux", "key"]. 
+    - The pre_callback function can be used to modify inputs before prediction, loss_callback to add cutstom loss.
+  - adding support for [Optax optimizers](#optax-optimizers)
+- **24Sept2022** - v1.0.9
+  - adding [contrib section](/af/contrib) where user contributed modifications and protocols will go.

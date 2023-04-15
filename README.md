@@ -13,6 +13,10 @@
 - P(structure)
   - [Rfdiffusion](/rf)
 
+### Where can I chat with other ColabDesign users?
+  - See our [Discord](https://discord.gg/gna8maru7d) channel!
+
+
 ### Presentations
 [Slides](https://docs.google.com/presentation/d/1Zy7lf_LBK0_G3e7YQLSPP5aj_-AR5I131fTsxJrLdg4/)
 [Talk](https://www.youtube.com/watch?v=2HmXwlKWMVs)

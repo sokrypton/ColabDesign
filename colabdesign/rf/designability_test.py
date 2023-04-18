@@ -151,13 +151,13 @@ def main(argv):
   data = []
   best = {"rmsd":np.inf,"design":0,"n":0}
   print("running AlphaFold...")
+  os.system(f"mkdir -p {o.loc}/all_pdb")
   with open(f"{o.loc}/design.fasta","w") as fasta:
     for m,(out,pdb_filename) in enumerate(zip(outs,pdbs)):
       out["design"] = []
       out["n"] = []
       af_model.prep_inputs(pdb_filename, **prep_flags)
       for k in af_terms: out[k] = []
-      os.system(f"mkdir -p {o.loc}/all_pdb")
       for n in range(o.num_seqs):
         out["design"].append(m)
         out["n"].append(n)
@@ -185,7 +185,7 @@ def main(argv):
 
   # save best
   with open(f"{o.loc}/best.pdb", "w") as handle:
-    remark_text = f"Design {best['design']} N {best['n']} RMSD {best['rmsd']:.3f}"
+    remark_text = f"design {best['design']} N {best['n']} RMSD {best['rmsd']:.3f}"
     handle.write(f"REMARK 001 {remark_text}\n")
     handle.write(open(f"{o.loc}/best_design{best['design']}.pdb", "r").read())
     

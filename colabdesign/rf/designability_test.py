@@ -45,6 +45,7 @@ def main(argv):
   ag.add(["use_multimer"  ], False,  None, ["use alphafold_multimer_v3"])
   ag.add(["num_recycles=" ],     3,   int, ["number of recycles"])
   ag.add(["rm_aa="],            "C",  str, ["disable specific amino acids from being sampled"])
+  ag.add(["num_designs="  ],      1,  int, ["number of designs to evaluate"])
   ag.txt("-------------------------------------------------------------------------------------")
   o = ag.parse(argv)
 
@@ -89,10 +90,10 @@ def main(argv):
       if x: target_chains.append(chains[n])
       else: binder_chains.append(chains[n])
     af_model = mk_af_model(protocol="binder",**flags)
-    af_model.prep_inputs(o.pdb,
-                         target_chain=",".join(target_chains),
-                         binder_chain=",".join(binder_chains),
-                         rm_aa=o.rm_aa)
+    prep_flags = {"target_chain":",".join(target_chains),
+                  "binder_chain":",".join(binder_chains),
+                  "rm_aa":o.rm_aa}
+    opt_extra = {}
   
   elif sum(fixed_pos) > 0:
     protocol = "partial"
@@ -101,68 +102,94 @@ def main(argv):
                            use_templates=True,
                            **flags)
     rm_template = np.array(fixed_pos) == 0
-    af_model.prep_inputs(o.pdb,
-                         chain=",".join(chains),
-                         rm_template=rm_template,
-                         rm_template_seq=rm_template,
-                         copies=o.copies,
-                         homooligomer=o.copies>1,
-                         rm_aa=o.rm_aa)
-    p = np.where(fixed_pos)[0]
-    af_model.opt["fix_pos"] = p[p < af_model._len]
-
+    prep_flags = {"chain":",".join(chains),
+                  "rm_template":rm_template,
+                  "rm_template_seq":rm_template,
+                  "copies":o.copies,
+                  "homooligomer":o.copies>1,
+                  "rm_aa":o.rm_aa}
   else:
     protocol = "fixbb"
     print("protocol=fixbb")
     af_model = mk_af_model(protocol="fixbb",**flags)
-    af_model.prep_inputs(o.pdb,
-                         chain=",".join(chains),
-                         copies=o.copies,
-                         homooligomer=o.copies>1,
-                         rm_aa=o.rm_aa)
+    prep_flags = {"chain":",".join(chains),
+                  "copies":o.copies,
+                  "homooligomer":o.copies>1,
+                  "rm_aa":o.rm_aa}
 
+  batch_size = 8
+  if o.num_seqs < batch_size:    
+    batch_size = o.num_seqs
+  
   print("running proteinMPNN...")
   sampling_temp = 0.1
   mpnn_model = mk_mpnn_model()
-  mpnn_model.get_af_inputs(af_model)
-  out = mpnn_model.sample(num=o.num_seqs//8, batch=8, temperature=sampling_temp)
+  outs = []
+  pdbs = []
+  for m in range(o.num_designs):
+    if o.num_designs == 0:
+      pdb_filename = o.pdb
+    else:
+      pdb_filename = o.pdb.replace("_0.pdb",f"_{m}.pdb")
+    pdbs.append(pdb_filename)
+    af_model.prep_inputs(pdb_filename, **prep_flags)
+    if protocol == "partial":
+      p = np.where(fixed_pos)[0]
+      af_model.opt["fix_pos"] = p[p < af_model._len]
 
+    mpnn_model.get_af_inputs(af_model)
+    outs.append(mpnn_model.sample(num=o.num_seqs//batch_size, batch=batch_size, temperature=sampling_temp))
 
-  print("running AlphaFold...")
   if protocol == "binder":
     af_terms = ["plddt","i_ptm","i_pae","rmsd"]
   elif o.copies > 1:
     af_terms = ["plddt","ptm","i_ptm","pae","i_pae","rmsd"]
   else:
     af_terms = ["plddt","ptm","pae","rmsd"]
-  for k in af_terms: out[k] = []
-  os.system(f"mkdir -p {o.loc}/all_pdb")
+
+  labels = ["design","n","score"] + af_terms + ["seq"]
+  data = []
+  best = {"rmsd":np.inf,"design":0,"n":0}
+  print("running AlphaFold...")
   with open(f"{o.loc}/design.fasta","w") as fasta:
-    for n in range(o.num_seqs):
-      seq = out["seq"][n][-af_model._len:]
-      af_model.predict(seq=seq, num_recycles=o.num_recycles, verbose=False)
-      for t in af_terms: out[t].append(af_model.aux["log"][t])
-      if "i_pae" in out:
-        out["i_pae"][-1] = out["i_pae"][-1] * 31
-      if "pae" in out:
-        out["pae"][-1] = out["pae"][-1] * 31
-        
-      af_model.save_current_pdb(f"{o.loc}/all_pdb/n{n}.pdb")
-      af_model._save_results(save_best=True, verbose=False)
-      af_model._k += 1
-      score_line = [f'mpnn:{out["score"][n]:.3f}']
-      for t in af_terms:
-        score_line.append(f'{t}:{out[t][n]:.3f}')
-      print(n, " ".join(score_line)+" "+seq)
-      line = f'>{"|".join(score_line)}\n{seq}'
-      fasta.write(line+"\n")
+    for m,(out,pdb_filename) in enumerate(zip(outs,pdbs)):
+      out["design"] = []
+      out["n"] = []
+      af_model.prep_inputs(pdb_filename, **prep_flags)
+      for k in af_terms: out[k] = []
+      os.system(f"mkdir -p {o.loc}/all_pdb")
+      for n in range(o.num_seqs):
+        out["design"].append(m)
+        out["n"].append(n)
+        seq = out["seq"][n][-af_model._len:]
+        af_model.predict(seq=seq, num_recycles=o.num_recycles, verbose=False)
+        for t in af_terms: out[t].append(af_model.aux["log"][t])
+        if "i_pae" in out:
+          out["i_pae"][-1] = out["i_pae"][-1] * 31
+        if "pae" in out:
+          out["pae"][-1] = out["pae"][-1] * 31
+        rmsd = out["rmsd"][-1]
+        if rmsd < best["rmsd"]:
+          best = {"design":m,"n":n,"rmsd":rmsd}
+        af_model.save_current_pdb(f"{o.loc}/all_pdb/design{m}_n{n}.pdb")
+        af_model._save_results(save_best=True, verbose=False)
+        af_model._k += 1
+        score_line = [f'design:{m} n:{n}',f'mpnn:{out["score"][n]:.3f}']
+        for t in af_terms:
+          score_line.append(f'{t}:{out[t][n]:.3f}')
+        print(" ".join(score_line)+" "+seq)
+        line = f'>{"|".join(score_line)}\n{seq}'
+        fasta.write(line+"\n")
+      data += [[out[k][n] for k in labels] for n in range(o.num_seqs)]
+      af_model.save_pdb(f"{o.loc}/best_design{m}.pdb")
 
-  af_model.save_pdb(f"{o.loc}/best.pdb")
-
-  labels = ["score"] + af_terms + ["seq"]
-  data = [[out[k][n] for k in labels] for n in range(o.num_seqs)]
-  labels[0] = "mpnn"
-
+  # save best
+  with open(f"{o.loc}/best.pdb", "w") as handle:
+    remark_text = f"Design {best['design']} N {best['n']} RMSD {best['rmsd']:.3f}"
+    handle.write(f"REMARK 001 {remark_text}\n")
+    handle.write(open(f"{o.loc}/best_design{best['design']}.pdb", "r").read())
+    
+  labels[2] = "mpnn"
   df = pd.DataFrame(data, columns=labels)
   df.to_csv(f'{o.loc}/mpnn_results.csv')
 

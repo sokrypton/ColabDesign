@@ -432,7 +432,7 @@ def generate_affines(representations, batch, config, global_config, safe_key):
         quaternion=quat_affine.rot_to_quat(rot, unstack_inputs=True),
         translation=trans,
         rotation=rot,
-        unstack_inputs=True)
+        unstack_inputs=True).scale_translation(1/c.position_scale)
   else:
     affine = generate_new_affine(sequence_mask)
 

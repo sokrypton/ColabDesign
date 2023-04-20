@@ -513,7 +513,7 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
     rigid = all_atom_multimer.make_transform_from_reference(
       a_xyz=atom_pos[:, atom["N"]],
       b_xyz=atom_pos[:, atom["CA"]],
-      c_xyz=atom_pos[:, atom["C"]])
+      c_xyz=atom_pos[:, atom["C"]]).scale_translation(1/c.position_scale)
 
   else:
     # Sequence Mask has extra 1 at the end.
@@ -553,7 +553,6 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
   keys = jax.random.split(safe_key.get(), c.num_layer)
   activations, output = hk.scan(fold_iter, activations, keys)
   output['act'] = activations['act']
-
   return output
 
 

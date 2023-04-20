@@ -39,7 +39,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "traj_iter":1, "traj_max":10000,
                   "clear_prev": True, "use_dgram":False,
                   "shuffle_first":True, "use_remat":True,
-                  "alphabet_size":20, "initial_guess":False}
+                  "alphabet_size":20, 
+                  "use_initial_guess":False, 
+                  "use_initial_atom_pos":False}
 
     if self.protocol == "binder": self._args["use_templates"] = True
 
@@ -58,6 +60,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                  "log":[],"best":{}}
 
     # set arguments/options
+    if "initial_guess" in kwargs: kwargs["use_initial_guess"] = kwargs.pop("initial_guess")
     model_names = kwargs.pop("model_names",None)
     keys = list(kwargs.keys())
     for k in keys:

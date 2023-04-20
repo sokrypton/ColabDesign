@@ -418,7 +418,23 @@ def generate_affines(representations, batch, config, global_config, safe_key):
       c.num_channel, name='initial_projection')(
           act)
 
-  affine = generate_new_affine(sequence_mask)
+  if "initial_atom_pos" in batch:
+    atom = residue_constants.atom_order
+    atom_pos = batch["initial_atom_pos"]
+    if global_config.bfloat16:
+      atom_pos = atom_pos.astype(jnp.float32)
+    rot, trans = quat_affine.make_transform_from_reference(
+        n_xyz=atom_pos[:, atom["N"]],
+        ca_xyz=atom_pos[:, atom["CA"]],
+        c_xyz=atom_pos[:, atom["C"]])
+    
+    affine = quat_affine.QuatAffine(
+        quaternion=quat_affine.rot_to_quat(rot, unstack_inputs=True),
+        translation=trans,
+        rotation=rot,
+        unstack_inputs=True)
+  else:
+    affine = generate_new_affine(sequence_mask)
 
   fold_iteration = FoldIteration(
       c, global_config, name='fold_iteration')

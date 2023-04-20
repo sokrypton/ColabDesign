@@ -11,19 +11,7 @@ def clear_mem():
     for buf in backend.live_buffers():
       buf.delete()
 
-  # clear ram (CPU)
-  # https://github.com/google/jax/issues/10828
-  modules = {k:v for k,v in sys.modules.items()}
-  for module_name, module in modules.items():
-    if module_name.startswith("jax"):
-      if module_name not in ["jax.interpreters.partial_eval"]:
-        for obj_name in dir(module):
-          obj = getattr(module, obj_name)
-          if hasattr(obj, "cache_clear"):
-            try:
-              obj.cache_clear()
-            except:
-              pass
+  # TODO: clear ram (CPU)
   gc.collect()
   
 def update_dict(D, *args, **kwargs):

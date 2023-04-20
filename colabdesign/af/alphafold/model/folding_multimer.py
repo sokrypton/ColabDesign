@@ -505,11 +505,22 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
   act = common_modules.Linear(
       c.num_channel, name='initial_projection')(act)
 
-  # Sequence Mask has extra 1 at the end.
-  rigid = geometry.Rigid3Array.identity(sequence_mask.shape[:-1])
+  if "initial_atom_pos" in batch:
+    atom = residue_constants.atom_order
+    atom_pos = batch["initial_atom_pos"]
+    if global_config.bfloat16:
+      atom_pos = atom_pos.astype(jnp.float32)
 
-  fold_iteration = FoldIteration(
-      c, global_config, name='fold_iteration')
+    rigid = all_atom_multimer.make_transform_from_reference(
+      a_xyz=atom_pos[:, atom["N"]],
+      b_xyz=atom_pos[:, atom["CA"]],
+      c_xyz=atom_pos[:, atom["C"]])
+
+  else:
+    # Sequence Mask has extra 1 at the end.
+    rigid = geometry.Rigid3Array.identity(sequence_mask.shape[:-1])
+
+  fold_iteration = FoldIteration(c, global_config, name='fold_iteration')
 
   assert len(batch['seq_mask'].shape) == 1
 

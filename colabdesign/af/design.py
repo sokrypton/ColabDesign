@@ -166,7 +166,7 @@ class _af_design:
         if a["initial_guess"]:
           prev["prev_pos"] = self._inputs["batch"]["all_atom_positions"] 
         else:
-          prev["prev_pos"] = np.zeros([L,37,3])        
+          prev["prev_pos"] = np.zeros([L,37,3])
         
         if a["use_dgram"]:
           # TODO: add support for initial_guess + use_dgram

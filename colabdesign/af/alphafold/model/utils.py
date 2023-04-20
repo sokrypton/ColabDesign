@@ -92,7 +92,7 @@ def flat_params_to_haiku(params, fuse=None):
     scope, name = path.split('//')
     if scope not in P:
       P[scope] = {}
-    P[scope][name] = array
+    P[scope][name] = jnp.array(array)
   if fuse is not None:
     for a in ["evoformer_iteration",
               "extra_msa_stack",
@@ -107,7 +107,7 @@ def flat_params_to_haiku(params, fuse=None):
             R = P.pop(f"{k}/right_{c}")
             P[f"{k}/{c}"] = {}
             for d in ["bias","weights"]:
-              P[f"{k}/{c}"][d] = np.concatenate([L[d],R[d]],-1)
+              P[f"{k}/{c}"][d] = jnp.concatenate([L[d],R[d]],-1)
           P[f"{k}/center_norm"] = P.pop(f"{k}/center_layer_norm")
           P[f"{k}/left_norm_input"] = P.pop(f"{k}/layer_norm_input")
 

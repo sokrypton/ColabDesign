@@ -508,9 +508,8 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
   if "initial_atom_pos" in batch:
     atom = residue_constants.atom_order
     atom_pos = batch["initial_atom_pos"]
-    if global_config.bfloat16:
-      atom_pos = atom_pos.astype(jnp.float32)
-
+    if global_config.bfloat16: atom_pos = atom_pos.astype(jnp.float32)
+    atom_pos = geometry.Vec3Array.from_array(atom_pos)
     rigid = all_atom_multimer.make_transform_from_reference(
       a_xyz=atom_pos[:, atom["N"]],
       b_xyz=atom_pos[:, atom["CA"]],

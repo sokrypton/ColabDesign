@@ -161,8 +161,8 @@ def main(argv):
       for n in range(o.num_seqs):
         out["design"].append(m)
         out["n"].append(n)
-        seq = out["seq"][n][-af_model._len:]
-        af_model.predict(seq=seq, num_recycles=o.num_recycles, verbose=False)
+        sub_seq = out["seq"][n].replace("/","")[-af_model._len:]
+        af_model.predict(seq=sub_seq, num_recycles=o.num_recycles, verbose=False)
         for t in af_terms: out[t].append(af_model.aux["log"][t])
         if "i_pae" in out:
           out["i_pae"][-1] = out["i_pae"][-1] * 31
@@ -177,8 +177,9 @@ def main(argv):
         score_line = [f'design:{m} n:{n}',f'mpnn:{out["score"][n]:.3f}']
         for t in af_terms:
           score_line.append(f'{t}:{out[t][n]:.3f}')
-        print(" ".join(score_line)+" "+seq)
-        line = f'>{"|".join(score_line)}\n{seq}'
+        sub_seq_divided = "".join(np.insert(list(sub_seq),np.cumsum(af_model._lengths[:-1]),"/"))
+        print(" ".join(score_line)+" "+sub_seq_divided)
+        line = f'>{"|".join(score_line)}\n{sub_seq_divided}'
         fasta.write(line+"\n")
       data += [[out[k][n] for k in labels] for n in range(o.num_seqs)]
       af_model.save_pdb(f"{o.loc}/best_design{m}.pdb")

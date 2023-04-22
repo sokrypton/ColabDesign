@@ -40,8 +40,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "clear_prev": True, "use_dgram":False,
                   "shuffle_first":True, "use_remat":True,
                   "alphabet_size":20, 
-                  "use_initial_guess":False, 
-                  "use_initial_atom_pos":False}
+                  "use_initial_guess":False, "use_initial_atom_pos":False}
 
     if self.protocol == "binder": self._args["use_templates"] = True
 

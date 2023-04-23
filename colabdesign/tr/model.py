@@ -24,7 +24,7 @@ class mk_tr_model(design_model):
     assert protocol in ["fixbb","hallucination","partial"]
 
     self.protocol = protocol
-    self._data_dir = "." if os.path.isfile("models/model_xaa.npy") else data_dir
+    self._data_dir = "." if os.path.isfile(os.path.join("models",f"model_xaa.npy")) else data_dir
     self._loss_callback = loss_callback
     self._num = 1
 
@@ -43,8 +43,8 @@ class mk_tr_model(design_model):
     self._model = self._get_model()
     self._model_params = []
     for k in list("abcde"):
-      params_path = os.path.join(self._data_dir,f"model_xa{k}.npy")
-      self._model_params.append(get_model_params(params_path))
+      p = os.path.join(self._data_dir,os.path.join("models",f"model_xa{k}.npy"))
+      self._model_params.append(get_model_params(p))
 
     if protocol in ["hallucination","partial"]:
       self._bkg_model = TrRosetta(bkg_model=True)
@@ -162,8 +162,8 @@ class mk_tr_model(design_model):
       self._inputs["6D_bkg"] = []
       key = jax.random.PRNGKey(0)
       for n in range(1,6):
-        model_params = get_model_params(os.path.join(self._data_dir,f"/bkgr0{n}.npy"))
-        self._inputs["6D_bkg"].append(self._bkg_model(model_params, key, self._len))
+        p = os.path.join(self._data_dir,os.path.join("bkgr_models",f"bkgr0{n}.npy"))
+        self._inputs["6D_bkg"].append(self._bkg_model(get_model_params(p), key, self._len))
       self._inputs["6D_bkg"] = jax.tree_map(lambda *x:np.stack(x).mean(0), *self._inputs["6D_bkg"])
 
       # reweight the background

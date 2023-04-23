@@ -177,9 +177,8 @@ def main(argv):
         score_line = [f'design:{m} n:{n}',f'mpnn:{out["score"][n]:.3f}']
         for t in af_terms:
           score_line.append(f'{t}:{out[t][n]:.3f}')
-        sub_seq_divided = "".join(np.insert(list(sub_seq),np.cumsum(af_model._lengths[:-1]),"/"))
-        print(" ".join(score_line)+" "+sub_seq_divided)
-        line = f'>{"|".join(score_line)}\n{sub_seq_divided}'
+        print(" ".join(score_line)+" "+out["seq"][n])
+        line = f'>{"|".join(score_line)}\n{out["seq"][n]}'
         fasta.write(line+"\n")
       data += [[out[k][n] for k in labels] for n in range(o.num_seqs)]
       af_model.save_pdb(f"{o.loc}/best_design{m}.pdb")

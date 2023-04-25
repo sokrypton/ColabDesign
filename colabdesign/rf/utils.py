@@ -171,9 +171,10 @@ def fix_pdb(pdb_str, contigs):
       r_, c_,n = None, None, 0 
   return "\n".join(pdb_out)
 
-def get_ca(pdb_filename):
+def get_ca(pdb_filename, get_bfact=False):
   xyz = []
-  for line in open(pdb_filename,"r"):
+  bfact = []
+  for line in open(pdb_filename, "r"):
     line = line.rstrip()
     if line[:4] == "ATOM":
       atom = line[12:12+4].strip()
@@ -181,8 +182,14 @@ def get_ca(pdb_filename):
         x = float(line[30:30+8])
         y = float(line[38:38+8])
         z = float(line[46:46+8])
-        xyz.append([x,y,z])
-  return np.array(xyz)
+        xyz.append([x, y, z])
+        if get_bfact:
+          b_factor = float(line[60:60+6].strip())
+          bfact.append(b_factor)
+  if get_bfact:
+    return np.array(xyz), np.array(bfact)
+  else:
+    return np.array(xyz)
 
 def get_Ls(contigs):
   Ls = []

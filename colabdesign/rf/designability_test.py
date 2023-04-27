@@ -142,7 +142,7 @@ def main(argv):
 
   if protocol == "binder":
     af_terms = ["plddt","i_ptm","i_pae","rmsd"]
-  elif o.copies > 1 or len(chains) > 1:
+  elif o.copies > 1:
     af_terms = ["plddt","ptm","i_ptm","pae","i_pae","rmsd"]
   else:
     af_terms = ["plddt","ptm","pae","rmsd"]

@@ -1,5 +1,6 @@
 # import matplotlib
 import numpy as np
+from scipy.special import expit as sigmoid
 from colabdesign.shared.protein import _np_kabsch, alphabet_list
 
 import matplotlib
@@ -78,7 +79,8 @@ def show_pdb(pdb_str, show_sidechains=False, show_mainchains=False,
 
 def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
                    cmap="gist_rainbow", line_w=2.0,
-                   cmin=None, cmax=None, zmin=None, zmax=None):
+                   cmin=None, cmax=None, zmin=None, zmax=None,
+                   shadow=0.95):
 
   def rescale(a, amin=None, amax=None):
     a = np.copy(a)
@@ -131,15 +133,23 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
 
   # add shade/tint based on z-dimension
   z = rescale(seg_z,zmin,zmax)[:,None]
-  tint, shade = z/3, (z+2)/3
-  colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * tint
-  colors[:,:3] = colors[:,:3] * shade
 
   # add shadow (make lines darker if they are behind other lines)
-  seg_mid_dist = np.sqrt(np.square(seg_mid[:,None] - seg_mid[None,:]).sum(-1))
   seg_len_cutoff = (seg_len[:,None] + seg_len[None,:]) / 2
-  shadow_mask = (seg_mid_dist < seg_len_cutoff * 1.5) & (seg_mid[:,None,2] < seg_mid[None,:,2])
-  colors[:,:3] *= 0.95 ** shadow_mask.sum(-1,keepdims=True)
+  seg_mid_z = seg_mid[:,2]
+  seg_mid_dist = np.sqrt(np.square(seg_mid[:,None] - seg_mid[None,:]).sum(-1))
+  shadow_mask = sigmoid(seg_len_cutoff * 2.0 - seg_mid_dist) * (seg_mid_z[:,None] < seg_mid_z[None,:])
+  np.fill_diagonal(shadow_mask,0.0)
+  shadow_mask = shadow ** shadow_mask.sum(-1,keepdims=True)
+
+  seg_mid_xz = seg_mid[:,:2]
+  seg_mid_xydist = np.sqrt(np.square(seg_mid_xz[:,None] - seg_mid_xz[None,:]).sum(-1))
+  tint_mask = sigmoid(seg_len_cutoff/2 - seg_mid_xydist) * (seg_mid_z[:,None] < seg_mid_z[None,:])
+  np.fill_diagonal(tint_mask,0.0)
+  tint_mask = 1 - tint_mask.max(-1,keepdims=True)
+
+  colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * np.square((z + tint_mask)/2)/2
+  colors[:,:3] = colors[:,:3] * (0.25 * z + 0.75 * shadow_mask)
 
   set_lim = False
   if ax is None:

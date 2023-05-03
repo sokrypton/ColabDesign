@@ -107,11 +107,8 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
     seg = np.concatenate(seg,0)
     c_seg = np.arange(len(seg))[::-1] if c is None else np.concatenate(c_seg,0)
   
-  seg_xy = seg[...,:2]
-  seg_z = seg[...,2].mean(-1)
-  order = seg_z.argsort()
+  # set colors
   c_seg = rescale(c_seg,cmin,cmax)  
-
   if isinstance(cmap, str):
     if cmap == "gist_rainbow": 
       c_seg *= 0.75
@@ -119,9 +116,18 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
   else:
     colors = cmap(c_seg)
   
+  # remove segments that aren't connected
+  seg_len = np.sqrt(np.square(seg[:,0] - seg[:,1]).sum(-1))
   if chainbreak is not None:
-    dist = np.linalg.norm(seg[:,0] - seg[:,1], axis=-1)
-    colors[...,3] = (dist < chainbreak).astype(float)
+    idx = seg_len < chainbreak
+    seg = seg[idx]
+    seg_len = seg_len[idx]
+    colors = colors[idx]
+
+  seg_mid = seg.mean(1)
+  seg_xy = seg[...,:2]
+  seg_z = seg[...,2].mean(-1)
+  order = seg_z.argsort()
 
   # add shade/tint based on z-dimension
   z = rescale(seg_z,zmin,zmax)[:,None]
@@ -130,17 +136,10 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
   colors[:,:3] = colors[:,:3] * shade
 
   # add shadow (make lines darker if they are behind other lines)
-  # todo: vectorize this function
-  seg_mid = seg.mean(1)
-  seg_len = np.sqrt(np.square(seg[:,0] - seg[:,1]).sum(-1))
-  for i in range(len(seg)):
-    if chainbreak is None or seg_len[i] < chainbreak:
-      for j in range(len(seg)):
-        if chainbreak is None or seg_len[j] < chainbreak:
-          if seg_mid[j,2] > seg_mid[i,2]:
-            cutoff = (seg_len[i] + seg_len[j])/2
-            if np.sqrt(np.square(seg_mid[i,:] - seg_mid[j,:]).sum()) < cutoff * 1.5:
-              colors[i,:3] *= 0.95
+  seg_mid_dist = np.sqrt(np.square(seg_mid[:,None] - seg_mid[None,:]).sum(-1))
+  seg_len_cutoff = (seg_len[:,None] + seg_len[None,:]) / 2
+  shadow_mask = (seg_mid_dist < seg_len_cutoff * 1.5) & (seg_mid[:,None,2] < seg_mid[None,:,2])
+  colors[:,:3] *= 0.95 ** shadow_mask.sum(-1,keepdims=True)
 
   set_lim = False
   if ax is None:

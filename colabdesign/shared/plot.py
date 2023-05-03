@@ -148,7 +148,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
   np.fill_diagonal(tint_mask,0.0)
   tint_mask = 1 - tint_mask.max(-1,keepdims=True)
 
-  colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * np.square((z + tint_mask)/2)/2
+  colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * (0.25 * z + 0.75 * tint_mask)/2
   colors[:,:3] = colors[:,:3] * (0.25 * z + 0.75 * shadow_mask)
 
   set_lim = False

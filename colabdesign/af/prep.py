@@ -39,7 +39,7 @@ class _af_prep:
     if num_seq is None: num_seq = self._num
     return prep_input_features(L=num_res, N=num_seq, T=num_templates)
 
-  def _prep_fixbb(self, pdb_filename, chain=None,
+  def _prep_fixbb(self, pdb_filename, chain="A",
                   copies=1, repeat=False, homooligomer=False,
                   rm_template=False,
                   rm_template_seq=True,
@@ -59,6 +59,9 @@ class _af_prep:
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
+    if isinstance(chain,str): chain = chain.split(",")
+    if homooligomer and copies == 1: copies = len(chain)
+
     # prep features
     self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
                          offsets=kwargs.pop("pdb_offsets",None),
@@ -76,9 +79,6 @@ class _af_prep:
       self._pos_info = prep_pos(fix_pos, **self._pdb["idx"])
       self.opt["fix_pos"] = self._pos_info["pos"]
 
-    if homooligomer and chain is not None and copies == 1:
-      copies = len(chain.split(","))
-      
     # repeat/homo-oligomeric support
     if copies > 1:
 
@@ -147,7 +147,12 @@ class _af_prep:
     self._args.update({"repeat":repeat,"block_diag":block_diag,"copies":copies})
       
     # prep features
-    self._len = length
+    if isinstance(length,list):
+      self._len = sum(length)
+    else:
+      self._len = length
+      length = [length]
+    res_idx = np.array([i + 50 * n - n for n, L in enumerate(length) for i in range(L)])
     
     # set weights
     self.opt["weights"].update({"con":1.0})
@@ -161,10 +166,9 @@ class _af_prep:
         self._lengths = [self._len] * copies
         self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
         self._args["homooligomer"] = True
-      res_idx = repeat_idx(np.arange(length), copies, offset=offset)
+      res_idx = repeat_idx(res_idx, copies, offset=offset)
     else:
       self._lengths = [self._len]
-      res_idx = np.arange(length)
     
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
@@ -200,28 +204,44 @@ class _af_prep:
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''
-    redesign = binder_chain is not None
     rm_binder = not kwargs.pop("use_binder_template", not rm_binder)
     
     self._args.update({"redesign":redesign})
 
     # get pdb info
     target_chain = kwargs.pop("chain",target_chain) # backward comp
-    chains = f"{target_chain},{binder_chain}" if redesign else target_chain
-    im = [True] * len(target_chain.split(",")) 
-    if redesign: im += [ignore_missing] * len(binder_chain.split(","))
+    if isinstance(target_chain,str): target_chain = target_chain.split(",")
+    if isinstance(binder_chain,str): binder_chain = binder_chain.split(",")
+    
+    # decide how to parse chains
+    if binder_chain is None or len(binder_chain) == 0:
+      # binder hallucination
+      redesign = False
+      chains = target_chain
+      ignore_missing = [True] * len(target_chain)
+    else:
+      # binder redesign
+      redesign = True
+      chains = target_chain + binder_chain
+      ignore_missing = [True] * len(target_chain) + [ignore_missing] * len(binder_chain)
+    
+    # parse pdb
+    self._pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=ignore_missing)
 
-    self._pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=im)
+    # get lengths and residue index
     res_idx = self._pdb["residue_index"]
-
     if redesign:
-      self._target_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in target_chain.split(",")])
-      self._binder_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain.split(",")])
+      self._target_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in target_chain])
+      self._binder_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain])
     else:
       self._target_len = self._pdb["residue_index"].shape[0]
-      self._binder_len = binder_len
-      res_idx = np.append(res_idx, res_idx[-1] + np.arange(binder_len) + 50)
-    
+      if isinstance(length,list):
+        self._binder_len = sum(binder_len)
+      else:
+        self._binder_len = binder_len
+        binder_len = [binder_len]
+      binder_res_idx = np.array([i + 50 * n - n for n, L in enumerate(binder_len) for i in range(L)])
+      res_idx = np.append(res_idx, res_idx[-1] + 50 + binder_res_idx)
     self._len = self._binder_len
     self._lengths = [self._target_len, self._binder_len]
 
@@ -230,12 +250,10 @@ class _af_prep:
       self.opt["hotspot"] = prep_pos(hotspot, **self._pdb["idx"])["pos"]
 
     if redesign:
-      # binder redesign
       self._wt_aatype = self._pdb["batch"]["aatype"][self._target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
                                   "con":0.0, "i_con":0.0, "i_pae":0.0})
     else:
-      # binder hallucination
       self._pdb["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
       self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
@@ -406,11 +424,7 @@ def prep_pdb(pdb_filename, chain=None,
     batch["all_atom_mask"][...,cb] = (m[:,cb] + cb_mask) > 0
     return {"atoms":batch["all_atom_positions"][:,cb],"mask":cb_mask}
 
-  if isinstance(chain,str) and "," in chain:
-    chains = chain.split(",")
-  elif not isinstance(chain,list):
-    chains = [chain]
-
+  chains = chain.split(",") if isinstance(chain,str) else chain
   o,last = [],0
   residue_idx, chain_idx = [],[]
   full_lengths = []

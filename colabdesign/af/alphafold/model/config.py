@@ -307,7 +307,8 @@ CONFIG = ml_collections.ConfigDict({
             'multimer_mode': False,
             'subbatch_size': 4,
             'use_remat': False,
-            'zero_init': True
+            'zero_init': True,
+            'use_dgram': False
         },
         'heads': {
             'distogram': {

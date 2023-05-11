@@ -167,13 +167,15 @@ class _af_prep:
         self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
         self._args["homooligomer"] = True
       res_idx = repeat_idx(res_idx, copies, offset=offset)
+      homooligomer = True
     else:
-      self._lengths = [self._len]
+      self._lengths = length
+      homooligomer = False
     
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
-    self._inputs.update(get_multi_id(self._lengths, homooligomer=True))
+    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     self._prep_model(**kwargs)
 

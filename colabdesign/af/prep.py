@@ -70,9 +70,6 @@ class _af_prep:
     self._len = self._pdb["residue_index"].shape[0]
     self._lengths = self._pdb["lengths"]
 
-    # feat dims
-    num_seq = self._num
-    res_idx = self._pdb["residue_index"]
     
     # get [pos]itions of interests    
     if fix_pos is not None and fix_pos != "":
@@ -80,6 +77,8 @@ class _af_prep:
       self.opt["fix_pos"] = self._pos_info["pos"]
 
     # repeat/homo-oligomeric support
+    num_seq = self._num
+    res_idx = self._pdb["residue_index"]
     if copies > 1:
       if repeat or homooligomer:
         self._len = self._len // copies

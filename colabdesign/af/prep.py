@@ -95,7 +95,6 @@ class _af_prep:
 
         res_idx = repeat_idx(res_idx[:self._len], copies)
         num_seq = (self._num * copies + 1) if block_diag else self._num
-        self.opt["weights"].update({"i_pae":0.0, "i_con":0.0})
 
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat
@@ -108,6 +107,8 @@ class _af_prep:
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
+    if len(self._lengths) > 1:
+      self.opt["weights"].update({"i_pae":0.0, "i_con":0.0})
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
 
     # configure template masks

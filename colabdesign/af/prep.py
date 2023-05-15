@@ -68,7 +68,7 @@ class _af_prep:
                          lengths=kwargs.pop("pdb_lengths",None))
 
     self._len = self._pdb["residue_index"].shape[0]
-    self._lengths = [self._len]
+    self._lengths = self._pdb["lengths"]
 
     # feat dims
     num_seq = self._num
@@ -81,7 +81,6 @@ class _af_prep:
 
     # repeat/homo-oligomeric support
     if copies > 1:
-
       if repeat or homooligomer:
         self._len = self._len // copies
         if "fix_pos" in self.opt:
@@ -101,8 +100,6 @@ class _af_prep:
 
       self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
       homooligomer = not repeat
-    else:
-      self._lengths = self._pdb["lengths"]
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
@@ -114,18 +111,19 @@ class _af_prep:
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
 
-    # configure template [opt]ions
-    rm,L = {},sum(self._lengths)
-    for n,x in {"rm_template":    rm_template,
-                "rm_template_seq":rm_template_seq,
-                "rm_template_sc": rm_template_sc}.items():
-      rm[n] = np.full(L,False)
+    # configure template masks
+    rm_dict = {}
+    rm_opt = {"rm_template":    rm_template,
+              "rm_template_seq":rm_template_seq,
+              "rm_template_sc": rm_template_sc}
+    for n,x in rm_opt.items():
+      rm_dict[n] = np.full(sum(self._lengths),False)
       if isinstance(x,str):
-        rm[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
+        rm_dict[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
       else:
-        rm[n][:] = x
+        rm_dict[n][:] = x
+    self._inputs.update(rm_dict)
     self.opt["template"]["rm_ic"] = rm_template_ic
-    self._inputs.update(rm)
   
     self._prep_model(**kwargs)
     
@@ -206,10 +204,7 @@ class _af_prep:
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''
-    rm_binder = not kwargs.pop("use_binder_template", not rm_binder)
     
-    self._args.update({"redesign":redesign})
-
     # get pdb info
     target_chain = kwargs.pop("chain",target_chain) # backward comp
     if isinstance(target_chain,str): target_chain = target_chain.split(",")
@@ -226,26 +221,22 @@ class _af_prep:
       redesign = True
       chains = target_chain + binder_chain
       ignore_missing = [True] * len(target_chain) + [ignore_missing] * len(binder_chain)
-    
+    self._args.update({"redesign":redesign})
+
     # parse pdb
     self._pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=ignore_missing)
+    target_len = [(self._pdb["idx"]["chain"] == c).sum() for c in target_chain]
 
-    # get lengths and residue index
-    res_idx = self._pdb["residue_index"]
-    if redesign:
-      self._target_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in target_chain])
-      self._binder_len = sum([(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain])
-    else:
-      self._target_len = self._pdb["residue_index"].shape[0]
-      if isinstance(length,list):
-        self._binder_len = sum(binder_len)
-      else:
-        self._binder_len = binder_len
-        binder_len = [binder_len]
-      binder_res_idx = np.array([i + 50 * n - n for n, L in enumerate(binder_len) for i in range(L)])
-      res_idx = np.append(res_idx, res_idx[-1] + 50 + binder_res_idx)
-    self._len = self._binder_len
-    self._lengths = [self._target_len, self._binder_len]
+    # get lengths
+    if redesign: 
+      binder_len = [(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain]
+    elif not isinstance(binder_len,list): 
+      binder_len = [binder_len]
+    
+  
+    self._target_len = sum(target_len)
+    self._binder_len = self._len = sum(binder_len)
+    self._lengths = target_len + binder_len
 
     # gather hotspot info
     if hotspot is not None:
@@ -261,29 +252,34 @@ class _af_prep:
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
-    self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = self._pdb["batch"]
     self._inputs.update(get_multi_id(self._lengths))
 
-    # configure template rm masks
-    (T,L,rm) = (self._lengths[0],sum(self._lengths),{})
+    # configure residue index
+    res_idx = self._pdb["residue_index"]
+    if not redesign:
+      binder_res_idx = np.array([i + 50 * n - n for n, L in enumerate(binder_len) for i in range(L)])
+      res_idx = np.append(res_idx, res_idx[-1] + 50 + binder_res_idx)
+    self._inputs["residue_index"] = res_idx
+
+    # configure template masks
+    rm_binder = not kwargs.pop("use_binder_template", not rm_binder) # backward comp
+    rm_dict = {}
     rm_opt = {
               "rm_template":    {"target":rm_target,    "binder":rm_binder},
               "rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
               "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}
              }
     for n,x in rm_opt.items():
-      rm[n] = np.full(L,False)
+      rm_dict[n] = np.full(sum(self._lengths), False)
       for m,y in x.items():
         if isinstance(y,str):
-          rm[n][prep_pos(y,**self._pdb["idx"])["pos"]] = True
+          rm_dict[n][prep_pos(y,**self._pdb["idx"])["pos"]] = True
         else:
-          if m == "target": rm[n][:T] = y
-          if m == "binder": rm[n][T:] = y
-        
-    # set template [opt]ions
+          if m == "target": rm_dict[n][:self._target_len] = y
+          if m == "binder": rm_dict[n][self._target_len:] = y
+    self._inputs.update(rm_dict)        
     self.opt["template"]["rm_ic"] = rm_template_ic
-    self._inputs.update(rm)
 
     self._prep_model(**kwargs)
 
@@ -308,8 +304,8 @@ class _af_prep:
     '''    
     # prep features
     self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
-                   offsets=kwargs.pop("pdb_offsets",None),
-                   lengths=kwargs.pop("pdb_lengths",None))
+                         offsets=kwargs.pop("pdb_offsets",None),
+                         lengths=kwargs.pop("pdb_lengths",None))
 
     self._pdb["len"] = sum(self._pdb["lengths"])
 
@@ -595,3 +591,16 @@ def get_multi_id(lengths, homooligomer=False):
     return {"asym_id":i, "sym_id":i, "entity_id":np.zeros_like(i)}
   else:
     return {"asym_id":i, "sym_id":i, "entity_id":i}
+
+def cfg_template(length, pdb_info, rm_template, rm_template_seq, rm_template_sc):
+  rm_dict = {}
+  rm_opt = {"rm_template":    rm_template,
+            "rm_template_seq":rm_template_seq,
+            "rm_template_sc": rm_template_sc}
+  for n,x in rm_opt.items():
+    rm_dict[n] = np.full(length, False)
+    if isinstance(x,str):
+      rm_dict[n][prep_pos(x,**pdb_info)["pos"]] = True
+    else:
+      rm_dict[n][:] = x
+  return rm_dict

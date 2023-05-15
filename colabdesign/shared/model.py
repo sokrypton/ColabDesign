@@ -71,7 +71,7 @@ class design_model:
       wt_seq[self._wt_aatype == -1] = 0
       if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
         seq = np.zeros(shape)
-        seq[...,self.opt["pos"],:] = wt_seq
+        seq[:,self.opt["pos"],:] = wt_seq
       else:
         seq = wt_seq
     
@@ -104,7 +104,9 @@ class design_model:
         b = b + seq * 1e7
       
       if seq.ndim == 2:
-        x = np.pad(seq[None],[[0,shape[0]],[0,0],[0,0]])
+        x = np.pad(seq[None],[[0,shape[0]-1],[0,0],[0,0]])
+      elif shape[0] > seq.shape[0]:
+        x = np.pad(seq,[[0,shape[0]-seq.shape[0]],[0,0],[0,0]])
       else:
         x = seq
 
@@ -117,7 +119,7 @@ class design_model:
       else:
         y = x + y_gumbel
       
-      x = np.where(x.sum(-1,keepdims=True) == 1, x, y)      
+      x = np.where(x.sum(-1,keepdims=True) == 1, x, y)
 
     # set seq/bias/state
     self._params["seq"] = x

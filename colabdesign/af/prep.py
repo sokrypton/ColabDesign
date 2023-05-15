@@ -440,7 +440,7 @@ def prep_pdb(pdb_filename, chain=None,
     
     im = ignore_missing[n] if isinstance(ignore_missing,list) else ignore_missing
     if im:
-      r = batch["all_atom_mask"][:,0] == 1
+      r = batch["all_atom_mask"][:,residue_constants.atom_order["CA"]] == 1
       batch = jax.tree_map(lambda x:x[r], batch)
       residue_index = batch["residue_index"] + last
 

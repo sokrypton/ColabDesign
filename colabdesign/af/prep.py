@@ -581,7 +581,7 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'asym_id': np.zeros(L),
             'sym_id': np.zeros(L),
             'entity_id': np.zeros(L),
-            'all_atom_positions': np.zeros((N,37,3))}
+            'all_atom_positions': np.zeros((L,37,3))}
   return inputs
 
 def get_multi_id(lengths, homooligomer=False):

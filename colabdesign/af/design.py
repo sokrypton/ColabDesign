@@ -178,7 +178,7 @@ class _af_design:
           else:
             self._inputs["initial_atom_pos"] = np.zeros([L,37,3])              
       
-      self._inputs["prev"] = prev
+        self._inputs["prev"] = prev
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)
       mask = [0] * cycles

@@ -107,10 +107,9 @@ class _af_inputs:
             inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
-  '''update the sequence features'''
-  
-  if seq_1hot is None: seq_1hot = seq 
-  if seq_pssm is None: seq_pssm = seq
+  '''update the sequence features'''  
+  if seq_1hot is None: seq_1hot = seq["pseudo"] 
+  if seq_pssm is None: seq_pssm = seq["pseudo"]
   target_feat = seq_1hot[0,:,:20]
 
   seq_1hot = jnp.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]]])
@@ -120,12 +119,14 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
   # masked language modeling (randomly mask positions)
   if mlm is not None:    
     X = jax.nn.one_hot(22,23)
-    X = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
-    msa_feat = jnp.where(mlm[...,None],X,msa_feat)
+    Y = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
+    msa_feat = jnp.where(mlm[...,None],Y,msa_feat)
+    seq["pseudo"] = jnp.where(mlm[...,None],X[:seq["pseudo"].shape[-1]],seq["pseudo"])
     
   inputs.update({"msa_feat":msa_feat, "target_feat":target_feat})
 
-def update_aatype(aatype, inputs):
+def update_aatype(seq, inputs):
+  aatype = seq["pseudo"][0].argmax(-1)
   r = residue_constants
   a = {"atom14_atom_exists":r.restype_atom14_mask,
        "atom37_atom_exists":r.restype_atom37_mask,

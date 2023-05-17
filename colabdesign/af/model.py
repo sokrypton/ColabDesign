@@ -159,12 +159,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if a["use_mlm"]:
         shape = seq["pseudo"].shape[:2]
         mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
-        update_seq(seq["pseudo"], inputs, seq_pssm=pssm, mlm=mlm)
+        update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm)
       else:
-        update_seq(seq["pseudo"], inputs, seq_pssm=pssm)
+        update_seq(seq, inputs, seq_pssm=pssm)
       
       # update amino acid sidechain identity
-      update_aatype(seq["pseudo"][0].argmax(-1), inputs) 
+      update_aatype(seq, inputs) 
 
       # define masks
       inputs["msa_mask"] = jnp.where(inputs["seq_mask"],inputs["msa_mask"],0)

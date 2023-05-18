@@ -316,7 +316,10 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
     else:
       cmap = matplotlib.colors.ListedColormap(jalview_color_list[color_msa])
       vmax = len(jalview_color_list[color_msa]) - 1
-      ims[-1].append(ax2.imshow(seq[k].argmax(-1), animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
+      msa_oh = seq[k][:,:,:20]
+      msa = msa_oh.argmax(-1).astype(float)
+      msa[msa_oh.sum(-1) == 0] = np.nan
+      ims[-1].append(ax2.imshow(msa, animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
     
     if pae is not None:
       L = pae[k].shape[0]

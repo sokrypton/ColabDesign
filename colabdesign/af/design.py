@@ -3,6 +3,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.utils import dgram_from_positions
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list, copy_missing
 
 ####################################################
@@ -161,16 +162,19 @@ class _af_design:
       # intialize previous
       if "prev" not in self._inputs or a["clear_prev"]:
         prev = {'prev_msa_first_row': np.zeros([L,256]),
-                'prev_pair': np.zeros([L,L,128])}
-
+                'prev_pair': np.zeros([L,L,128])}          
         if a["use_initial_guess"] and "batch" in self._inputs:
-          prev["prev_pos"] = self._inputs["batch"]["all_atom_positions"] 
+          if a["use_prev_dgram"]:
+            prev["prev_dgram"] = dgram_from_positions(
+              self._inputs["batch"]["all_atom_positions"],
+              min_bin=3.25, max_bin=20.75, num_bins=15)
+          else:
+            prev["prev_pos"] = self._inputs["batch"]["all_atom_positions"] 
         else:
-          prev["prev_pos"] = np.zeros([L,37,3])
-
-        if a["use_dgram"]:
-          # TODO: add support for initial_guess + use_dgram
-          prev["prev_dgram"] = np.zeros([L,L,64])
+          if a["use_prev_dgram"]:
+            prev["prev_dgram"] = np.zeros([L,L,15])
+          else:
+            prev["prev_pos"] = np.zeros([L,37,3])
 
         if a["use_initial_atom_pos"]:
           if "batch" in self._inputs:
@@ -198,7 +202,7 @@ class _af_design:
           grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
         self._inputs["prev"] = aux["prev"]
         if a["use_initial_atom_pos"]:
-          self._inputs["initial_atom_pos"] = aux["prev"]["prev_pos"]                
+          self._inputs["initial_atom_pos"] = aux["atom_positions"]
 
       aux["grad"] = jax.tree_map(lambda *x: np.stack(x).sum(0), *grad)
     

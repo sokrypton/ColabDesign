@@ -187,3 +187,26 @@ class _af_utils:
     '''
     self.plot_pdb(show_sidechains=show_sidechains, show_mainchains=show_mainchains, color=color,
       color_HP=color_HP, size=size, animate=animate, get_best=False)
+
+def dgram_from_positions(positions, num_bins, min_bin, max_bin):
+  """Compute distogram from amino acid positions.
+  Arguments:
+    positions: [N_res, 3] Position coordinates.
+    num_bins: The number of bins in the distogram.
+    min_bin: The left edge of the first bin.
+    max_bin: The left edge of the final bin. The final bin catches
+        everything larger than `max_bin`.
+  Returns:
+    Distogram with the specified number of bins.
+  """
+  def squared_difference(x, y):
+    return np.square(x - y)
+  lower_breaks = np.linspace(min_bin, max_bin, num_bins)
+  lower_breaks = np.square(lower_breaks)
+  upper_breaks = np.concatenate([lower_breaks[1:],np.array([1e8])], axis=-1)
+  dist2 = np.sum(
+      squared_difference(
+          np.expand_dims(positions, axis=-2),
+          np.expand_dims(positions, axis=-3)),
+      axis=-1, keepdims=True)
+  return (dist2 > lower_breaks) * (dist2 < upper_breaks)

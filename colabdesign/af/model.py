@@ -37,7 +37,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
-                  "clear_prev": True, "use_prev_dgram":False,
+                  "clear_prev": True, "use_dgram":False, "use_dgram_pred":False,
                   "shuffle_first":True, "use_remat":True,
                   "alphabet_size":20, 
                   "use_initial_guess":False, "use_initial_atom_pos":False}
@@ -101,7 +101,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       num_recycles = self.opt["num_recycles"]
     self._cfg.model.num_recycle = num_recycles
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
-    self._cfg.model.global_config.use_prev_dgram = self._args["use_prev_dgram"]
+    self._cfg.model.global_config.use_dgram_pred = self._args["use_dgram_pred"]
     self._cfg.model.global_config.bfloat16  = self._args["use_bfloat16"]
 
     # load model_params

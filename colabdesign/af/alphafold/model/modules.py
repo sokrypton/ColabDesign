@@ -150,20 +150,20 @@ class AlphaFold(hk.Module):
   def __call__(self, batch, **kwargs):
     """Run the AlphaFold model."""
     impl = AlphaFoldIteration(self.config, self.global_config)
-
-    def get_prev(ret):
+    def get_prev(ret, use_dgram=False):
       new_prev = {
           'prev_msa_first_row': ret['representations']['msa_first_row'],
           'prev_pair': ret['representations']['pair'],
       }
-      if self.global_config.use_dgram:
-        dgram = jax.nn.softmax(ret["distogram"]["logits"])
-        dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
-        new_prev['prev_dgram'] = dgram @ dgram_map
-      elif self.global_config.use_prev_dgram:
-        pos = ret['structure_module']['final_atom_positions']
-        prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], pos, None)
-        new_prev['prev_dgram'] = dgram_from_positions(prev_pseudo_beta, min_bin=3.25, max_bin=20.75, num_bins=15)
+      if use_dgram:
+        if self.global_config.use_dgram_pred:
+          dgram = jax.nn.softmax(ret["distogram"]["logits"])
+          dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
+          new_prev['prev_dgram'] = dgram @ dgram_map
+        else:
+          pos = ret['structure_module']['final_atom_positions']
+          prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], pos, None)
+          new_prev['prev_dgram'] = dgram_from_positions(prev_pseudo_beta, min_bin=3.25, max_bin=20.75, num_bins=15)
       else:
         new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
 
@@ -171,7 +171,7 @@ class AlphaFold(hk.Module):
 
     prev = batch.pop("prev")                      
     ret = impl(batch={**batch, **prev})
-    ret["prev"] = get_prev(ret)        
+    ret["prev"] = get_prev(ret, use_dgram="prev_dgram" in prev)
     return ret
 
 class TemplatePairStack(hk.Module):

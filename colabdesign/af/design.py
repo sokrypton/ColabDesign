@@ -159,27 +159,37 @@ class _af_design:
     else:
       L = self._inputs["residue_index"].shape[0]
       
-      # intialize previous
+      # intialize previous inputs
       if "prev" not in self._inputs or a["clear_prev"]:
         prev = {'prev_msa_first_row': np.zeros([L,256]),
                 'prev_pair': np.zeros([L,L,128])}          
-        if a["use_initial_guess"] and "batch" in self._inputs:
-          if a["use_prev_dgram"]:
-            prev["prev_dgram"] = dgram_from_positions(
-              self._inputs["batch"]["all_atom_positions"],
-              min_bin=3.25, max_bin=20.75, num_bins=15)
-          else:
-            prev["prev_pos"] = self._inputs["batch"]["all_atom_positions"] 
+        
+        # initialize coordinates
+        # TODO: add support for the 'partial' protocol
+        if "batch" in self._inputs:
+          ini_seq = self._inputs["batch"]["aatype"]
+          ini_pos = self._inputs["batch"]["all_atom_positions"]
+
+          # via evoformer
+          if a["use_initial_guess"]:
+            # via distogram or positions
+            if a["use_dgram"] or a["use_dgram_pred"]:
+              prev["prev_dgram"] = dgram_from_positions(positions=ini_pos,
+                seq=ini_seq, num_bins=15, min_bin=3.25, max_bin=20.75)
+            else:
+              prev["prev_pos"] = ini_pos          
+          
+          # via structure module
+          if a["use_initial_atom_pos"]:
+            self._inputs["initial_atom_pos"] = ini_pos
+        
         else:
-          if a["use_prev_dgram"]:
+          # if batch not defined, initialize with zeros
+          if a["use_dgram"] or a["use_dgram_pred"]:
             prev["prev_dgram"] = np.zeros([L,L,15])
           else:
-            prev["prev_pos"] = np.zeros([L,37,3])
-
-        if a["use_initial_atom_pos"]:
-          if "batch" in self._inputs:
-            self._inputs["initial_atom_pos"] = self._inputs["batch"]["all_atom_positions"] 
-          else:
+            prev["prev_pos"] = np.zeros([L,37,3])            
+          if a["use_initial_atom_pos"]:
             self._inputs["initial_atom_pos"] = np.zeros([L,37,3])              
       
         self._inputs["prev"] = prev
@@ -200,6 +210,8 @@ class _af_design:
         else:
           aux = self._single(model_params, backprop)
           grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
+        
+        # update previous inputs
         self._inputs["prev"] = aux["prev"]
         if a["use_initial_atom_pos"]:
           self._inputs["initial_atom_pos"] = aux["atom_positions"]

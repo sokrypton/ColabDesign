@@ -8,7 +8,7 @@ from colabdesign.shared.protein import _np_kabsch
 from colabdesign.shared.utils import update_dict, Key
 from colabdesign.shared.plot import plot_pseudo_3D, make_animation, show_pdb
 from colabdesign.shared.protein import renum_pdb_str
-from colabdesign.af.alphafold.common import protein
+from colabdesign.af.alphafold.common import protein, residue_constants
 
 ####################################################
 # AF_UTILS - various utils (save, plot, etc)
@@ -188,25 +188,17 @@ class _af_utils:
     self.plot_pdb(show_sidechains=show_sidechains, show_mainchains=show_mainchains, color=color,
       color_HP=color_HP, size=size, animate=animate, get_best=False)
 
-def dgram_from_positions(positions, num_bins, min_bin, max_bin):
-  """Compute distogram from amino acid positions.
-  Arguments:
-    positions: [N_res, 3] Position coordinates.
-    num_bins: The number of bins in the distogram.
-    min_bin: The left edge of the first bin.
-    max_bin: The left edge of the final bin. The final bin catches
-        everything larger than `max_bin`.
-  Returns:
-    Distogram with the specified number of bins.
-  """
-  def squared_difference(x, y):
-    return np.square(x - y)
+def dgram_from_positions(positions, seq=None, num_bins=39, min_bin=3.25, max_bin=50.75):
+  if seq is None:
+    atoms = {k:positions[...,residue_constants.atom_order[k],:] for k in ["N","CA","C"]}
+    c = _np_get_cb(**atoms, use_jax=False)
+  else:
+    ca = positions[...,residue_constants.atom_order["CA"],:]
+    cb = positions[...,residue_constants.atom_order["CB"],:]
+    is_gly = seq==residue_constants.restype_order["G"]
+    c = np.where(is_gly[:,None],ca,cb)      
+  dist = np.sqrt(np.square(c[None,:] - c[:,None]).sum(-1,keepdims=True))
   lower_breaks = np.linspace(min_bin, max_bin, num_bins)
-  lower_breaks = np.square(lower_breaks)
-  upper_breaks = np.concatenate([lower_breaks[1:],np.array([1e8])], axis=-1)
-  dist2 = np.sum(
-      squared_difference(
-          np.expand_dims(positions, axis=-2),
-          np.expand_dims(positions, axis=-3)),
-      axis=-1, keepdims=True)
-  return (dist2 > lower_breaks) * (dist2 < upper_breaks)
+  lower_breaks = lower_breaks
+  upper_breaks = np.append(lower_breaks[1:],1e8)
+  return ((dist > lower_breaks) * (dist < upper_breaks)).astype(float)  

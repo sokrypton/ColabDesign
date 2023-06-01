@@ -177,8 +177,13 @@ class _af_design:
               prev["prev_dgram"] = dgram_from_positions(positions=ini_pos,
                 seq=ini_seq, num_bins=15, min_bin=3.25, max_bin=20.75)
             else:
-              prev["prev_pos"] = ini_pos          
-          
+              prev["prev_pos"] = ini_pos              
+          else:
+            if a["use_dgram"] or a["use_dgram_pred"]:
+              prev["prev_dgram"] = np.zeros([L,L,15])
+            else:
+              prev["prev_pos"] = np.zeros([L,37,3])            
+
           # via structure module
           if a["use_initial_atom_pos"]:
             self._inputs["initial_atom_pos"] = ini_pos

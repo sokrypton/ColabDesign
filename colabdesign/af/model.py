@@ -33,7 +33,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
-                  "recycle_mode":"last", "use_mlm": False, "realign": True,
+                  "recycle_mode":"last", "use_mlm": False, "mask_target":False, "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
@@ -159,7 +159,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if a["use_mlm"]:
         shape = seq["pseudo"].shape[:2]
         mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
-        update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm)
+        update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm, mask_target=a["mask_target"])
       else:
         update_seq(seq, inputs, seq_pssm=pssm)
       
@@ -221,6 +221,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # experimental masked-language-modeling
       if a["use_mlm"]:
         aux["mlm"] = outputs["masked_msa"]["logits"]
+        aux["mlm_mask"] = mlm
         mask = jnp.where(inputs["seq_mask"],mlm,0)
         aux["losses"].update(get_mlm_loss(outputs, mask=mask, truth=seq["pssm"]))
 

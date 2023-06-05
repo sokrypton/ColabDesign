@@ -33,7 +33,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
-                  "recycle_mode":"last", "use_mlm": False, "mask_target":False, "realign": True,
+                  "recycle_mode":"last", 
+                  "use_mlm": False, "mask_target":False, "unbias_mlm": False,
+                  "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
@@ -223,7 +225,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         aux["mlm"] = outputs["masked_msa"]["logits"]
         aux["mlm_mask"] = mlm
         mask = jnp.where(inputs["seq_mask"],mlm,0)
-        aux["losses"].update(get_mlm_loss(outputs, mask=mask, truth=seq["pssm"]))
+        aux["losses"].update(get_mlm_loss(outputs, mask=mask,
+          truth=seq["pssm"], unbias=a["unbias_mlm"]))
 
       # run user defined callbacks
       for c in ["loss","post"]:

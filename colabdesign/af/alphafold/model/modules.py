@@ -150,20 +150,28 @@ class AlphaFold(hk.Module):
   def __call__(self, batch, **kwargs):
     """Run the AlphaFold model."""
     impl = AlphaFoldIteration(self.config, self.global_config)
-
-    def get_prev(ret):
+    def get_prev(ret, use_dgram=False):
       new_prev = {
           'prev_msa_first_row': ret['representations']['msa_first_row'],
           'prev_pair': ret['representations']['pair'],
-          'prev_pos': ret['structure_module']['final_atom_positions']
       }
-      if self.global_config.use_dgram:
-        new_prev['prev_dgram'] = ret["distogram"]["logits"]
+      if use_dgram:
+        if self.global_config.use_dgram_pred:
+          dgram = jax.nn.softmax(ret["distogram"]["logits"])
+          dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
+          new_prev['prev_dgram'] = dgram @ dgram_map
+        else:
+          pos = ret['structure_module']['final_atom_positions']
+          prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], pos, None)
+          new_prev['prev_dgram'] = dgram_from_positions(prev_pseudo_beta, min_bin=3.25, max_bin=20.75, num_bins=15)
+      else:
+        new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
+
       return new_prev    
 
     prev = batch.pop("prev")                      
     ret = impl(batch={**batch, **prev})
-    ret["prev"] = get_prev(ret)        
+    ret["prev"] = get_prev(ret, use_dgram="prev_dgram" in prev)
     return ret
 
 class TemplatePairStack(hk.Module):
@@ -1383,6 +1391,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       msa_feat = batch['msa_feat'].astype(dtype)
       target_feat = jnp.pad(batch["target_feat"].astype(dtype),[[0,0],[1,1]])
       preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
+      preprocess_1d = jnp.where(target_feat.sum(-1,keepdims=True) == 0, 0, preprocess_1d)
       preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(msa_feat)
       msa_activations = preprocess_1d[None] + preprocess_msa
 
@@ -1397,19 +1406,11 @@ class EmbeddingsAndEvoformer(hk.Module):
       # Jumper et al. (2021) Suppl. Alg. 2 "Inference" line 6
       # Jumper et al. (2021) Suppl. Alg. 32 "RecyclingEmbedder"
 
-      if gc.use_dgram:
-        # use predicted distogram input (from Sergey)
-        dgram = jax.nn.softmax(batch["prev_dgram"])
-        dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
-        dgram = dgram @ dgram_map
-
+      if "prev_dgram" in batch:
+        dgram = batch["prev_dgram"]
       else:
-        # use predicted position input
         prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
-        if c.backprop_dgram:
-          dgram = dgram_from_positions_soft(prev_pseudo_beta, temp=c.backprop_dgram_temp, **c.prev_pos)
-        else:
-          dgram = dgram_from_positions(prev_pseudo_beta, **c.prev_pos)    
+        dgram = dgram_from_positions(prev_pseudo_beta, **c.prev_pos)
       dgram = dgram.astype(dtype)    
       pair_activations += common_modules.Linear(c.pair_channel, name='prev_pos_linear')(dgram)
 

@@ -106,7 +106,7 @@ class _af_inputs:
             inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
             inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
-def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
+def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=False):
   '''update the sequence features'''  
   if seq_1hot is None: seq_1hot = seq["pseudo"] 
   if seq_pssm is None: seq_pssm = seq["pseudo"]
@@ -122,6 +122,8 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None):
     Y = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
     msa_feat = jnp.where(mlm[...,None],Y,msa_feat)
     seq["pseudo"] = jnp.where(mlm[...,None],X[:seq["pseudo"].shape[-1]],seq["pseudo"])
+    if mask_target:
+      target_feat = jnp.where(mlm[0,:,None],0,target_feat)
     
   inputs.update({"msa_feat":msa_feat, "target_feat":target_feat})
 

@@ -114,18 +114,19 @@ class _af_prep:
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
 
     # configure template masks
-    rm_dict = {}
-    rm_opt = {"rm_template":    rm_template,
-              "rm_template_seq":rm_template_seq,
-              "rm_template_sc": rm_template_sc}
-    for n,x in rm_opt.items():
-      rm_dict[n] = np.full(sum(self._lengths),False)
-      if isinstance(x,str):
-        rm_dict[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
-      else:
-        rm_dict[n][:] = x
-    self._inputs.update(rm_dict)
-    self.opt["template"]["rm_ic"] = rm_template_ic
+    if self._args["use_templates"]:
+      rm_dict = {}
+      rm_opt = {"rm_template":    rm_template,
+                "rm_template_seq":rm_template_seq,
+                "rm_template_sc": rm_template_sc}
+      for n,x in rm_opt.items():
+        rm_dict[n] = np.full(sum(self._lengths),False)
+        if isinstance(x,str):
+          rm_dict[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
+        else:
+          rm_dict[n][:] = x
+      self._inputs.update(rm_dict)
+      self.opt["template"]["rm_ic"] = rm_template_ic
   
     self._prep_model(**kwargs)
     
@@ -393,10 +394,11 @@ class _af_prep:
       self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])
       self._wt_aatype_sub = self._wt_aatype
 
-    self.opt["template"].update({"rm_ic":rm_template_ic})
-    self._inputs.update({"rm_template":     rm_template,
-                         "rm_template_seq": rm_template_seq,
-                         "rm_template_sc":  rm_template_sc})
+    if self._args["use_templates"]:
+      self.opt["template"].update({"rm_ic":rm_template_ic})
+      self._inputs.update({"rm_template":     rm_template,
+                           "rm_template_seq": rm_template_seq,
+                           "rm_template_sc":  rm_template_sc})
   
     self._prep_model(**kwargs)
 

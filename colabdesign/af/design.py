@@ -53,6 +53,8 @@ class _af_design:
     self.set_weights(weights)
   
     # initialize sequence
+    if mode is None and not self._args["optimize_seq"]:
+      mode = "wildtype"
     self.set_seed(seed)
     self.set_seq(seq=seq, mode=mode, **kwargs)
 

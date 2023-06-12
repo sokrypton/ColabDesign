@@ -6,11 +6,20 @@ from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.alphafold.model import model, config
+from colabdesign.af.inputs import update_seq, update_aatype
 
 ############################################################################
 # AF_INPUTS - functions for modifying inputs before passing to alphafold
 ############################################################################
 class _af_inputs:
+
+  def set_seq(self, seq=None, mode=None, **kwargs):
+    if self._args["use_seq"]:
+      self._set_seq(seq=seq, mode=mode, **kwargs)
+    else:
+      seq,_ = self._set_seq(seq=seq, mode=mode, return_values=True, **kwargs)
+      update_seq(seq, self._inputs, use_jax=False)
+      update_aatype(seq, self._inputs, use_jax=False)
 
   def _get_seq(self, inputs, aux, key=None):
     params, opt = inputs["params"], inputs["opt"]
@@ -106,28 +115,44 @@ class _af_inputs:
             inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
             inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
-def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=False):
+def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=False, use_jax=True):
   '''update the sequence features'''  
+
+  _np = jnp if use_jax else np
+
   if seq_1hot is None: seq_1hot = seq["pseudo"] 
   if seq_pssm is None: seq_pssm = seq["pseudo"]
   target_feat = seq_1hot[0,:,:20]
 
-  seq_1hot = jnp.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]]])
-  seq_pssm = jnp.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
-  msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
+  seq_1hot = _np.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]]])
+  seq_pssm = _np.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
+  if use_jax:
+    msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
+  else:
+    msa_feat = np.zeros_like(inputs["msa_feat"])
+    msa_feat[...,0:22] = seq_1hot
+    msa_feat[...,25:47] = seq_pssm
+
 
   # masked language modeling (randomly mask positions)
-  if mlm is not None:    
-    X = jax.nn.one_hot(22,23)
-    Y = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
-    msa_feat = jnp.where(mlm[...,None],Y,msa_feat)
-    seq["pseudo"] = jnp.where(mlm[...,None],X[:seq["pseudo"].shape[-1]],seq["pseudo"])
+  if mlm is not None:
+    X = _np.eye(23)[22]
+    if use_jax:
+      Y = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
+    else:
+      Y = np.zeros(msa_feat.shape[-1])
+      Y[...,:23] = X 
+      Y[...,25:48] = X
+
+    msa_feat = _np.where(mlm[...,None],Y,msa_feat)
+    seq["pseudo"] = _np.where(mlm[...,None],X[:seq["pseudo"].shape[-1]],seq["pseudo"])
     if mask_target:
-      target_feat = jnp.where(mlm[0,:,None],0,target_feat)
+      target_feat = _np.where(mlm[0,:,None],0,target_feat)
     
   inputs.update({"msa_feat":msa_feat, "target_feat":target_feat})
 
-def update_aatype(seq, inputs):
+def update_aatype(seq, inputs, use_jax=True):
+  _np = jnp if use_jax else np
   aatype = seq["pseudo"][0].argmax(-1)
   r = residue_constants
   a = {"atom14_atom_exists":r.restype_atom14_mask,
@@ -135,7 +160,7 @@ def update_aatype(seq, inputs):
        "residx_atom14_to_atom37":r.restype_atom14_to_atom37,
        "residx_atom37_to_atom14":r.restype_atom37_to_atom14}
   mask = inputs["seq_mask"][:,None]
-  inputs.update(jax.tree_map(lambda x:jnp.where(mask,jnp.asarray(x)[aatype],0),a))
+  inputs.update(jax.tree_map(lambda x:_np.where(mask,_np.asarray(x)[aatype],0),a))
   inputs["aatype"] = aatype
 
 def expand_copies(x, copies, block_diag=True):

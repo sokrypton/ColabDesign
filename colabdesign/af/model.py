@@ -33,7 +33,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
-                  "recycle_mode":"last", 
+                  "use_seq":True, "recycle_mode":"last", 
                   "use_mlm": False, "mask_target":False, "unbias_mlm": False,
                   "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
@@ -154,24 +154,26 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # INPUTS
       #######################################################################
       # get sequence
-      seq = self._get_seq(inputs, aux, key())
-            
-      # update sequence features      
-      pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
-      if a["use_mlm"]:
-        shape = seq["pseudo"].shape[:2]
-        mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
-        update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm, mask_target=a["mask_target"])
+      if a["use_seq"]:
+        seq = self._get_seq(inputs, aux, key())
+              
+        # update sequence features      
+        pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
+        if a["use_mlm"]:
+          shape = seq["pseudo"].shape[:2]
+          mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
+          update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm, mask_target=a["mask_target"])
+        else:
+          update_seq(seq, inputs, seq_pssm=pssm)
+        
+        # update amino acid sidechain identity
+        update_aatype(seq, inputs) 
+        inputs["seq"] = aux["seq"]
       else:
-        update_seq(seq, inputs, seq_pssm=pssm)
-      
-      # update amino acid sidechain identity
-      update_aatype(seq, inputs) 
+        seq = None
 
       # define masks
       inputs["msa_mask"] = jnp.where(inputs["seq_mask"],inputs["msa_mask"],0)
-
-      inputs["seq"] = aux["seq"]
 
       # update template features
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
@@ -218,10 +220,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
       # sequence entropy loss
-      aux["losses"].update(get_seq_ent_loss(inputs))
+      if a["use_seq"]:
+        aux["losses"].update(get_seq_ent_loss(inputs))
       
       # experimental masked-language-modeling
-      if a["use_mlm"]:
+      if a["use_mlm"] and a["use_seq"]:
         aux["mlm"] = outputs["masked_msa"]["logits"]
         aux["mlm_mask"] = mlm
         mask = jnp.where(inputs["seq_mask"],mlm,0)

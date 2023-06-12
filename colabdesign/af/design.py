@@ -6,6 +6,7 @@ from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.utils import dgram_from_positions
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list, copy_missing
 
+
 ####################################################
 # AF_DESIGN - design functions
 ####################################################
@@ -23,7 +24,6 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 ####################################################
 
 class _af_design:
-
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, mode=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
@@ -113,19 +113,22 @@ class _af_design:
     self.aux["log"] = {**self.aux["losses"]}
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
     for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
-    for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
-    # compute sequence recovery
-    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self.protocol == "partial":
-        aatype = self.aux["aatype"][...,self.opt["pos"]]
-      else:
-        aatype = self.aux["seq"]["pseudo"].argmax(-1)
+    if self._args["use_seq"]:
+      # keep track of sequence mode
+      for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
-      mask = self._wt_aatype != -1
-      true = self._wt_aatype[mask]
-      pred = aatype[...,mask]
-      self.aux["log"]["seqid"] = (true == pred).mean()
+      # compute sequence recovery
+      if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+        if self.protocol == "partial":
+          aatype = self.aux["aatype"][...,self.opt["pos"]]
+        else:
+          aatype = self.aux["seq"]["pseudo"].argmax(-1)
+
+        mask = self._wt_aatype != -1
+        true = self._wt_aatype[mask]
+        pred = aatype[...,mask]
+        self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
@@ -235,8 +238,9 @@ class _af_design:
     self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
              models=models, backprop=backprop, callback=callback)
 
-    # modify gradients    
-    if self.opt["norm_seq_grad"]: self._norm_seq_grad()
+    # modify gradients
+    if self._args["use_seq"] and self.opt["norm_seq_grad"]:
+      self._norm_seq_grad()
     self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"], self._params)
   
     # apply gradients
@@ -271,10 +275,12 @@ class _af_design:
     self._tmp["log"].append(aux["log"])    
     if (self._k % self._args["traj_iter"]) == 0:
       # update traj
-      traj = {"seq":   aux["seq"]["pseudo"],
-              "xyz":   aux["atom_positions"][:,1,:],
+      traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
+      self._args["use_seq"]:
+        traj["seq"] = aux["seq"]["pseudo"]
+              
       for k,v in traj.items():
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:
           self._tmp["traj"][k].pop(0)

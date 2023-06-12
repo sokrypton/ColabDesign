@@ -190,6 +190,8 @@ class mk_tr_model(design_model):
 
     update_dict(self.opt, *args, **kwargs)
 
+  def set_seq(self, seq=None, mode=None, **kwargs):
+    self._set_seq(seq=seq, mode=mode, **kwargs)
   
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, reset_opt=True, **kwargs):

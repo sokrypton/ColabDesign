@@ -144,9 +144,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key):
-      inputs["params"] = params
+      
+      # TODO: figure out why this was needed:
+      # inputs["params"] = params
+      
       opt = inputs["opt"]
-
       aux = {}
       key = Key(key=key).get
 
@@ -170,7 +172,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         update_aatype(seq, inputs) 
         inputs["seq"] = aux["seq"]
       else:
-        seq = None
+        inputs["seq"] = seq = None
+
+      # optimize model params
+      if "model_params" in params:
+        model_params.update(params["model_params"])
 
       # define masks
       inputs["msa_mask"] = jnp.where(inputs["seq_mask"],inputs["msa_mask"],0)

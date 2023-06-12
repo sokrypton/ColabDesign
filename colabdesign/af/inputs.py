@@ -118,9 +118,13 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=
   '''update the sequence features'''  
 
   _np = jnp if use_jax else np
-
-  if seq_1hot is None: seq_1hot = seq["pseudo"] 
-  if seq_pssm is None: seq_pssm = seq["pseudo"]
+  if isinstance(seq, dict):
+    if seq_1hot is None: seq_1hot = seq["pseudo"] 
+    if seq_pssm is None: seq_pssm = seq["pseudo"]
+  else:
+    if seq_1hot is None: seq_1hot = seq
+    if seq_pssm is None: seq_pssm = seq
+    
   target_feat = seq_1hot[0,:,:20]
 
   seq_1hot = _np.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]]])
@@ -152,7 +156,10 @@ def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=
 
 def update_aatype(seq, inputs, use_jax=True):
   _np = jnp if use_jax else np
-  aatype = seq["pseudo"][0].argmax(-1)
+  if isinstance(seq,dict):
+    aatype = seq["pseudo"][0].argmax(-1)
+  else:
+    aatype = seq[0].argmax(-1)
   r = residue_constants
   a = {"atom14_atom_exists":r.restype_atom14_mask,
        "atom37_atom_exists":r.restype_atom37_mask,

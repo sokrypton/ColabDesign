@@ -34,7 +34,7 @@ class _af_prep:
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
-  def _prep_features(self, num_res, num_seq=None, num_templates=1):
+  def _prep_features(self, num_res, num_seq=None, num_templates=0):
     '''process features'''
     if num_seq is None: num_seq = self._num
     return prep_input_features(L=num_res, N=num_seq, T=num_templates)
@@ -76,9 +76,11 @@ class _af_prep:
       self._pos_info = prep_pos(fix_pos, **self._pdb["idx"])
       self.opt["fix_pos"] = self._pos_info["pos"]
 
-    # repeat/homo-oligomeric support
     num_seq = self._num
     res_idx = self._pdb["residue_index"]
+    num_templates = 1 if self._args["use_templates"] else 0
+
+    # repeat/homo-oligomeric support
     if copies > 1:
       if repeat or homooligomer:
         self._len = self._len // copies
@@ -100,7 +102,7 @@ class _af_prep:
       homooligomer = not repeat
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq, num_templates=num_templates)
     self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
@@ -141,6 +143,8 @@ class _af_prep:
       (num_seq, block_diag) = (self._num * copies + 1, True)
     else:
       (num_seq, block_diag) = (self._num, False)
+    num_templates = 1 if self._args["use_templates"] else 0
+
     
     self._args.update({"repeat":repeat,"block_diag":block_diag,"copies":copies})
       
@@ -171,7 +175,7 @@ class _af_prep:
       homooligomer = False
     
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq, num_templates=num_templates)
     self._inputs["residue_index"] = res_idx
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
@@ -251,7 +255,7 @@ class _af_prep:
       self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1, num_templates=1)
     self._inputs["batch"] = self._pdb["batch"]
     self._inputs.update(get_multi_id(self._lengths))
 
@@ -315,6 +319,7 @@ class _af_prep:
     # feat dims
     num_seq = self._num
     res_idx = np.arange(self._len)
+    num_templates = 1 if self._args["use_templates"] else 0
     
     # get [pos]itions of interests
     if pos is None:
@@ -355,7 +360,7 @@ class _af_prep:
       homooligomer = not repeat
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq, num_templates=num_templates)
     self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = jax.tree_map(lambda x:x[self._pdb["pos"]], self._pdb["batch"])     
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
@@ -541,7 +546,7 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
 
-def prep_input_features(L, N=1, T=1, eN=1):
+def prep_input_features(L, N=1, T=0, eN=1):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
@@ -558,10 +563,6 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'seq_mask': np.ones(L),
             'msa_mask': np.ones((N,L)),
             'msa_row_mask': np.ones(N),
-            'atom14_atom_exists': np.zeros((L,14)),
-            'atom37_atom_exists': np.zeros((L,37)),
-            'residx_atom14_to_atom37': np.zeros((L,14),int),
-            'residx_atom37_to_atom14': np.zeros((L,37),int),            
             'residue_index': np.arange(L),
             'extra_deletion_value': np.zeros((eN,L)),
             'extra_has_deletion': np.zeros((eN,L)),
@@ -569,6 +570,18 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'extra_msa_mask': np.zeros((eN,L)),
             'extra_msa_row_mask': np.zeros(eN),
 
+            # for alphafold-ptm
+            'atom14_atom_exists': np.zeros((L,14)),
+            'atom37_atom_exists': np.zeros((L,37)),
+            'residx_atom14_to_atom37': np.zeros((L,14),int),
+            'residx_atom37_to_atom14': np.zeros((L,37),int),            
+
+            # for alphafold-multimer
+            'asym_id': np.zeros(L),
+            'sym_id': np.zeros(L),
+            'entity_id': np.zeros(L)}
+  if T > 0:
+    inputs.update({      
             # for template inputs
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
@@ -576,12 +589,7 @@ def prep_input_features(L, N=1, T=1, eN=1):
             'template_mask': np.zeros(T),
             'template_pseudo_beta': np.zeros((T,L,3)),
             'template_pseudo_beta_mask': np.zeros((T,L)),
-
-            # for alphafold-multimer
-            'asym_id': np.zeros(L),
-            'sym_id': np.zeros(L),
-            'entity_id': np.zeros(L),
-            'all_atom_positions': np.zeros((L,37,3))}
+      })
   return inputs
 
 def get_multi_id(lengths, homooligomer=False):

@@ -96,6 +96,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self.opt["pssm_hard"] = True
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
+
     
     if self._args["recycle_mode"] in ["average","first","last","sample"]:
       num_recycles = 0
@@ -105,6 +106,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
     self._cfg.model.global_config.use_dgram_pred = self._args["use_dgram_pred"]
     self._cfg.model.global_config.bfloat16  = self._args["use_bfloat16"]
+    self._cfg.model.embeddings_and_evoformer.template.enabled = self._args["use_templates"]
 
     # load model_params
     if model_names is None:
@@ -121,7 +123,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     for model_name in model_names:
       params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir, fuse=True)
       if params is not None:
-        if not self._args["use_multimer"] and not self._args["use_templates"]:
+        if not self._args["use_templates"]:
           params = {k:v for k,v in params.items() if "template" not in k}
         self._model_params.append(params)
         self._model_names.append(model_name)

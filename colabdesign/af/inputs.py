@@ -13,7 +13,7 @@ from colabdesign.af.alphafold.model import model, config
 class _af_inputs:
 
   def set_seq(self, seq=None, mode=None, **kwargs):
-    if self._args["use_seq"]:
+    if self._args["optimize_seq"]:
       self._set_seq(seq=seq, mode=mode, **kwargs)
     else:
       seq,_ = self._set_seq(seq=seq, mode=mode, return_values=True, **kwargs)

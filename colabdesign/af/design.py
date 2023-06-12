@@ -114,7 +114,7 @@ class _af_design:
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
     for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
 
-    if self._args["use_seq"]:
+    if self._args["optimize_seq"]:
       # keep track of sequence mode
       for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
@@ -239,7 +239,7 @@ class _af_design:
              models=models, backprop=backprop, callback=callback)
 
     # modify gradients
-    if self._args["use_seq"] and self.opt["norm_seq_grad"]:
+    if self._args["optimize_seq"] and self.opt["norm_seq_grad"]:
       self._norm_seq_grad()
     self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"], self._params)
   
@@ -278,7 +278,7 @@ class _af_design:
       traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
-      if self._args["use_seq"]:
+      if self._args["optimize_seq"]:
         traj["seq"] = aux["seq"]["pseudo"]
       else:
         traj["seq"] = self._inputs["msa_feat"][...,:20]

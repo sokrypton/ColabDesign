@@ -33,7 +33,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
     self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
-                  "use_seq":True, "recycle_mode":"last", 
+                  "optimize_seq":True, "recycle_mode":"last", 
                   "use_mlm": False, "mask_target":False, "unbias_mlm": False,
                   "realign": True,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
@@ -156,7 +156,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # INPUTS
       #######################################################################
       # get sequence
-      if a["use_seq"]:
+      if a["optimize_seq"]:
         seq = self._get_seq(inputs, aux, key())
               
         # update sequence features      
@@ -226,16 +226,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       self._get_loss(inputs=inputs, outputs=outputs, aux=aux)
 
       # sequence entropy loss
-      if a["use_seq"]:
-        aux["losses"].update(get_seq_ent_loss(inputs))
-      
-      # experimental masked-language-modeling
-      if a["use_mlm"] and a["use_seq"]:
-        aux["mlm"] = outputs["masked_msa"]["logits"]
-        aux["mlm_mask"] = mlm
-        mask = jnp.where(inputs["seq_mask"],mlm,0)
-        aux["losses"].update(get_mlm_loss(outputs, mask=mask,
-          truth=seq["pssm"], unbias=a["unbias_mlm"]))
+      if a["optimize_seq"]:
+        aux["losses"].update(get_seq_ent_loss(inputs))    
+        # experimental masked-language-modeling
+        if a["use_mlm"]:
+          aux["mlm"] = outputs["masked_msa"]["logits"]
+          aux["mlm_mask"] = mlm
+          mask = jnp.where(inputs["seq_mask"],mlm,0)
+          aux["losses"].update(get_mlm_loss(outputs, mask=mask,
+            truth=seq["pssm"], unbias=a["unbias_mlm"]))
 
       # run user defined callbacks
       for c in ["loss","post"]:

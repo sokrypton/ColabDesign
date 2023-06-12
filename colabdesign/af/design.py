@@ -278,8 +278,10 @@ class _af_design:
       traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
-      self._args["use_seq"]:
+      if self._args["use_seq"]:
         traj["seq"] = aux["seq"]["pseudo"]
+      else:
+        traj["seq"] = self._inputs["msa_feat"][...,:20]
               
       for k,v in traj.items():
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:

@@ -6,7 +6,6 @@ from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.alphafold.model import model, config
-from colabdesign.af.inputs import update_seq, update_aatype
 
 ############################################################################
 # AF_INPUTS - functions for modifying inputs before passing to alphafold

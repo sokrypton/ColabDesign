@@ -273,8 +273,9 @@ class _af_design:
                     verbose=True):
     if aux is None: aux = self.aux    
     self._tmp["log"].append(aux["log"])    
+
+    # update traj
     if (self._k % self._args["traj_iter"]) == 0:
-      # update traj
       traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
@@ -284,8 +285,10 @@ class _af_design:
         traj["seq"] = self._inputs["msa_feat"][...,:20]
               
       for k,v in traj.items():
+        # rm traj (if max number reached)
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:
           self._tmp["traj"][k].pop(0)
+        # add traj
         self._tmp["traj"][k].append(v)
 
     # save best
@@ -308,15 +311,10 @@ class _af_design:
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
-    def load_settings():    
-      if "save" in self._tmp:
-        [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
-
-    def save_settings():
-      load_settings()
-      self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
-
-    save_settings()
+    # save current settings
+    if "save" in self._tmp:
+      [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
+    self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
 
     # set seed if defined
     if seed is not None: self.set_seed(seed)
@@ -330,7 +328,8 @@ class _af_design:
              sample_models=sample_models, models=models, backprop=False, **kwargs)
     if verbose: self._print_log("predict")
 
-    load_settings()
+    # load previous settings
+    [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
 
     # return (or save) results
     if return_aux: return self.aux

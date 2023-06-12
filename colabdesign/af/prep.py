@@ -492,7 +492,7 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
   for k,v in feat.items():
     if k == "batch":
       feat[k] = make_fixed_size(v, num_res)
-    else:
+    elif k in shape_schema:
       shape = list(v.shape)
       schema = shape_schema[k]
       assert len(shape) == len(schema), (
@@ -591,16 +591,3 @@ def get_multi_id(lengths, homooligomer=False):
     return {"asym_id":i, "sym_id":i, "entity_id":np.zeros_like(i)}
   else:
     return {"asym_id":i, "sym_id":i, "entity_id":i}
-
-def cfg_template(length, pdb_info, rm_template, rm_template_seq, rm_template_sc):
-  rm_dict = {}
-  rm_opt = {"rm_template":    rm_template,
-            "rm_template_seq":rm_template_seq,
-            "rm_template_sc": rm_template_sc}
-  for n,x in rm_opt.items():
-    rm_dict[n] = np.full(length, False)
-    if isinstance(x,str):
-      rm_dict[n][prep_pos(x,**pdb_info)["pos"]] = True
-    else:
-      rm_dict[n][:] = x
-  return rm_dict

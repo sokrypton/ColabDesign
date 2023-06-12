@@ -111,10 +111,8 @@ class AlphaFoldIteration(hk.Module):
       self.heads[head_name] = (head_config,
                                head_factory(head_config, self.global_config))
 
-    structure_module_output = None
-    if 'entity_id' in batch and 'all_atom_positions' in batch:
-      _, fold_module = self.heads['structure_module']
-      structure_module_output = fold_module(representations, batch)
+    _, fold_module = self.heads['structure_module']
+    structure_module_output = fold_module(representations, batch)
 
 
     ret = {}

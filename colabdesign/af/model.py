@@ -14,7 +14,7 @@ from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_ptm
 from colabdesign.af.loss   import get_contact_map, get_seq_ent_loss, get_mlm_loss
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
-from colabdesign.af.inputs import _af_inputs, update_seq, update_aatype
+from colabdesign.af.inputs import _af_inputs
 
 ################################################################
 # MK_DESIGN_MODEL - initialize model, and put it all together
@@ -32,7 +32,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
-    self._args = {"use_templates":use_templates, "use_multimer":use_multimer, "use_bfloat16":True,
+    self._args = {"use_templates":use_templates, "num_templates":0,
+                  "use_multimer":use_multimer, "use_bfloat16":True,
                   "optimize_seq":True, "recycle_mode":"last", 
                   "use_mlm": False, "mask_target":False, "unbias_mlm": False,
                   "realign": True,
@@ -68,6 +69,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if k in self._args: self._args[k] = kwargs.pop(k)
       if k in self.opt: self.opt[k] = kwargs.pop(k)
 
+    if self._args["use_templates"] and self._args["num_templates"] == 0:
+      self._args["num_templates"] = 1
+
     # collect callbacks
     self._callbacks = {"model": {"pre": kwargs.pop("pre_callback",None),
                                  "post":kwargs.pop("post_callback",None),
@@ -91,9 +95,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     # configure AlphaFold
     #############################
     if self._args["use_multimer"]:
-      self._cfg = config.model_config("model_1_multimer")
-      # TODO
-      self.opt["pssm_hard"] = True
+      self._cfg = config.model_config("model_1_multimer")      
+      self.opt["pssm_hard"] = True # TODO
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
 
@@ -145,10 +148,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key):
-      
-      # TODO: figure out why this was needed:
-      # inputs["params"] = params
-      
+            
       opt = inputs["opt"]
       aux = {}
       key = Key(key=key).get
@@ -158,21 +158,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # get sequence
       if a["optimize_seq"]:
-        seq = self._get_seq(inputs, aux, key())
-              
-        # update sequence features      
-        pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
-        if a["use_mlm"]:
-          shape = seq["pseudo"].shape[:2]
-          mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
-          update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm, mask_target=a["mask_target"])
-        else:
-          update_seq(seq, inputs, seq_pssm=pssm)
-        
-        # update amino acid sidechain identity
-        update_aatype(seq, inputs) 
-        inputs["seq"] = aux["seq"]
+        seq = self._update_seq(params, inputs, aux, key())
       else:
+        # TODO
         inputs["seq"] = seq = None
 
       # optimize model params

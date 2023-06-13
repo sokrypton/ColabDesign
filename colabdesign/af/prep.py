@@ -34,9 +34,10 @@ class _af_prep:
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
-  def _prep_features(self, num_res, num_seq=None, num_templates=0):
+  def _prep_features(self, num_res, num_seq=None, num_templates=None):
     '''process features'''
     if num_seq is None: num_seq = self._num
+    if num_templates is None: num_templates = self._args["num_templates"]
     return prep_input_features(L=num_res, N=num_seq, T=num_templates)
 
   def _prep_fixbb(self, pdb_filename, chain="A",
@@ -78,7 +79,6 @@ class _af_prep:
 
     num_seq = self._num
     res_idx = self._pdb["residue_index"]
-    num_templates = 1 if self._args["use_templates"] else 0
 
     # repeat/homo-oligomeric support
     if copies > 1:
@@ -102,7 +102,7 @@ class _af_prep:
       homooligomer = not repeat
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq, num_templates=num_templates)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
@@ -144,7 +144,6 @@ class _af_prep:
       (num_seq, block_diag) = (self._num * copies + 1, True)
     else:
       (num_seq, block_diag) = (self._num, False)
-    num_templates = 1 if self._args["use_templates"] else 0
 
     
     self._args.update({"repeat":repeat,"block_diag":block_diag,"copies":copies})
@@ -176,7 +175,7 @@ class _af_prep:
       homooligomer = False
     
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq, num_templates=num_templates)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
@@ -256,7 +255,7 @@ class _af_prep:
       self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1, num_templates=1)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
     self._inputs["batch"] = self._pdb["batch"]
     self._inputs.update(get_multi_id(self._lengths))
 
@@ -320,7 +319,6 @@ class _af_prep:
     # feat dims
     num_seq = self._num
     res_idx = np.arange(self._len)
-    num_templates = 1 if self._args["use_templates"] else 0
     
     # get [pos]itions of interests
     if pos is None:
@@ -361,7 +359,7 @@ class _af_prep:
       homooligomer = not repeat
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq, num_templates=num_templates)
+    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = jax.tree_map(lambda x:x[self._pdb["pos"]], self._pdb["batch"])     
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))

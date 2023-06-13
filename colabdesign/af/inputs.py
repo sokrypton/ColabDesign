@@ -20,9 +20,9 @@ class _af_inputs:
       update_seq(seq, self._inputs, use_jax=False)
       update_aatype(seq, self._inputs, use_jax=False)
 
-  def _get_seq(self, inputs, aux, key=None):
-    params, opt = inputs["params"], inputs["opt"]
+  def _update_seq(self, params, inputs, aux, key=None):
     '''get sequence features'''
+    opt = inputs["opt"]
     seq = soft_seq(params["seq"], inputs["bias"], opt, key, num_seq=self._num,
                    shuffle_first=self._args["shuffle_first"])
     seq = self._fix_pos(seq)
@@ -37,7 +37,20 @@ class _af_inputs:
       
     if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
       seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
-
+              
+    # update sequence features      
+    pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
+    if a["use_mlm"]:
+      shape = seq["pseudo"].shape[:2]
+      mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
+      update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm, mask_target=a["mask_target"])
+    else:
+      update_seq(seq, inputs, seq_pssm=pssm)
+    
+    # update amino acid sidechain identity
+    update_aatype(seq, inputs) 
+    inputs["seq"] = aux["seq"]
+    
     return seq
 
   def _fix_pos(self, seq, return_p=False):

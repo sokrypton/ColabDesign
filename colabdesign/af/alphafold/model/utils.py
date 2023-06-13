@@ -85,14 +85,15 @@ def mask_mean(mask, value, axis=None, drop_mask_channel=False, eps=1e-10):
   return (jnp.sum(mask * value, axis=axis) /
           (jnp.sum(mask, axis=axis) * broadcast_factor + eps))
 
-def flat_params_to_haiku(params, fuse=None):
+def flat_params_to_haiku(params, fuse=None, rm_templates=False):
   """Convert a dictionary of NumPy arrays to Haiku parameters."""
   P = {}
   for path, array in params.items():
     scope, name = path.split('//')
-    if scope not in P:
-      P[scope] = {}
-    P[scope][name] = jnp.array(array)
+    if not rm_templates or "template" not in name:
+      if scope not in P:
+        P[scope] = {}
+      P[scope][name] = jnp.array(array)
   if fuse is not None:
     for a in ["evoformer_iteration",
               "extra_msa_stack",

@@ -6,6 +6,7 @@ from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.utils import dgram_from_positions
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list, copy_missing
 
+
 ####################################################
 # AF_DESIGN - design functions
 ####################################################
@@ -23,7 +24,6 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 ####################################################
 
 class _af_design:
-
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, mode=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
@@ -53,6 +53,8 @@ class _af_design:
     self.set_weights(weights)
   
     # initialize sequence
+    if mode is None and not self._args["optimize_seq"]:
+      mode = "wildtype"
     self.set_seed(seed)
     self.set_seq(seq=seq, mode=mode, **kwargs)
 
@@ -113,19 +115,22 @@ class _af_design:
     self.aux["log"] = {**self.aux["losses"]}
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
     for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
-    for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
-    # compute sequence recovery
-    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self.protocol == "partial":
-        aatype = self.aux["aatype"][...,self.opt["pos"]]
-      else:
-        aatype = self.aux["seq"]["pseudo"].argmax(-1)
+    if self._args["optimize_seq"]:
+      # keep track of sequence mode
+      for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
-      mask = self._wt_aatype != -1
-      true = self._wt_aatype[mask]
-      pred = aatype[...,mask]
-      self.aux["log"]["seqid"] = (true == pred).mean()
+      # compute sequence recovery
+      if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+        if self.protocol == "partial":
+          aatype = self.aux["aatype"][...,self.opt["pos"]]
+        else:
+          aatype = self.aux["seq"]["pseudo"].argmax(-1)
+
+        mask = self._wt_aatype != -1
+        true = self._wt_aatype[mask]
+        pred = aatype[...,mask]
+        self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
@@ -228,15 +233,16 @@ class _af_design:
 
   def step(self, lr_scale=1.0, num_recycles=None,
            num_models=None, sample_models=None, models=None, backprop=True,
-           callback=None, save_best=False, verbose=1):
+           callback=None, save_best=False, save_results=True, verbose=1):
     '''do one step of gradient descent'''
     
     # run
     self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
              models=models, backprop=backprop, callback=callback)
 
-    # modify gradients    
-    if self.opt["norm_seq_grad"]: self._norm_seq_grad()
+    # modify gradients
+    if self._args["optimize_seq"] and self.opt["norm_seq_grad"]:
+      self._norm_seq_grad()
     self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"], self._params)
   
     # apply gradients
@@ -244,7 +250,8 @@ class _af_design:
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # save results
-    self._save_results(save_best=save_best, verbose=verbose)
+    if save_results:
+      self._save_results(save_best=save_best, verbose=verbose)
 
     # increment
     self._k += 1
@@ -269,15 +276,22 @@ class _af_design:
                     verbose=True):
     if aux is None: aux = self.aux    
     self._tmp["log"].append(aux["log"])    
+
+    # update traj
     if (self._k % self._args["traj_iter"]) == 0:
-      # update traj
-      traj = {"seq":   aux["seq"]["pseudo"],
-              "xyz":   aux["atom_positions"][:,1,:],
+      traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
+      if self._args["optimize_seq"]:
+        traj["seq"] = aux["seq"]["pseudo"]
+      else:
+        traj["seq"] = self._inputs["msa_feat"][...,:20]
+              
       for k,v in traj.items():
+        # rm traj (if max number reached)
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:
           self._tmp["traj"][k].pop(0)
+        # add traj
         self._tmp["traj"][k].append(v)
 
     # save best
@@ -300,15 +314,10 @@ class _af_design:
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
-    def load_settings():    
-      if "save" in self._tmp:
-        [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
-
-    def save_settings():
-      load_settings()
-      self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
-
-    save_settings()
+    # save current settings
+    if "save" in self._tmp:
+      [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
+    self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
 
     # set seed if defined
     if seed is not None: self.set_seed(seed)
@@ -322,7 +331,8 @@ class _af_design:
              sample_models=sample_models, models=models, backprop=False, **kwargs)
     if verbose: self._print_log("predict")
 
-    load_settings()
+    # load previous settings
+    [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
 
     # return (or save) results
     if return_aux: return self.aux

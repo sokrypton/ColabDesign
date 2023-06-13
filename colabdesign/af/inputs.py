@@ -20,10 +20,11 @@ class _af_inputs:
       update_seq(seq, self._inputs, use_jax=False)
       update_aatype(seq, self._inputs, use_jax=False)
 
-  def _update_seq(self, params, inputs, aux, key=None):
+  def _update_seq(self, params, inputs, aux, key):
     '''get sequence features'''
     opt = inputs["opt"]
-    seq = soft_seq(params["seq"], inputs["bias"], opt, key, num_seq=self._num,
+    k1, k2 = jax.random.split(key)
+    seq = soft_seq(params["seq"], inputs["bias"], opt, k1, num_seq=self._num,
                    shuffle_first=self._args["shuffle_first"])
     seq = self._fix_pos(seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
@@ -40,10 +41,10 @@ class _af_inputs:
               
     # update sequence features      
     pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
-    if a["use_mlm"]:
+    if self._args["use_mlm"]:
       shape = seq["pseudo"].shape[:2]
-      mlm = jax.random.bernoulli(key(),opt["mlm_dropout"],shape)
-      update_seq(seq, inputs, seq_pssm=pssm, mlm=mlm, mask_target=a["mask_target"])
+      aux["mlm_mask"] = jax.random.bernoulli(k2,opt["mlm_dropout"],shape)
+      update_seq(seq, inputs, seq_pssm=pssm, mlm=aux["mlm_mask"], mask_target=self._args["mask_target"])
     else:
       update_seq(seq, inputs, seq_pssm=pssm)
     

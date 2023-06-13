@@ -104,7 +104,8 @@ class _af_prep:
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
-    self._inputs["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
+    self._inputs["batch"] = make_fixed_size(self._pdb["batch"],
+      num_res=sum(self._lengths), num_templates=self._args["num_templates"])
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
@@ -251,7 +252,8 @@ class _af_prep:
       self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
                                   "con":0.0, "i_con":0.0, "i_pae":0.0})
     else:
-      self._pdb["batch"] = make_fixed_size(self._pdb["batch"], num_res=sum(self._lengths))
+      self._pdb["batch"] = make_fixed_size(self._pdb["batch"],
+        num_res=sum(self._lengths), num_templates=self._args["num_templates"])
       self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
     # configure input features
@@ -496,7 +498,7 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
   }  
   for k,v in feat.items():
     if k == "batch":
-      feat[k] = make_fixed_size(v, num_res)
+      feat[k] = make_fixed_size(v, num_res, num_seq, num_templates)
     elif k in shape_schema:
       shape = list(v.shape)
       schema = shape_schema[k]

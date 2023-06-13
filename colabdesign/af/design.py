@@ -233,7 +233,7 @@ class _af_design:
 
   def step(self, lr_scale=1.0, num_recycles=None,
            num_models=None, sample_models=None, models=None, backprop=True,
-           callback=None, save_best=False, verbose=1):
+           callback=None, save_best=False, save_results=True, verbose=1):
     '''do one step of gradient descent'''
     
     # run
@@ -250,7 +250,8 @@ class _af_design:
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # save results
-    self._save_results(save_best=save_best, verbose=verbose)
+    if save_results:
+      self._save_results(save_best=save_best, verbose=verbose)
 
     # increment
     self._k += 1

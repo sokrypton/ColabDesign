@@ -90,7 +90,7 @@ def flat_params_to_haiku(params, fuse=None, rm_templates=False):
   P = {}
   for path, array in params.items():
     scope, name = path.split('//')
-    if not rm_templates or "template" not in name:
+    if not rm_templates or "template" not in scope:
       if scope not in P:
         P[scope] = {}
       P[scope][name] = jnp.array(array)

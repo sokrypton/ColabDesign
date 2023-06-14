@@ -163,10 +163,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         # TODO
         inputs["seq"] = seq = None
 
-      # optimize model params
-      if "model_params" in params:
-        model_params.update(params["model_params"])
-
       # define masks
       inputs["msa_mask"] = jnp.where(inputs["seq_mask"],inputs["msa_mask"],0)
 
@@ -181,10 +177,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if "batch" not in inputs:
         inputs["batch"] = None
 
+      # optimize model params
+      if "model_params" in params:
+        model_params.update(params["model_params"])
+
       # pre callback
       for fn in self._callbacks["model"]["pre"]:
-        fn_args = {"inputs":inputs, "opt":opt, "aux":aux,
-                   "seq":seq, "key":key(), "params":params}
+        fn_args = {"inputs":inputs, "opt":opt, "aux":aux, "seq":seq, 
+                   "key":key(), "params":params, "model_params":model_params}
         sub_args = {k:fn_args.get(k,None) for k in signature(fn).parameters}
         fn(**sub_args)
       

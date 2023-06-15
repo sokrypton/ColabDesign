@@ -109,8 +109,6 @@ model.set_opt(num_recycles=1)
   - *average* - compute loss at each recycle and average gradients. (Previous default from v.1.0.5)
   - *sample* - Same as *last* but each iteration a different number of recycles are used.
   - *first* - use loss from first recycle.
-  - *add_prev* - average the outputs (dgram, plddt, pae) across all recycles before computing loss.
-  - *backprop* - use loss from last recycle, but backprop through all recycles.
 
 #### How do I control which model params are used during design?
 By default all five models are used during optimization. If `num_models` > 1, then multiple params are evaluated at each iteration and the gradients/losses are averaged. Each iteration a random set of model params are used unless `sample_models=False`.
@@ -128,16 +126,6 @@ You can also specify exactly which models are used during any of the design prot
 model.design_(num_models=1, sample_models=True, models=[0,2,3])
 # or
 model.design_(num_models=2, sample_models=False, models=["model_1_ptm","model_3_ptm"])
-```
-#### Can I use OpenFold model params for design instead of AlphaFold?
-You may need to download them:
-```bash
-  for W in openfold_model_ptm_1 openfold_model_ptm_2 openfold_model_no_templ_ptm_1
-  do wget -qnc https://files.ipd.uw.edu/krypton/openfold/${W}.npz -P params; done
-```
-Once downloaded:
-```python
-model = mk_afdesign_model(use_openfold=True, use_alphafold=False)
 ```
 #### For binder hallucination, can I specify the site I want to bind?
 ```python

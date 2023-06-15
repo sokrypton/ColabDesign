@@ -69,6 +69,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if k in self._args: self._args[k] = kwargs.pop(k)
       if k in self.opt: self.opt[k] = kwargs.pop(k)
 
+    assert self._args["recycle_mode"] in ["average","first","last","sample"]:
+
     if self._args["use_templates"] and self._args["num_templates"] == 0:
       self._args["num_templates"] = 1
 
@@ -100,12 +102,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
 
-
-    if self._args["recycle_mode"] in ["average","first","last","sample"]:
-      num_recycles = 0
-    else:
-      num_recycles = self.opt["num_recycles"]
-    self._cfg.model.num_recycle = num_recycles
+    self._cfg.model.num_recycle = 0
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
     self._cfg.model.global_config.use_dgram_pred = self._args["use_dgram_pred"]
     self._cfg.model.global_config.bfloat16  = self._args["use_bfloat16"]
@@ -142,9 +139,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def _get_model(self, cfg, callback=None):
 
     a = self._args
-    runner = model.RunModel(cfg,
-                            recycle_mode=a["recycle_mode"],
-                            use_multimer=a["use_multimer"])
+    runner = model.RunModel(cfg, use_multimer=a["use_multimer"])
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key):

@@ -169,8 +169,6 @@ class RunModel:
       return model.sample(inputs)
     self.sample = hk.transform(_forward_sample).apply
 
-  def load_params(self, path):
-    self.params = joblib.load(path)
 
 class ProteinFeatures(hk.Module):
   def __init__(self, edge_features, node_features,

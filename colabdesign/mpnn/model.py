@@ -25,9 +25,8 @@ class mk_mpnn_model():
   def __init__(self, model_name="v_48_020",
                backbone_noise=0.0, dropout=0.0,
                seed=None, verbose=False):
-    # load model
-    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
-    checkpoint = joblib.load(path)
+    
+    # configure model
     config = {'num_letters': 21,
               'node_features': 128,
               'edge_features': 128,
@@ -39,7 +38,11 @@ class mk_mpnn_model():
               'dropout': dropout}
     
     self._model = RunModel(config)
-    self._model.params = jax.tree_map(np.array, checkpoint['model_state_dict'])
+    
+    # load model params
+    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
+    self._model_params = jax.tree_map(jnp.array, joblib.load(path)['model_state_dict'])
+    
     self._setup()
     self.set_seed(seed)
 
@@ -245,7 +248,7 @@ class mk_mpnn_model():
       for k in ["S","bias"]:
         if k in I: I[k] = _aa_convert(I[k])
 
-      O = self._model.score(self._model.params, key, I)
+      O = self._model.score(self._model_params, key, I)
       O["S"] = _aa_convert(O["S"], rev=True)
       O["logits"] = _aa_convert(O["logits"], rev=True)
       return O
@@ -278,7 +281,7 @@ class mk_mpnn_model():
       for k in ["S","bias"]:
         if k in I: I[k] = _aa_convert(I[k])
       
-      O = self._model.sample(self._model.params, key, I)
+      O = self._model.sample(self._model_params, key, I)
       O["S"] = _aa_convert(O["S"], rev=True)
       O["logits"] = _aa_convert(O["logits"], rev=True)
       return O

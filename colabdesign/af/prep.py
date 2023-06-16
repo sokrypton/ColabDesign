@@ -46,7 +46,8 @@ class _af_prep:
                   rm_template_seq=True,
                   rm_template_sc=True,
                   rm_template_ic=False,
-                  fix_pos=None, ignore_missing=True, **kwargs):
+                  fix_pos=None,
+                  ignore_missing=True, **kwargs):
     '''
     prep inputs for fixed backbone design
     ---------------------------------------------------
@@ -112,6 +113,12 @@ class _af_prep:
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
     if len(self._lengths) > 1:
       self.opt["weights"].update({"i_pae":0.0, "i_con":0.0})
+
+    # add sidechain loss
+    if kwargs.pop("use_sidechains", self._args["use_sidechains"]):
+      self._args["use_sidechains"] = True
+      self.opt["weights"].update({"sc_fape":0.1, "sc_chi":0.1, "sc_chi_norm":0.0})
+
     self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
 
     # configure template masks
@@ -194,7 +201,7 @@ class _af_prep:
                    rm_binder_seq=True,
                    rm_binder_sc=True,
                    rm_template_ic=False,
-                                      
+
                    hotspot=None, ignore_missing=True, **kwargs):
     '''
     prep inputs for binder design
@@ -251,6 +258,11 @@ class _af_prep:
       self._wt_aatype = self._pdb["batch"]["aatype"][self._target_len:]
       self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
                                   "con":0.0, "i_con":0.0, "i_pae":0.0})
+      # add sidechain loss
+      if kwargs.pop("use_sidechains", self._args["use_sidechains"]):
+        self._args["use_sidechains"] = True
+        self.opt["weights"].update({"sc_fape":0.1, "sc_chi":0.1, "sc_chi_norm":0.0})
+
     else:
       self._pdb["batch"] = make_fixed_size(self._pdb["batch"],
         num_res=sum(self._lengths), num_templates=self._args["num_templates"])
@@ -291,7 +303,7 @@ class _af_prep:
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
                     copies=1, repeat=False, homooligomer=False,
-                    pos=None, fix_pos=None, use_sidechains=False, atoms_to_exclude=None,
+                    pos=None, fix_pos=None, 
                     rm_template=False,
                     rm_template_seq=False,
                     rm_template_sc=False,
@@ -302,8 +314,6 @@ class _af_prep:
     ---------------------------------------------------
     -length=100 - total length of protein (if different from input PDB)
     -pos="1,2-10" - specify which positions to apply supervised loss to
-    -use_sidechains=True - add a sidechain supervised loss to the specified positions
-      -atoms_to_exclude=["N","C","O"] (for sc_rmsd loss, specify which atoms to exclude)
     -rm_template_seq - if template is defined, remove information about template sequence
     -ignore_missing=True - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------    
@@ -371,11 +381,9 @@ class _af_prep:
     self._wt_aatype = self._pdb["batch"]["aatype"][self.opt["pos"]]
 
     # configure sidechains
-    self._args["use_sidechains"] = use_sidechains
-    if use_sidechains:
-      self._sc = {"batch":prep_inputs.make_atom14_positions(self._inputs["batch"]),
-                  "pos":get_sc_pos(self._wt_aatype, atoms_to_exclude)}
-      self.opt["weights"].update({"sc_rmsd":0.1, "sc_fape":0.1})
+    if kwargs.pop("use_sidechains", self._args["use_sidechains"]):
+      self._args["use_sidechains"] = True
+      self.opt["weights"].update({"sc_fape":0.1,"sc_chi":0.1,"sc_chi_norm":0.0})
       self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])      
       self._wt_aatype_sub = self._wt_aatype
       

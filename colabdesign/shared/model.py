@@ -124,6 +124,8 @@ class design_model:
       
       x = np.where(x.sum(-1,keepdims=True) == 1, x, y)
 
+    assert len(kwargs) == 0, f"ERROR: the following inputs were not set: {kwargs}"
+
     # set seq/bias
     if return_values:
       return (x,b)

@@ -36,7 +36,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "use_multimer":use_multimer, "use_bfloat16":True,
                   "optimize_seq":True, "recycle_mode":"last", 
                   "use_mlm": False, "mask_target":False, "unbias_mlm": False,
-                  "realign": True,
+                  "realign": True, "use_sidechains": False,
                   "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
@@ -69,7 +69,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       if k in self._args: self._args[k] = kwargs.pop(k)
       if k in self.opt: self.opt[k] = kwargs.pop(k)
 
-    assert self._args["recycle_mode"] in ["average","first","last","sample"]:
+    assert self._args["recycle_mode"] in ["average","first","last","sample"]
 
     if self._args["use_templates"] and self._args["num_templates"] == 0:
       self._args["num_templates"] = 1

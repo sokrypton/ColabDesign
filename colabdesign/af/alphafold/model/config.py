@@ -358,6 +358,7 @@ CONFIG = ml_collections.ConfigDict({
                 'position_scale': 10.0,
                 'sidechain': {
                     'atom_clamp_distance': 10.0,
+                    'loss_unit_distance': 10.0,
                     'num_channel': 128,
                     'num_residual_block': 2,
                     'weight_frac': 0.5,

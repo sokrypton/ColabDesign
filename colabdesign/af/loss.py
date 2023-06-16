@@ -4,8 +4,10 @@ import numpy as np
 
 from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
-from colabdesign.af.alphafold.model import model, folding, all_atom
+from colabdesign.af.alphafold.model import model, folding, all_atom, geometry
 from colabdesign.af.alphafold.common import confidence, residue_constants
+
+from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer
 
 ####################################################
 # AF_LOSS - setup loss function
@@ -28,6 +30,10 @@ class _af_loss:
       "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
       "rmsd":      aln["rmsd"],
     })
+
+    if self._args["use_sidechains"]:
+      mask_1d = inputs["seq_mask"].at[self._len:].set(0)
+      aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=mask_1d))
     
     # unsupervised losses
     self._loss_unsupervised(inputs, outputs, aux)
@@ -77,6 +83,9 @@ class _af_loss:
         "fape":      fape[-bL:].sum() / (mask_2d[-bL:].sum() + 1e-8)
       })
 
+      if self._args["use_sidechains"]:
+        aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=binder_id))
+
     else:
       align_fn = get_rmsd_loss(inputs, outputs, L=tL)["align"]
 
@@ -115,30 +124,16 @@ class _af_loss:
     self._loss_unsupervised(inputs, outputs, aux)
 
     # sidechain specific losses
-    if self._args["use_sidechains"] and copies == 1:
-    
-      struct = outputs["structure_module"]
-      pred_pos = sub(struct["final_atom14_positions"])
-      true_pos = all_atom.atom37_to_atom14(inputs["batch"]["all_atom_positions"], self._sc["batch"])
-
-      # sc_rmsd
-      aln = _get_sc_rmsd_loss(true_pos, pred_pos, self._sc["pos"])
-      aux["losses"]["sc_rmsd"] = aln["rmsd"]
-      
-      # sc_fape
-      if not self._args["use_multimer"]:
-        sc_struct = {**folding.compute_renamed_ground_truth(self._sc["batch"], pred_pos),
-                     "sidechains":{k: sub(struct["sidechains"][k],1) for k in ["frames","atom_pos"]}}
-        batch =     {**inputs["batch"],
-                     **all_atom.atom37_to_frames(**inputs["batch"])}
-        aux["losses"]["sc_fape"] = folding.sidechain_loss(batch, sc_struct,
-          self._cfg.model.heads.structure_module)["loss"]
-
-      else:  
-        # TODO
-        print("ERROR: 'sc_fape' not currently supported for 'multimer' mode")
-        aux["losses"]["sc_fape"] = 0.0
-
+    if self._args["use_sidechains"]:
+      seq_mask = sub(inputs["seq_mask"])
+      mask_1d = seq_mask.at[pos.shape[0]:].set(0)
+      sub_inputs = {"batch":inputs["batch"],
+                    "seq_mask":seq_mask}
+      sub_outputs = {"structure_module":{"final_atom_positions":atoms,
+                                         "sidechains":{k:sub(outputs["structure_module"]["sidechains"][k],1) \
+                                          for k in ["angles_sin_cos","unnormalized_angles_sin_cos"]}}}
+      aux["losses"].update(get_sc_loss(sub_inputs, sub_outputs, cfg=self._cfg, mask_1d=mask_1d))
+          
     # align final atoms
     if self._args["realign"]:
       aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
@@ -550,3 +545,55 @@ def get_mlm_loss(outputs, mask, truth=None, unbias=False):
   ent = -(truth[...,:20] * jax.nn.log_softmax(x)).sum(-1)
   ent = (ent * mask).sum(-1) / (mask.sum() + 1e-8)
   return {"mlm":ent.mean()}
+
+def get_sc_loss(inputs, outputs, cfg, mask_1d=None):
+  
+  batch = inputs["batch"]
+  aatype = batch["aatype"] 
+  mask = batch["all_atom_mask"]
+  if mask_1d is not None:
+    mask = jnp.where(mask_1d[:,None],mask,0)
+
+  # atom37 representation
+  pred_pos = geometry.Vec3Array.from_array(outputs["structure_module"]["final_atom_positions"])
+  pos = geometry.Vec3Array.from_array(batch["all_atom_positions"])
+
+  # atom14 representation
+  pred_pos14 = all_atom_multimer.atom37_to_atom14(aatype, pred_pos, mask)[0]
+  pos14, mask14, alt_naming_is_better = folding_multimer.compute_atom14_gt(aatype, pos, mask, pred_pos14)
+
+  # frame representation
+  pred_frames = all_atom_multimer.atom37_to_frames(aatype, pred_pos, mask)["rigidgroups_gt_frames"]
+  frames, frames_mask = folding_multimer.compute_frames(aatype, pos, mask, alt_naming_is_better)
+  
+  # chi representation
+  chi_angles, chi_mask = all_atom_multimer.compute_chi_angles(pos, mask, aatype)
+  chi_angles = folding_multimer.get_renamed_chi_angles(aatype, chi_angles, alt_naming_is_better)
+  
+  # sc_chi
+  chi_loss, chi_norm_loss = folding_multimer.supervised_chi_loss(
+    sequence_mask=inputs["seq_mask"],
+    target_chi_mask=chi_mask,
+    target_chi_angles=chi_angles,
+    aatype=aatype,
+    
+    pred_angles=outputs["structure_module"]["sidechains"]['angles_sin_cos'],
+    unnormed_angles=outputs["structure_module"]["sidechains"]['unnormalized_angles_sin_cos'],
+    
+    config=cfg.model.heads.structure_module)[1:]
+
+  # sc_fape
+  sc_fape = folding_multimer.sidechain_loss(
+    gt_frames=frames,
+    gt_frames_mask=frames_mask,
+    gt_positions=pos14,
+    gt_mask=mask14,
+
+    pred_frames=jax.tree_map(lambda x:x[None], pred_frames),
+    pred_positions=jax.tree_map(lambda x:x[None], pred_pos14),
+    
+    config=cfg.model.heads.structure_module)["loss"]
+  
+  return {"sc_fape":sc_fape,
+          "sc_chi":chi_loss,
+          "sc_chi_norm": chi_norm_loss}

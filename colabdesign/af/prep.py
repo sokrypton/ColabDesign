@@ -555,31 +555,18 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
 
-def prep_input_features(L, N=1, T=0, eN=1):
+def prep_input_features(L, N=1, T=0):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
   '''
   inputs = {'aatype': np.zeros(L,int),
             'target_feat': np.zeros((L,20)),
-            'msa_feat': np.zeros((N,L,49)),
-            # 23 = one_hot -> (20, UNK, GAP, MASK)
-            # 1  = has deletion
-            # 1  = deletion_value
-            # 23 = profile
-            # 1  = deletion_mean_value
-  
-            'seq_mask': np.ones(L),
+            'msa': np.zeros((N,L,22)),
+            'deletion_matrix': np.zeros((N,L)),
             'msa_mask': np.ones((N,L)),
-            'msa_row_mask': np.ones(N),
+            'seq_mask': np.ones(L),                        
             'residue_index': np.arange(L),
-            'extra_deletion_value': np.zeros((eN,L)),
-            'extra_has_deletion': np.zeros((eN,L)),
-            'extra_msa': np.zeros((eN,L),int),
-            'extra_msa_mask': np.zeros((eN,L)),
-            'extra_msa_row_mask': np.zeros(eN),
-
-            # for alphafold-multimer
             'asym_id': np.zeros(L),
             'sym_id': np.zeros(L),
             'entity_id': np.zeros(L)}

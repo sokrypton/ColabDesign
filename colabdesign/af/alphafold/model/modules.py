@@ -74,31 +74,6 @@ def dropout_wrapper(module,
 
   return new_act
 
-
-def create_extra_msa_feature(batch):
-  """Expand extra_msa into 1hot and concat with other extra msa features.
-
-  We do this as late as possible as the one_hot extra msa can be very large.
-
-  Arguments:
-    batch: a dictionary with the following keys:
-     * 'extra_msa': [N_extra_seq, N_res] MSA that wasn't selected as a cluster
-       centre. Note, that this is not one-hot encoded.
-     * 'extra_has_deletion': [N_extra_seq, N_res] Whether there is a deletion to
-       the left of each position in the extra MSA.
-     * 'extra_deletion_value': [N_extra_seq, N_res] The number of deletions to
-       the left of each position in the extra MSA.
-
-  Returns:
-    Concatenated tensor of extra MSA features.
-  """
-  # 23 = 20 amino acids + 'X' for unknown + gap + bert mask
-  msa_1hot = jax.nn.one_hot(batch['extra_msa'], 23)
-  msa_feat = [msa_1hot,
-              jnp.expand_dims(batch['extra_has_deletion'], axis=-1),
-              jnp.expand_dims(batch['extra_deletion_value'], axis=-1)]
-  return jnp.concatenate(msa_feat, axis=-1)
-
 class AlphaFoldIteration(hk.Module):
   """A single recycling iteration of AlphaFold architecture.
   Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 3-22
@@ -1474,7 +1449,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       # Embed extra MSA features.
       # Jumper et al. (2021) Suppl. Alg. 2 "Inference" lines 14-16
       if c.use_extra_msa:
-        extra_msa_feat = create_extra_msa_feature(batch)
+        extra_msa_feat = batch["extra_msa_feat"]
         extra_msa_activations = common_modules.Linear(c.extra_msa_channel,
                                                       name='extra_msa_activations')(extra_msa_feat).astype(dtype)
         # Extra MSA Stack.

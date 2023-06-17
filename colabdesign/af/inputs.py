@@ -51,13 +51,7 @@ class _af_inputs:
       seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
               
     # update sequence features      
-    pssm = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
-    if self._args["use_mlm"]:
-      shape = seq["pseudo"].shape[:2]
-      aux["mlm_mask"] = jax.random.bernoulli(k2,opt["mlm_dropout"],shape)
-      update_seq(seq, inputs, seq_pssm=pssm, mlm=aux["mlm_mask"], mask_target=self._args["mask_target"])
-    else:
-      update_seq(seq, inputs, seq_pssm=pssm)
+    update_seq(seq, inputs)
     
     # update amino acid sidechain identity
     update_aatype(seq, inputs) 
@@ -138,45 +132,15 @@ class _af_inputs:
       inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
       inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
-def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=False, use_jax=True):
+def update_seq(seq, inputs, use_jax=True):
   '''update the sequence features'''  
 
   _np = jnp if use_jax else np
-  if isinstance(seq, dict):
-    if seq_1hot is None: seq_1hot = seq["pseudo"] 
-    if seq_pssm is None: seq_pssm = seq["pseudo"]
-  else:
-    if seq_1hot is None: seq_1hot = seq
-    if seq_pssm is None: seq_pssm = seq
+  msa = seq["pseudo"] if isinstance(seq, dict) else seq
     
-  target_feat = seq_1hot[0,:,:20]
-
-  seq_1hot = _np.pad(seq_1hot,[[0,0],[0,0],[0,22-seq_1hot.shape[-1]]])
-  seq_pssm = _np.pad(seq_pssm,[[0,0],[0,0],[0,22-seq_pssm.shape[-1]]])
-  if use_jax:
-    msa_feat = jnp.zeros_like(inputs["msa_feat"]).at[...,0:22].set(seq_1hot).at[...,25:47].set(seq_pssm)
-  else:
-    msa_feat = np.zeros_like(inputs["msa_feat"])
-    msa_feat[...,0:22] = seq_1hot
-    msa_feat[...,25:47] = seq_pssm
-
-
-  # masked language modeling (randomly mask positions)
-  if mlm is not None:
-    X = _np.eye(23)[22]
-    if use_jax:
-      Y = jnp.zeros(msa_feat.shape[-1]).at[...,:23].set(X).at[...,25:48].set(X)
-    else:
-      Y = np.zeros(msa_feat.shape[-1])
-      Y[...,:23] = X 
-      Y[...,25:48] = X
-
-    msa_feat = _np.where(mlm[...,None],Y,msa_feat)
-    seq["pseudo"] = _np.where(mlm[...,None],X[:seq["pseudo"].shape[-1]],seq["pseudo"])
-    if mask_target:
-      target_feat = _np.where(mlm[0,:,None],0,target_feat)
-    
-  inputs.update({"msa_feat":msa_feat, "target_feat":target_feat})
+  target_feat = msa[0,:,:20]
+  msa = _np.pad(msa,[[0,0],[0,0],[0,22-msa.shape[-1]]])
+  inputs.update({"msa":msa, "target_feat":target_feat})
 
 def update_aatype(seq, inputs, use_jax=True):
   _np = jnp if use_jax else np

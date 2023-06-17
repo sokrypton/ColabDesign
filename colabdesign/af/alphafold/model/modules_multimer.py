@@ -38,29 +38,6 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-def create_extra_msa_feature(batch, num_extra_msa):
-  """Expand extra_msa into 1hot and concat with other extra msa features.
-  We do this as late as possible as the one_hot extra msa can be very large.
-  Args:
-    batch: a dictionary with the following keys:
-     * 'extra_msa': [num_seq, num_res] MSA that wasn't selected as a cluster
-       centre. Note - This isn't one-hotted.
-     * 'extra_deletion_matrix': [num_seq, num_res] Number of deletions at given
-        position.
-    num_extra_msa: Number of extra msa to use.
-  Returns:
-    Concatenated tensor of extra MSA features.
-  """
-  # 23 = 20 amino acids + 'X' for unknown + gap + bert mask
-  extra_msa = batch['extra_msa'][:num_extra_msa]
-  deletion_matrix = batch['extra_deletion_value'][:num_extra_msa]
-  msa_1hot = jax.nn.one_hot(extra_msa, 23)
-  has_deletion = jnp.clip(deletion_matrix, 0., 1.)[..., None]
-  deletion_value = (jnp.arctan(deletion_matrix / 3.) * (2. / jnp.pi))[..., None]
-  extra_msa_mask = batch['extra_msa_mask'][:num_extra_msa]
-  return jnp.concatenate([msa_1hot, has_deletion, deletion_value],
-                         axis=-1), extra_msa_mask
-
 class AlphaFoldIteration(hk.Module):
   """A single recycling iteration of AlphaFold architecture.
 
@@ -378,7 +355,8 @@ class EmbeddingsAndEvoformer(hk.Module):
         pair_activations += template_act
 
       # Extra MSA stack.
-      (extra_msa_feat, extra_msa_mask) = create_extra_msa_feature(batch, c.num_extra_msa)
+      extra_msa_feat = batch["extra_msa_feat"]
+      extra_msa_mask = batch["extra_msa_mask"]
       extra_msa_activations = common_modules.Linear(c.extra_msa_channel,
                                                     name='extra_msa_activations')(extra_msa_feat).astype(dtype)
       extra_msa_mask = extra_msa_mask.astype(dtype)

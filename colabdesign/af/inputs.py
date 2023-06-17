@@ -79,65 +79,64 @@ class _af_inputs:
       if return_p: return seq, p
     return seq
 
-  def _update_template(self, inputs, key):
+  def _update_template(self, inputs):
     ''''dynamically update template features''' 
-    if "batch" in inputs:
-      batch, opt = inputs["batch"], inputs["opt"]
 
-      # enable templates
-      inputs["template_mask"] = inputs["template_mask"].at[0].set(1)
-      L = batch["aatype"].shape[0]
+    # gather features
+    opt, batch = inputs["opt"], inputs["batch"]
+    if batch["aatype"].ndim == 1: batch = jax.tree_map(lambda x:x[None], batch)
+    T,L = batch["aatype"].shape
+
+    # decide which position to remove sequence and/or sidechains
+    rm     = jnp.broadcast_to(inputs.get("rm_template",False),L)
+    rm_seq = jnp.where(rm,True,jnp.broadcast_to(inputs.get("rm_template_seq",True),L))
+    rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs.get("rm_template_sc",True),L))
+
+    # define template features
+    template_feats = {"template_aatype":jnp.where(rm_seq,21,batch["aatype"])}
+
+    if "dgram" in batch:
+      # use dgram from batch if provided
+      template_feats.update({"template_dgram":batch["dgram"]})
+      nT,nL = inputs["template_aatype"].shape
+      inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
       
-      # decide which position to remove sequence and/or sidechains
-      rm     = jnp.broadcast_to(inputs.get("rm_template",False),L)
-      rm_seq = jnp.where(rm,True,jnp.broadcast_to(inputs.get("rm_template_seq",True),L))
-      rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs.get("rm_template_sc",True),L))
-                          
-      # define template features
-      template_feats = {"template_aatype":jnp.where(rm_seq,21,batch["aatype"])}
+    if "all_atom_positions" in batch:
+      # use coordinates from batch if provided
+      template_feats.update({"template_all_atom_positions": batch["all_atom_positions"],
+                             "template_all_atom_mask":      batch["all_atom_mask"]})
 
-      if "dgram" in batch:
-        # use dgram from batch if provided
-        template_feats.update({"template_dgram":batch["dgram"]})
-        nT,nL = inputs["template_aatype"].shape
-        inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
-        
-      if "all_atom_positions" in batch:
-        # get pseudo-carbon-beta coordinates (carbon-alpha for glycine)
-        # aatype = is used to define template's CB coordinates (CA in case of glycine)
-        cb, cb_mask = model.modules.pseudo_beta_fn(
-          jnp.where(rm_seq,0,batch["aatype"]),
-          batch["all_atom_positions"],
-          batch["all_atom_mask"])
-        template_feats.update({"template_pseudo_beta":        cb,
-                               "template_pseudo_beta_mask":   cb_mask,
-                               "template_all_atom_positions": batch["all_atom_positions"],
-                               "template_all_atom_mask":      batch["all_atom_mask"]})
-
+    # enable templates
+    inputs["template_mask"] = inputs["template_mask"].at[:T].set(1)    
+    
+    if self.protocol == "partial":
+      # figure out what positions to use
+      pos = opt["pos"]
+      if self._args["repeat"] or self._args["homooligomer"]:
+        # if repeat/homooligomer propagate the positions across copies 
+        C = self._args["copies"]
+        pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * self._len).T.flatten()
+      
       # inject template features
-      if self.protocol == "partial":
-        pos = opt["pos"]
-        if self._args["repeat"] or self._args["homooligomer"]:
-          C,L = self._args["copies"], self._len
-          pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
-
       for k,v in template_feats.items():
-        if self.protocol == "partial":
-          if k in ["template_dgram"]:
-            inputs[k] = inputs[k].at[0,pos[:,None],pos[None,:]].set(v)
-          else:
-            inputs[k] = inputs[k].at[0,pos].set(v)
+        if k in ["template_dgram"]:
+          inputs[k] = inputs[k].at[:T,pos[:,None],pos[None,:]].set(v)
         else:
-          inputs[k] = inputs[k].at[0].set(v)
-        
-        # remove sidechains (mask anything beyond CB)
-        if k in ["template_all_atom_mask"]:
-          if self.protocol == "partial":
-            inputs[k] = inputs[k].at[:,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:,pos,5:]))
-            inputs[k] = inputs[k].at[:,pos].set(jnp.where(rm[:,None],0,inputs[k][:,pos]))
-          else:
-            inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
-            inputs[k] = jnp.where(rm[:,None],0,inputs[k])
+          inputs[k] = inputs[k].at[:T,pos].set(v)
+
+      # remove sidechains (mask anything beyond CB)
+      k = "template_all_atom_mask"
+      inputs[k] = inputs[k].at[:T,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,pos,5:]))
+      inputs[k] = inputs[k].at[:T,pos].set(jnp.where(rm[:,None],0,inputs[k][:T,pos]))
+
+    else:
+      # inject template features
+      for k,v in template_feats.items():
+        inputs[k] = inputs[k].at[:T].set(v)      
+      # remove sidechains (mask anything beyond CB)
+      k = "template_all_atom_mask"
+      inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
+      inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
 def update_seq(seq, inputs, seq_1hot=None, seq_pssm=None, mlm=None, mask_target=False, use_jax=True):
   '''update the sequence features'''  
@@ -185,13 +184,6 @@ def update_aatype(seq, inputs, use_jax=True):
     aatype = seq["pseudo"][0].argmax(-1)
   else:
     aatype = seq[0].argmax(-1)
-  r = residue_constants
-  a = {"atom14_atom_exists":r.restype_atom14_mask,
-       "atom37_atom_exists":r.restype_atom37_mask,
-       "residx_atom14_to_atom37":r.restype_atom14_to_atom37,
-       "residx_atom37_to_atom14":r.restype_atom37_to_atom14}
-  mask = inputs["seq_mask"][:,None]
-  inputs.update(jax.tree_map(lambda x:_np.where(mask,_np.asarray(x)[aatype],0),a))
   inputs["aatype"] = aatype
 
 def np_one_hot(x, alphabet):

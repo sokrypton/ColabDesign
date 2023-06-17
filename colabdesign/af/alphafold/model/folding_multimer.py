@@ -593,23 +593,19 @@ class StructureModule(hk.Module):
     ret['sidechains']['atom_pos'] = ret['sidechains']['atom_pos'].to_array()
     ret['sidechains']['frames'] = ret['sidechains']['frames'].to_array()
     if 'local_atom_pos' in ret['sidechains']:
-      ret['sidechains']['local_atom_pos'] = ret['sidechains'][
-          'local_atom_pos'].to_array()
-      ret['sidechains']['local_frames'] = ret['sidechains'][
-          'local_frames'].to_array()
+      ret['sidechains']['local_atom_pos'] = ret['sidechains']['local_atom_pos'].to_array()
+      ret['sidechains']['local_frames'] = ret['sidechains']['local_frames'].to_array()
 
     aatype = batch['aatype']
     seq_mask = batch['seq_mask']
 
-    atom14_pred_mask = all_atom_multimer.get_atom14_mask(
-        aatype) * seq_mask[:, None]
+    atom14_pred_mask = all_atom_multimer.get_atom14_mask(aatype) * seq_mask[:, None]
     atom14_pred_positions = output['sc']['atom_pos'][-1]
     ret['final_atom14_positions'] = atom14_pred_positions  # (N, 14, 3)
     ret['final_atom14_mask'] = atom14_pred_mask  # (N, 14)
 
     atom37_mask = all_atom_multimer.get_atom37_mask(aatype) * seq_mask[:, None]
-    atom37_pred_positions = all_atom_multimer.atom14_to_atom37(
-        atom14_pred_positions, aatype)
+    atom37_pred_positions = all_atom_multimer.atom14_to_atom37(atom14_pred_positions, aatype)
     atom37_pred_positions *= atom37_mask[:, :, None]
     ret['final_atom_positions'] = atom37_pred_positions  # (N, 37, 3)
     ret['final_atom_mask'] = atom37_mask  # (N, 37)

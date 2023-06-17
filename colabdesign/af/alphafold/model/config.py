@@ -234,9 +234,6 @@ CONFIG = ml_collections.ConfigDict({
             },
             'recycle_features': True,
             'recycle_pos': True,
-            'recycle_dgram': False,
-            'backprop_dgram': False,
-            'backprop_dgram_temp': 1.0,
             'seq_channel': 384,
             'template': {
                 'attention': {
@@ -250,8 +247,6 @@ CONFIG = ml_collections.ConfigDict({
                     'max_bin': 50.75,
                     'num_bins': 39
                 },
-                'backprop_dgram': False,
-                'backprop_dgram_temp': 1.0,
                 'embed_torsion_angles': False,
                 'enabled': False,
                 'template_pair_stack': {

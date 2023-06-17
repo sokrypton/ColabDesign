@@ -162,7 +162,7 @@ class AlphaFold(hk.Module):
           new_prev['prev_dgram'] = dgram @ dgram_map
         else:
           pos = ret['structure_module']['final_atom_positions']
-          prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], pos, None)
+          prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], pos)
           new_prev['prev_dgram'] = dgram_from_positions(prev_pseudo_beta, min_bin=3.25, max_bin=20.75, num_bins=15)
       else:
         new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
@@ -1226,22 +1226,25 @@ def dgram_from_positions_soft(positions, num_bins, min_bin, max_bin, temp=2.0):
   o = o/(o.sum(-1,keepdims=True) + 1e-8)
   return o[...,1:]
 
-def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask):
+def pseudo_beta_fn(aatype, all_atom_positions, all_atom_mask=None):
   """Create pseudo beta features."""
   
   ca_idx = residue_constants.atom_order['CA']
   cb_idx = residue_constants.atom_order['CB']
 
+  # set gap character to alanine
+  aatype = jnp.where(jnp.equal(aatype, 21),0,aatype)
+
   is_gly = jnp.equal(aatype, residue_constants.restype_order['G'])
   is_gly_tile = jnp.tile(is_gly[..., None], [1] * len(is_gly.shape) + [3])
   pseudo_beta = jnp.where(is_gly_tile, all_atom_positions[..., ca_idx, :], all_atom_positions[..., cb_idx, :])
 
-  if all_atom_mask is not None:
+  if all_atom_mask is None:
+    return pseudo_beta
+  else:
     pseudo_beta_mask = jnp.where(is_gly, all_atom_mask[..., ca_idx], all_atom_mask[..., cb_idx])
     pseudo_beta_mask = pseudo_beta_mask.astype(jnp.float32)
     return pseudo_beta, pseudo_beta_mask
-  else:
-    return pseudo_beta
 
 class EvoformerIteration(hk.Module):
   """Single iteration (block) of Evoformer stack.
@@ -1409,7 +1412,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       if "prev_dgram" in batch:
         dgram = batch["prev_dgram"]
       else:
-        prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
+        prev_pseudo_beta = pseudo_beta_fn(batch['aatype'], batch['prev_pos'])
         dgram = dgram_from_positions(prev_pseudo_beta, **c.prev_pos)
       dgram = dgram.astype(dtype)    
       pair_activations += common_modules.Linear(c.pair_channel, name='prev_pos_linear')(dgram)
@@ -1606,23 +1609,20 @@ class SingleTemplateEmbedding(hk.Module):
     assert mask_2d.dtype == query_embedding.dtype
     dtype = query_embedding.dtype
     num_res = batch['template_aatype'].shape[0]
-    num_channels = (self.config.template_pair_stack
-                    .triangle_attention_ending_node.value_dim)
+    num_channels = (self.config.template_pair_stack.triangle_attention_ending_node.value_dim)
 
     if "template_dgram" in batch:
       template_dgram = batch["template_dgram"]
       template_mask_2d = batch["template_dgram"].sum(-1)
 
     else:
-      template_mask = batch['template_pseudo_beta_mask']
+      template_positions, template_mask = pseudo_beta_fn(
+      batch["template_aatype"],
+      batch["template_all_atom_positions"],
+      batch["template_all_atom_mask"])
+
       template_mask_2d = template_mask[:, None] * template_mask[None, :]
-      if self.config.backprop_dgram:
-        template_dgram = dgram_from_positions_soft(batch['template_pseudo_beta'],
-                                                   temp=self.config.backprop_dgram_temp,
-                                                   **self.config.dgram_features)
-      else:
-        template_dgram = dgram_from_positions(batch['template_pseudo_beta'],
-                                              **self.config.dgram_features)
+      template_dgram = dgram_from_positions(template_positions, **self.config.dgram_features)
 
     template_mask_2d = template_mask_2d * multichain_mask_2d
     template_mask_2d = template_mask_2d.astype(dtype)

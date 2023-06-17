@@ -3,7 +3,6 @@ import jax.numpy as jnp
 import numpy as np
 import re
 
-from colabdesign.af.alphafold.data import pipeline, prep_inputs
 from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 from colabdesign.af.alphafold.model import config
@@ -580,12 +579,6 @@ def prep_input_features(L, N=1, T=0, eN=1):
             'extra_msa_mask': np.zeros((eN,L)),
             'extra_msa_row_mask': np.zeros(eN),
 
-            # for alphafold-ptm
-            'atom14_atom_exists': np.zeros((L,14)),
-            'atom37_atom_exists': np.zeros((L,37)),
-            'residx_atom14_to_atom37': np.zeros((L,14),int),
-            'residx_atom37_to_atom14': np.zeros((L,37),int),            
-
             # for alphafold-multimer
             'asym_id': np.zeros(L),
             'sym_id': np.zeros(L),
@@ -596,10 +589,7 @@ def prep_input_features(L, N=1, T=0, eN=1):
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
             'template_all_atom_positions': np.zeros((T,L,37,3)),
-            'template_mask': np.zeros(T),
-            'template_pseudo_beta': np.zeros((T,L,3)),
-            'template_pseudo_beta_mask': np.zeros((T,L)),
-      })
+            'template_mask': np.zeros(T)})
   return inputs
 
 def get_multi_id(lengths, homooligomer=False):

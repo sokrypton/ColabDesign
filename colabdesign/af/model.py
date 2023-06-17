@@ -164,7 +164,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # update template features
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]
       if a["use_templates"]:
-        self._update_template(inputs, key())
+        self._update_template(inputs)
       
       # set dropout
       inputs["use_dropout"] = opt["dropout"]

@@ -38,6 +38,7 @@ from colabdesign.af.alphafold.common import residue_constants
 
 from colabdesign.af.alphafold.model import r3
 from colabdesign.af.alphafold.model import utils
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -71,40 +72,6 @@ def get_chi_atom_indices():
   chi_atom_indices.append([[0, 0, 0, 0]] * 4)  # For UNKNOWN residue.
 
   return jnp.asarray(chi_atom_indices)
-
-
-def atom14_to_atom37(atom14_data: jnp.ndarray,  # (N, 14, ...)
-                     batch: Dict[str, jnp.ndarray]
-                    ) -> jnp.ndarray:  # (N, 37, ...)
-  """Convert atom14 to atom37 representation."""
-  assert len(atom14_data.shape) in [2, 3]
-  assert 'residx_atom37_to_atom14' in batch
-  assert 'atom37_atom_exists' in batch
-  
-  atom37_data = utils.batched_gather(atom14_data, batch['residx_atom37_to_atom14'], batch_dims=1)
-    
-  if len(atom14_data.shape) == 2:
-    atom37_data *= batch['atom37_atom_exists']
-  elif len(atom14_data.shape) == 3:
-    atom37_data *= batch['atom37_atom_exists'][:, :, None].astype(atom37_data.dtype)
-  return atom37_data
-
-def atom37_to_atom14(
-    atom37_data: jnp.ndarray,  # (N, 37, ...)
-    batch: Dict[str, jnp.ndarray]) -> jnp.ndarray:  # (N, 14, ...)
-  """Convert atom14 to atom37 representation."""
-  assert len(atom37_data.shape) in [2, 3]
-  assert 'residx_atom14_to_atom37' in batch
-  assert 'atom14_atom_exists' in batch
-
-  atom14_data = utils.batched_gather(atom37_data, batch['residx_atom14_to_atom37'], batch_dims=1)
-    
-  if len(atom37_data.shape) == 2:
-    atom14_data *= batch['atom14_atom_exists'].astype(atom14_data.dtype)
-  elif len(atom37_data.shape) == 3:
-    atom14_data *= batch['atom14_atom_exists'][:, :, None].astype(atom14_data.dtype)
-  return atom14_data
-
 
 def atom37_to_frames(
     aatype: jnp.ndarray,  # (...)
@@ -914,7 +881,6 @@ def within_residue_violations(
   return {'per_atom_loss_sum': per_atom_loss_sum,  # shape (N, 14)
           'per_atom_violations': per_atom_violations  # shape (N, 14)
          }
-
 
 def find_optimal_renaming(
     atom14_gt_positions: jnp.ndarray,  # (N, 14, 3)

@@ -188,7 +188,7 @@ class AlphaFold(hk.Module):
           new_prev['prev_dgram'] = dgram @ dgram_map
         else:
           pos = ret['structure_module']['final_atom_positions']
-          prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], pos, None)
+          prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], pos)
           new_prev['prev_dgram'] = modules.dgram_from_positions(prev_pseudo_beta, min_bin=3.25, max_bin=20.75, num_bins=15)
       else:
         new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
@@ -328,7 +328,7 @@ class EmbeddingsAndEvoformer(hk.Module):
         if "prev_dgram" in batch:
           dgram = batch["prev_dgram"]
         else:        
-          prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
+          prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], batch['prev_pos'])
           dgram = modules.dgram_from_positions(prev_pseudo_beta, **self.config.prev_pos)
         
         dgram = dgram.astype(dtype)

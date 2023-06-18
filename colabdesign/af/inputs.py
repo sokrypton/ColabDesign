@@ -4,6 +4,7 @@ import numpy as np
 
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
+from colabdesign.shared.parsers import parse_a3m
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.alphafold.model import model, config
 
@@ -20,10 +21,8 @@ class _af_inputs:
       seq,_ = self._set_seq(seq=seq, mode=mode, return_values=True, **kwargs)
       if self.protocol == "binder":
         # concatenate target and binder sequence
-        seq_target = self._inputs["batch"]["aatype"][:self._target_len]
-        seq_target_oh = np_one_hot(seq_target, self._args["alphabet_size"])
-        seq_target_oh = np.broadcast_to(seq_target_oh,(self._num, *seq_target_oh.shape))
-        seq = np.concatenate([seq_target_oh,seq],1)
+        seq = np.pad(seq,[[0,0],[self._target_len,0],[0,0]])
+        seq[:,:self._target_len] = np_one_hot(self._inputs["batch"]["aatype"][:self._target_len],22)
       
       if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
         seq = expand_copies(seq, self._args["copies"], self._args["block_diag"], use_jax=False)
@@ -59,6 +58,39 @@ class _af_inputs:
     
     return seq
 
+  def set_msa(self, a3m_filename=None, msa=None, deletion_matrix=None):
+    ''' set msa '''
+
+    assert self._args["optimize_seq"] == False
+
+    if a3m_filename is not None:
+      msa, deletion_matrix = parse_a3m(a3m_filename=a3m_filename)
+
+    assert msa is not None
+
+    if msa.ndim == 2:
+      msa = np_one_hot(msa,22)
+
+    if deletion_matrix is None:
+      deletion_matrix = np.zeros(msa.shape[:2])
+
+    if self.protocol == "binder":
+      # add target sequence
+      msa = np.pad(msa,[[0,0],[self._target_len,0],[0,0]])
+      deletion_matrix = np.pad(deletion_matrix,[[0,0],[self._target_len,0]])
+      msa[0,:self._target_len] = np_one_hot(self._inputs["batch"]["aatype"][:self._target_len],22)
+      msa[1:,:self._target_len,-1] = 1
+    
+    elif self._args["copies"] > 1:
+      msa, deletion_matrix = expand_copies(msa, copies=self._args["copies"], 
+        block_diag=self._args["block_diag"], d=deletion_matrix, use_jax=False)
+
+    self._inputs["aatype"] = msa[0].argmax(-1)
+    self._inputs["target_feat"] = msa[0,:,:20]
+    self._inputs["msa"] = msa
+    self._inputs["msa_mask"] = np.ones_like(deletion_matrix)
+    self._inputs["deletion_matrix"] = deletion_matrix
+  
   def _fix_pos(self, seq, return_p=False):
     if "fix_pos" in self.opt:
       if "pos" in self.opt:
@@ -153,23 +185,30 @@ def update_aatype(seq, inputs, use_jax=True):
 def np_one_hot(x, alphabet):
   return np.pad(np.eye(alphabet),[[0,1],[0,0]])[x]
 
-def expand_copies(x, copies, block_diag=True, use_jax=True):
+def expand_copies(x, copies=1, block_diag=True, d=None, use_jax=True):
   '''
   given msa (N,L,20) expand to (1+N*copies,L*copies,22) if block_diag else (N,L*copies,22)
   '''
   _np = jnp if use_jax else np
   one_hot = jax.nn.one_hot if use_jax else np_one_hot
-  if x.shape[-1] < 22:
-    x = _np.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
+  x = _np.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
   x = _np.tile(x,[1,copies,1])
+  if d is not None:
+    d = _np.tile(d,[1,copies])
   if copies > 1 and block_diag:
     L = x.shape[1]
     sub_L = L // copies
     y = x.reshape((-1,1,copies,sub_L,22))
+    if d is not None:
+      d_diag = (d.reshape((-1,1,copies,sub_L)) * _np.eye(copies)[None,:,:,None]).reshape((-1,L))
+      d = _np.concatenate([d[:1],d_diag],0)
     block_diag_mask = _np.expand_dims(_np.eye(copies),(0,3,4))
     seq = block_diag_mask * y
     gap_seq = (1-block_diag_mask) * one_hot(_np.repeat(21,sub_L),22)
-    y = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
-    return _np.concatenate([x[:1],y],0)
+    x_diag = (seq + gap_seq).swapaxes(0,1).reshape(-1,L,22)
+    x = _np.concatenate([x[:1],x_diag],0)
+  
+  if d is not None:
+    return x,d
   else:
     return x

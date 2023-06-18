@@ -285,7 +285,7 @@ class _af_design:
       if self._args["optimize_seq"]:
         traj["seq"] = aux["seq"]["pseudo"]
       else:
-        traj["seq"] = self._inputs["msa_feat"][...,:20]
+        traj["seq"] = aux["seq"]
               
       for k,v in traj.items():
         # rm traj (if max number reached)

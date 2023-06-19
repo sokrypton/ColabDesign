@@ -37,7 +37,8 @@ class _af_prep:
     '''process features'''
     if num_seq is None: num_seq = self._num
     if num_templates is None: num_templates = self._args["num_templates"]
-    return prep_input_features(L=num_res, N=num_seq, T=num_templates)
+    return prep_input_features(L=num_res, N=num_seq, T=num_templates,
+      one_hot_msa=not self._args["optimize_seq"])
 
   def _prep_fixbb(self, pdb_filename, chain="A",
                   copies=1, repeat=False, homooligomer=False,
@@ -555,21 +556,20 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
 
-def prep_input_features(L, N=1, T=1):
+def prep_input_features(L, N=1, T=1, one_hot_msa=True):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
   '''
   inputs = {'aatype': np.zeros(L,int),
             'target_feat': np.zeros((L,20)),
-            'msa': np.zeros((N,L,22)),
             'deletion_matrix': np.zeros((N,L)),
             'msa_mask': np.ones((N,L)),
             'seq_mask': np.ones(L),                        
             'residue_index': np.arange(L),
-            'asym_id': np.zeros(L),
-            'sym_id': np.zeros(L),
-            'entity_id': np.zeros(L),
+            'asym_id': np.zeros(L,int),
+            'sym_id': np.zeros(L,int),
+            'entity_id': np.zeros(L,int),
 
             # for template inputs
             'template_aatype': np.zeros((T,L),int),
@@ -577,6 +577,7 @@ def prep_input_features(L, N=1, T=1):
             'template_all_atom_positions': np.zeros((T,L,37,3)),
             'template_mask': np.zeros(T)
             }
+  inputs['msa'] = np.zeros((N,L,22)) if one_hot_msa else np.zeros((N,L),int)
   return inputs
 
 def get_multi_id(lengths, homooligomer=False):

@@ -53,10 +53,13 @@ class _af_design:
     self.set_weights(weights)
   
     # initialize sequence
-    if mode is None and not self._args["optimize_seq"]:
-      mode = "wildtype"
     self.set_seed(seed)
-    self.set_seq(seq=seq, mode=mode, **kwargs)
+    if self._args["optimize_seq"]:
+      self.set_seq(seq=seq, mode=mode, **kwargs)    
+    elif hasattr(self,"_wt_aatype"):
+      self.set_msa(msa=self._wt_aatype)
+    elif seq is not None:
+      self.set_msa(msa=seq)
 
     # reset optimizer
     self._k = 0

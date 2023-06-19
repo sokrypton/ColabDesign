@@ -555,7 +555,7 @@ def get_sc_pos(aa_ident, atoms_to_exclude=None):
   return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
           "weight":w, "weight_non_amb":w_na[:,None]}
 
-def prep_input_features(L, N=1, T=0):
+def prep_input_features(L, N=1, T=1):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
@@ -569,14 +569,14 @@ def prep_input_features(L, N=1, T=0):
             'residue_index': np.arange(L),
             'asym_id': np.zeros(L),
             'sym_id': np.zeros(L),
-            'entity_id': np.zeros(L)}
-  if T > 0:
-    inputs.update({      
+            'entity_id': np.zeros(L),
+
             # for template inputs
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
             'template_all_atom_positions': np.zeros((T,L,37,3)),
-            'template_mask': np.zeros(T)})
+            'template_mask': np.zeros(T)
+            }
   return inputs
 
 def get_multi_id(lengths, homooligomer=False):

@@ -33,7 +33,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
-    self._args = {"use_templates":use_templates, "num_templates":0,
+    self._args = {"use_templates":use_templates, "num_templates":1,
                   "use_multimer":use_multimer, "use_bfloat16":True,
                   "optimize_seq":True, "recycle_mode":"last", 
                   "realign": True, "use_sidechains": False, 
@@ -72,9 +72,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     assert self._args["recycle_mode"] in ["average","first","last","sample"]
 
-    if self._args["use_templates"] and self._args["num_templates"] == 0:
-      self._args["num_templates"] = 1
-
     # collect callbacks
     self._callbacks = {"model": {"pre": kwargs.pop("pre_callback",None),
                                  "post":kwargs.pop("post_callback",None),
@@ -95,7 +92,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     if self._args["use_multimer"]:
       self._cfg = config.model_config("model_1_multimer")      
-      self.opt["pssm_hard"] = True # TODO
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
 
@@ -103,7 +99,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
     self._cfg.model.global_config.use_dgram_pred = self._args["use_dgram_pred"]
     self._cfg.model.global_config.bfloat16  = self._args["use_bfloat16"]
-    self._cfg.model.embeddings_and_evoformer.template.enabled = self._args["use_templates"]
 
     # load model_params
     if model_names is None:
@@ -119,7 +114,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
       params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir,
-        fuse=True, rm_templates=not self._args["use_templates"])
+        fuse=True, rm_templates=(not self._args["use_templates"] and not self._args["use_multimer"]))
       if params is not None:
         self._model_params.append(params)
         self._model_names.append(model_name)

@@ -266,8 +266,12 @@ def make_msa_profile(batch):
   batch["msa_profile"] = utils.mask_mean(batch['msa_mask'][:,:,None], msa_1hot, axis=0)
 
 def pad_msa_N(batch, num_msa, num_extra_msa):
-  if batch["msa"].shape[0] < (num_msa + num_extra_msa):
-    N = num_msa + num_extra_msa - batch["msa"].shape[0]
+  if batch["msa"].ndim == 2:
+    batch["msa"] = jax.nn.one_hot(batch["msa"],22)
+  
+  num = batch["msa"].shape[0]
+  if num < (num_msa + num_extra_msa):
+    N = num_msa + num_extra_msa - num
     batch["msa"] = jnp.pad(batch["msa"],[[0,N],[0,0],[0,0]])
     batch["msa_mask"] = jnp.pad(batch["msa_mask"],[[0,N],[0,0]])
     batch["deletion_matrix"] = jnp.pad(batch["deletion_matrix"],[[0,N],[0,0]])

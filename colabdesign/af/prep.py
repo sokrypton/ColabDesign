@@ -146,7 +146,10 @@ class _af_prep:
       self._inputs.update(rm_dict)
       self.opt["template"]["rm_ic"] = rm_template_ic
   
-    self._prep_model(**kwargs)
+    if kwargs.pop("do_not_prep_model",False):
+      return kwargs
+    else:
+      self._prep_model(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1, **kwargs):
     '''
@@ -191,10 +194,7 @@ class _af_prep:
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs.update(chain_enc)
 
-    if kwargs.pop("do_not_prep_model",False):
-      return kwargs
-    else:
-      self._prep_model(**kwargs)
+    self._prep_model(**kwargs)
 
   def _prep_binder(self, pdb_filename,
                    target_chain="A", binder_len=50,                                         
@@ -311,7 +311,7 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_partial(self, pdb_filename, chain=None, length=None,
+  def _prep_partial(self, pdb_filename, chain="A", length=None,
                     copies=1, pos=None, fix_pos=None, 
                     rm_template=False,
                     rm_template_seq=False,
@@ -320,10 +320,9 @@ class _af_prep:
                     ignore_missing=True,
                     parse_as_homooligomer=False,
                     **kwargs):
-    
-    parse_as_homooligomer = kwargs.pop("homooligomer",parse_as_homooligomer)    
-    
+        
     # initialize with fixbb protocol
+    kwargs["do_not_prep_model"] = True
     kwargs = self._prep_fixbb(
       pdb_filename=pdb_filename,
       chain=chain, 
@@ -331,7 +330,6 @@ class _af_prep:
       fix_pos=fix_pos,
       ignore_missing=ignore_missing,
       parse_as_homooligomer=parse_as_homooligomer,
-      do_not_prep_model=do_not_prep_model      
       **kwargs)
 
     # configure weights
@@ -350,22 +348,23 @@ class _af_prep:
 
     # subselect inputs
     self._inputs["batch"] = jax.tree_map(lambda x:x[pos], self._inputs["batch"]) 
-    self._wt_aatype = self._wt_aatype[pos]
 
     if self._args["use_sidechains"]:
       self.opt["weights"].update({"sc_fape":0.1,"sc_chi":0.1,"sc_chi_norm":0.0})
       self.opt["fix_pos"] = np.arange(len(pos))
-      self._wt_aatype_sub = self._wt_aatype
+      self._wt_aatype_sub = self._wt_aatype[pos]
 
     elif "fix_pos" in self.opt:
       pos_list = pos.tolist()
-      sub_fix_pos,sub_i = [],[]
+      sub_n,sub_i = [],[]
       for i in self.opt["fix_pos"].tolist():
         if i in pos_list:
           sub_i.append(i)
-          sub_fix_pos.append(pos.index(i))
-      self.opt["fix_pos"] = np.array(sub_fix_pos)
+          sub_n.append(pos_list.index(i))
+      self.opt["fix_pos"] = np.array(sub_n)
       self._wt_aatype_sub = self._wt_aatype[sub_i]
+    
+    self._wt_aatype = self._wt_aatype_sub
 
     if self._args["use_templates"]:
       for k in ["rm_template","rm_template_sc","rm_template_seq"]:
@@ -464,7 +463,24 @@ def prep_pdb(pdb_filename, chain=None,
   o["lengths"] = full_lengths
   return o
 
-def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
+def smarter_pad(arr, pad_values, pad_value=0):
+  pad_values = np.array(pad_values)
+
+  # Handle negative padding (removal of elements)
+  for idx, (pad_start, pad_end) in enumerate(pad_values):
+    if len(arr.shape) > idx:  # If the dimension exists
+      if pad_start < 0:  # If start padding is negative, remove elements from the start
+        arr = arr[abs(pad_start):]
+      if pad_end < 0:  # If end padding is negative, remove elements from the end
+        arr = arr[:arr.shape[0] + pad_end]
+
+  # Handle positive padding (addition of elements)
+  pad_values = np.where(pad_values < 0, 0, pad_values)
+  arr = np.pad(arr, pad_values, mode='constant', constant_values=pad_value)
+
+  return arr
+
+def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False):
   '''pad input features'''
   shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
 
@@ -475,17 +491,14 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1):
       shape_placeholders.NUM_TEMPLATES: num_templates
   }  
   for k,v in feat.items():
-    if k == "batch":
+    if k == "batch" and not skip_batch:
       feat[k] = make_fixed_size(v, num_res, num_seq, num_templates)
     elif k in shape_schema:
       shape = list(v.shape)
-      schema = shape_schema[k]
-      assert len(shape) == len(schema), (
-          f'Rank mismatch between shape and shape schema for {k}: '
-          f'{shape} vs {schema}')
+      schema = shape_schema[k][:len(shape)]
       pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
       padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-      feat[k] = np.pad(v, padding)
+      feat[k] = smarter_pad(v, padding)
   return feat
 
 def get_sc_pos(aa_ident, atoms_to_exclude=None):

@@ -38,7 +38,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "optimize_seq":True, "recycle_mode":"last", 
                   "realign": True, "use_sidechains": False, 
                   "num_msa":512, "num_extra_msa":1024, "use_mlm": False, "use_cluster_profile": False,
-                  "debug":debug, "repeat":False, "homooligomer":False, "copies":1,
+                  "debug":debug, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
                   "clear_prev": True, "use_dgram":False, "use_dgram_pred":False,

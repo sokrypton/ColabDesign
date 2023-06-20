@@ -133,7 +133,7 @@ class mk_mpnn_model():
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
 
     # tie positions
-    if af._args["homooligomer"]:
+    if af._args["copies"] > 1:
       assert min(self._lengths) == max(self._lengths)
       self._tied_lengths = True
     else:

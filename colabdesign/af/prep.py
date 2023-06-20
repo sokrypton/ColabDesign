@@ -64,11 +64,12 @@ class _af_prep:
     -ignore_missing=True   - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
+    
+    parse_as_homooligomer = kwargs.pop("homooligomer",parse_as_homooligomer)    
     if isinstance(chain,str): chain = chain.split(",")
+    
     # prep features
-    self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
-                         offsets=kwargs.pop("pdb_offsets",None),
-                         lengths=kwargs.pop("pdb_lengths",None))
+    self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
 
     if parse_as_homooligomer:
       if copies == 1: copies = len(chain)
@@ -104,17 +105,13 @@ class _af_prep:
       chain_enc[k] = np.concatenate(chain_enc[k])
     
     # get [pos]itions of interests 
-    if fix_pos == "": fix_pos = None
     if fix_pos is not None:
-      self._pos_info = prep_pos(fix_pos, **self._pdb["idx"])
-      self.opt["fix_pos"] = self._pos_info["pos"]
-      if homooligomer:
-        self.opt["fix_pos"] = self.opt["fix_pos"][self.opt["fix_pos"] < self._len]
+      fix_pos = prep_pos(fix_pos, **self._pdb["idx"])["pos"]
+      if parse_as_homooligomer:
+        fix_pos = fix_pos[fix_pos < self._len]
+      self.opt["fix_pos"] = fix_pos
     
-    self._args.update({"copies":copies,
-                       "repeat":False,
-                       "homooligomer":copies > 1,
-                       "block_diag":block_diag})
+    self._args.update({"copies":copies,"block_diag":block_diag})
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
@@ -161,7 +158,7 @@ class _af_prep:
     else:
       (num_seq, block_diag) = (self._num, False)
 
-    self._args.update({"repeat":False,"block_diag":block_diag,"copies":copies})
+    self._args.update({"block_diag":block_diag,"copies":copies})
       
     # prep features
     if isinstance(length,list):
@@ -189,13 +186,15 @@ class _af_prep:
     self.opt["weights"].update({"con":1.0})
     if copies > 1:
       self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
-      self._args["homooligomer"] = True
     
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs.update(chain_enc)
 
-    self._prep_model(**kwargs)
+    if kwargs.pop("do_not_prep_model",False):
+      return kwargs
+    else:
+      self._prep_model(**kwargs)
 
   def _prep_binder(self, pdb_filename,
                    target_chain="A", binder_len=50,                                         
@@ -313,112 +312,69 @@ class _af_prep:
     self._prep_model(**kwargs)
 
   def _prep_partial(self, pdb_filename, chain=None, length=None,
-                    copies=1, repeat=False, homooligomer=False,
-                    pos=None, fix_pos=None, 
+                    copies=1, pos=None, fix_pos=None, 
                     rm_template=False,
                     rm_template_seq=False,
                     rm_template_sc=False,
                     rm_template_ic=False, 
-                    ignore_missing=True, **kwargs):
-    '''
-    prep input for partial hallucination
-    ---------------------------------------------------
-    -length=100 - total length of protein (if different from input PDB)
-    -pos="1,2-10" - specify which positions to apply supervised loss to
-    -rm_template_seq - if template is defined, remove information about template sequence
-    -ignore_missing=True - skip positions that have missing density (no CA coordinate)
-    ---------------------------------------------------    
-    '''    
-    # prep features
-    self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
-                         offsets=kwargs.pop("pdb_offsets",None),
-                         lengths=kwargs.pop("pdb_lengths",None))
-
-    self._pdb["len"] = sum(self._pdb["lengths"])
-
-    self._len = self._pdb["len"] if length is None else length
-    self._lengths = [self._len]
-
-    # feat dims
-    num_seq = self._num
-    res_idx = np.arange(self._len)
+                    ignore_missing=True,
+                    parse_as_homooligomer=False,
+                    **kwargs):
     
-    # get [pos]itions of interests
+    parse_as_homooligomer = kwargs.pop("homooligomer",parse_as_homooligomer)    
+    
+    # initialize with fixbb protocol
+    kwargs = self._prep_fixbb(
+      pdb_filename=pdb_filename,
+      chain=chain, 
+      copies=copies,
+      fix_pos=fix_pos,
+      ignore_missing=ignore_missing,
+      parse_as_homooligomer=parse_as_homooligomer,
+      do_not_prep_model=do_not_prep_model      
+      **kwargs)
+
+    # configure weights
+    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
+    if self._args["copies"] > 1:
+      self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
+
+    # get positions
     if pos is None:
-      self.opt["pos"] = self._pdb["pos"] = np.arange(self._pdb["len"])
-      self._pos_info = {"length":np.array([self._pdb["len"]]), "pos":self._pdb["pos"]}    
+      pos = np.arange(self._len)
     else:
-      self._pos_info = prep_pos(pos, **self._pdb["idx"])
-      self.opt["pos"] = self._pdb["pos"] = self._pos_info["pos"]
+      pos = prep_pos(pos, **self._pdb["idx"])["pos"]
+      if parse_as_homooligomer:
+        pos = pos[pos < self._len]
+    self.opt["pos"] = pos
 
-    if homooligomer and chain is not None and copies == 1:
-      copies = len(chain.split(","))
+    # subselect inputs
+    self._inputs["batch"] = jax.tree_map(lambda x:x[pos], self._inputs["batch"]) 
+    self._wt_aatype = self._wt_aatype[pos]
 
-    # repeat/homo-oligomeric support
-    if copies > 1:
-      
-      if repeat or homooligomer:
-        self._len = self._len // copies
-        self._pdb["len"] = self._pdb["len"] // copies
-        self.opt["pos"] = self._pdb["pos"][self._pdb["pos"] < self._pdb["len"]]
-
-        # repeat positions across copies
-        self._pdb["pos"] = repeat_pos(self.opt["pos"], copies, self._pdb["len"])
-
-      if repeat:
-        self._lengths = [self._len * copies]
-        block_diag = False
-
-      else:
-        self._lengths = [self._len] * copies
-        block_diag = not self._args["use_multimer"]
-
-        num_seq = (self._num * copies + 1) if block_diag else self._num
-        res_idx = repeat_idx(np.arange(self._len), copies)
-
-        self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
-
-      self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
-      homooligomer = not repeat
-
-    # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
-    self._inputs["residue_index"] = res_idx
-    self._inputs["batch"] = jax.tree_map(lambda x:x[self._pdb["pos"]], self._pdb["batch"])     
-    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
-
-    # configure options/weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0}) 
-    self._wt_aatype = self._pdb["batch"]["aatype"][self.opt["pos"]]
-
-    # configure sidechains
-    if kwargs.pop("use_sidechains", self._args["use_sidechains"]):
-      self._args["use_sidechains"] = True
+    if self._args["use_sidechains"]:
       self.opt["weights"].update({"sc_fape":0.1,"sc_chi":0.1,"sc_chi_norm":0.0})
-      self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])      
+      self.opt["fix_pos"] = np.arange(len(pos))
       self._wt_aatype_sub = self._wt_aatype
-      
-    elif fix_pos is not None and fix_pos != "":
-      sub_fix_pos = []
-      sub_i = []
-      pos = self.opt["pos"].tolist()
-      for i in prep_pos(fix_pos, **self._pdb["idx"])["pos"]:
-        if i in pos:
+
+    elif "fix_pos" in self.opt:
+      pos_list = pos.tolist()
+      sub_fix_pos,sub_i = [],[]
+      for i in self.opt["fix_pos"].tolist():
+        if i in pos_list:
           sub_i.append(i)
           sub_fix_pos.append(pos.index(i))
       self.opt["fix_pos"] = np.array(sub_fix_pos)
-      self._wt_aatype_sub = self._pdb["batch"]["aatype"][sub_i]
-      
-    elif kwargs.pop("fix_seq",False):
-      self.opt["fix_pos"] = np.arange(self.opt["pos"].shape[0])
-      self._wt_aatype_sub = self._wt_aatype
+      self._wt_aatype_sub = self._wt_aatype[sub_i]
 
     if self._args["use_templates"]:
-      self.opt["template"].update({"rm_ic":rm_template_ic})
-      self._inputs.update({"rm_template":     rm_template,
-                           "rm_template_seq": rm_template_seq,
-                           "rm_template_sc":  rm_template_sc})
-  
+      for k in ["rm_template","rm_template_sc","rm_template_seq"]:
+        self._inputs.pop(k,None)
+      self.opt["template"].update({"rm":rm_template,
+                                   "rm_ic":rm_template_ic,
+                                   "rm_sc":rm_template_sc,
+                                   "rm_seq":rm_template_seq})
+
     self._prep_model(**kwargs)
 
 #######################
@@ -593,11 +549,3 @@ def prep_input_features(L, N=1, T=1, one_hot_msa=True):
             }
   inputs['msa'] = np.zeros((N,L,22)) if one_hot_msa else np.zeros((N,L),int)
   return inputs
-
-def get_multi_id(lengths, homooligomer=False):
-  '''set info for alphafold-multimer'''
-  i = np.concatenate([[n]*l for n,l in enumerate(lengths)])
-  if homooligomer:
-    return {"asym_id":i, "sym_id":i, "entity_id":np.zeros_like(i)}
-  else:
-    return {"asym_id":i, "sym_id":i, "entity_id":i}

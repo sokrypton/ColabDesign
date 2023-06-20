@@ -18,7 +18,7 @@ class _af_loss:
   def _loss_fixbb(self, inputs, outputs, aux):
     opt = inputs["opt"]
     '''get losses'''
-    copies = self._args["copies"] if self._args["homooligomer"] else 1    
+    copies = self._args["copies"] 
     # rmsd loss
     aln = get_rmsd_loss(inputs, outputs, copies=copies)
     if self._args["realign"]:
@@ -96,14 +96,14 @@ class _af_loss:
     '''get losses'''    
     opt = inputs["opt"]
     pos = opt["pos"]
-    if self._args["repeat"] or self._args["homooligomer"]:
+    if self._args["copies"] > 1:
       C,L = self._args["copies"], self._len
       pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
       
     def sub(x, axis=0):
       return jax.tree_map(lambda y:jnp.take(y,pos,axis),x)
     
-    copies = self._args["copies"] if self._args["homooligomer"] else 1
+    copies = self._args["copies"]
     aatype = sub(inputs["aatype"])
     dgram = {"logits":sub(sub(outputs["distogram"]["logits"]),1),
              "bin_edges":outputs["distogram"]["bin_edges"]}

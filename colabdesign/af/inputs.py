@@ -126,8 +126,8 @@ class _af_inputs:
     if self.protocol == "partial":
       # figure out what positions to use
       pos = opt["pos"]
-      if self._args["repeat"] or self._args["homooligomer"]:
-        # if repeat/homooligomer propagate the positions across copies 
+      # if homooligomer propagate the positions across copies 
+      if self._args["copies"] > 1:
         C = self._args["copies"]
         pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * self._len).T.flatten()
       

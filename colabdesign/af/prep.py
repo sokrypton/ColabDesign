@@ -41,7 +41,7 @@ class _af_prep:
       one_hot_msa=not self._args["optimize_seq"])
 
   def _prep_fixbb(self, pdb_filename, chain="A",
-                  copies=1, repeat=False, homooligomer=False,
+                  copies=1, homooligomer=False,
                   rm_template=False,
                   rm_template_seq=True,
                   rm_template_sc=True,
@@ -53,7 +53,6 @@ class _af_prep:
     ---------------------------------------------------
     if copies > 1:
       -homooligomer=True - input pdb chains are parsed as homo-oligomeric units
-      -repeat=True       - tie the repeating sequence within single chain
     -rm_template_seq     - if template is defined, remove information about template sequence
     -fix_pos="1,2-10"    - specify which positions to keep fixed in the sequence
                            note: supervised loss is applied to all positions, use "partial" 
@@ -62,52 +61,59 @@ class _af_prep:
     ---------------------------------------------------
     '''    
     if isinstance(chain,str): chain = chain.split(",")
-    if homooligomer and copies == 1: copies = len(chain)
-
     # prep features
     self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing,
                          offsets=kwargs.pop("pdb_offsets",None),
                          lengths=kwargs.pop("pdb_lengths",None))
 
-    self._len = self._pdb["residue_index"].shape[0]
-    self._lengths = self._pdb["lengths"]
+    if homooligomer:
+      if copies == 1: copies = len(chain)
+      units = len(self._pdb["lengths"]) // copies
+      length = self._pdb["lengths"][:units]
+      residue_index = self._pdb["residue_index"][:sum(length)]
+    else: 
+      length = self._pdb["lengths"]
+      residue_index = self._pdb["residue_index"]
 
+    if copies > 1 and not self._args["use_multimer"]:
+      (num_seq, block_diag) = (self._num * copies + 1, True)
+    else:
+      (num_seq, block_diag) = (self._num, False)
+
+    # encode chains
+    self._len = sum(length)
+    self._lengths = []
+    chain_enc = {"asym_id":[],"sym_id":[],"entity_id":[],"residue_index":[]}
+    asym_id = 0
+    for sym_id in range(copies):
+      for entity_id, L in enumerate(length):
+        chain_enc["asym_id"].append(np.full(L,asym_id))
+        chain_enc["sym_id"].append(np.full(L,sym_id))
+        chain_enc["entity_id"].append(np.full(L,entity_id))
+        self._lengths.append(L)
+        asym_id += 1
+      chain_enc["residue_index"].append(residue_index)
+    for k in chain_enc.keys():
+      chain_enc[k] = np.concatenate(chain_enc[k])
     
-    # get [pos]itions of interests    
-    if fix_pos is not None and fix_pos != "":
+    # get [pos]itions of interests 
+    if fix_pos == "": fix_pos = None
+    if fix_pos is not None:
       self._pos_info = prep_pos(fix_pos, **self._pdb["idx"])
       self.opt["fix_pos"] = self._pos_info["pos"]
-
-    num_seq = self._num
-    res_idx = self._pdb["residue_index"]
-
-    # repeat/homo-oligomeric support
-    if copies > 1:
-      if repeat or homooligomer:
-        self._len = self._len // copies
-        if "fix_pos" in self.opt:
-          self.opt["fix_pos"] = self.opt["fix_pos"][self.opt["fix_pos"] < self._len]
-
-      if repeat:
-        self._lengths = [self._len * copies]
-        block_diag = False
-
-      else:
-        self._lengths = [self._len] * copies
-        block_diag = not self._args["use_multimer"]
-
-        res_idx = repeat_idx(res_idx[:self._len], copies)
-        num_seq = (self._num * copies + 1) if block_diag else self._num
-
-      self._args.update({"copies":copies, "repeat":repeat, "homooligomer":homooligomer, "block_diag":block_diag})
-      homooligomer = not repeat
+      if homooligomer:
+        self.opt["fix_pos"] = self.opt["fix_pos"][self.opt["fix_pos"] < self._len]
+    
+    self._args.update({"copies":copies,
+                       "repeat":False,
+                       "homooligomer":copies > 1,
+                       "block_diag":block_diag})
 
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
-    self._inputs["residue_index"] = res_idx
     self._inputs["batch"] = make_fixed_size(self._pdb["batch"],
       num_res=sum(self._lengths), num_templates=self._args["num_templates"])
-    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
+    self._inputs.update(chain_enc)
 
     # configure options/weights
     self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
@@ -138,23 +144,17 @@ class _af_prep:
   
     self._prep_model(**kwargs)
     
-  def _prep_hallucination(self, length=100, copies=1, repeat=False, **kwargs):
+  def _prep_hallucination(self, length=100, copies=1, **kwargs):
     '''
     prep inputs for hallucination
-    ---------------------------------------------------
-    if copies > 1:
-      -repeat=True - tie the repeating sequence within single chain
-    ---------------------------------------------------
-    '''
-    
-    # define num copies (for repeats/ homo-oligomers)
-    if not repeat and copies > 1 and not self._args["use_multimer"]:
+    '''    
+    # define num copies (for homo-oligomers)
+    if copies > 1 and not self._args["use_multimer"]:
       (num_seq, block_diag) = (self._num * copies + 1, True)
     else:
       (num_seq, block_diag) = (self._num, False)
 
-    
-    self._args.update({"repeat":repeat,"block_diag":block_diag,"copies":copies})
+    self._args.update({"repeat":False,"block_diag":block_diag,"copies":copies})
       
     # prep features
     if isinstance(length,list):
@@ -162,30 +162,31 @@ class _af_prep:
     else:
       self._len = length
       length = [length]
-    res_idx = np.array([i + 50 * n - n for n, L in enumerate(length) for i in range(L)])
+    
+    # encode chains
+    self._lengths = []
+    chain_enc = {"asym_id":[],"sym_id":[],"entity_id":[],"residue_index":[]}
+    asym_id = 0
+    for sym_id in range(copies):
+      for entity_id, L in enumerate(length):
+        chain_enc["asym_id"].append(np.full(L,asym_id))
+        chain_enc["sym_id"].append(np.full(L,sym_id))
+        chain_enc["entity_id"].append(np.full(L,entity_id))
+        chain_enc["residue_index"].append(np.arange(L))
+        self._lengths.append(L)
+        asym_id += 1
+    for k in chain_enc.keys():
+      chain_enc[k] = np.concatenate(chain_enc[k])
     
     # set weights
     self.opt["weights"].update({"con":1.0})
     if copies > 1:
-      if repeat:
-        offset = 1
-        self._lengths = [self._len * copies]
-        self._args["repeat"] = True
-      else:
-        offset = 50
-        self._lengths = [self._len] * copies
-        self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
-        self._args["homooligomer"] = True
-      res_idx = repeat_idx(res_idx, copies, offset=offset)
-      homooligomer = True
-    else:
-      self._lengths = length
-      homooligomer = False
+      self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
+      self._args["homooligomer"] = True
     
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
-    self._inputs["residue_index"] = res_idx
-    self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
+    self._inputs.update(chain_enc)
 
     self._prep_model(**kwargs)
 
@@ -422,7 +423,7 @@ def repeat_pos(pos, copies, length):
 
 def prep_pdb(pdb_filename, chain=None,
              offsets=None, lengths=None,
-             ignore_missing=False):
+             ignore_missing=False, offset_index=False):
   '''extract features from pdb'''
 
   def add_cb(batch):
@@ -477,7 +478,10 @@ def prep_pdb(pdb_filename, chain=None,
       
       residue_index = np.arange(length) + last
     
-    last = residue_index[-1] + 50
+    if offset_index:
+      last = residue_index[-1] + 50
+    else:
+      last = 0
     o.append({"batch":batch,
               "residue_index": residue_index,
               "cb_feat":cb_feat})

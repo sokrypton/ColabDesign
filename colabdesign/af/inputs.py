@@ -101,9 +101,10 @@ class _af_inputs:
     T,L = batch["aatype"].shape
 
     # decide which position to remove sequence and/or sidechains
-    rm     = jnp.broadcast_to(inputs.get("rm_template",False),L)
-    rm_seq = jnp.where(rm,True,jnp.broadcast_to(inputs.get("rm_template_seq",True),L))
-    rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs.get("rm_template_sc",True),L))
+    opt_T = opt["template"]
+    rm     = jnp.broadcast_to(inputs.get("rm_template",opt_T["rm"]),L)
+    rm_seq = jnp.where(rm,True,jnp.broadcast_to(inputs.get("rm_template_seq",opt_T["rm_seq"]),L))
+    rm_sc  = jnp.where(rm_seq,True,jnp.broadcast_to(inputs.get("rm_template_sc",opt_T["rm_sc"]),L))
 
     # define template features
     template_feats = {"template_aatype":jnp.where(rm_seq,21,batch["aatype"])}

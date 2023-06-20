@@ -40,24 +40,28 @@ class _af_prep:
     return prep_input_features(L=num_res, N=num_seq, T=num_templates,
       one_hot_msa=not self._args["optimize_seq"])
 
-  def _prep_fixbb(self, pdb_filename, chain="A",
-                  copies=1, homooligomer=False,
+  def _prep_fixbb(self, 
+                  pdb_filename, 
+                  chain="A",
+                  copies=1,
                   rm_template=False,
                   rm_template_seq=True,
                   rm_template_sc=True,
                   rm_template_ic=False,
                   fix_pos=None,
-                  ignore_missing=True, **kwargs):
+                  ignore_missing=True,
+                  parse_as_homooligomer=False, 
+                  **kwargs):
     '''
     prep inputs for fixed backbone design
     ---------------------------------------------------
-    if copies > 1:
-      -homooligomer=True - input pdb chains are parsed as homo-oligomeric units
-    -rm_template_seq     - if template is defined, remove information about template sequence
-    -fix_pos="1,2-10"    - specify which positions to keep fixed in the sequence
-                           note: supervised loss is applied to all positions, use "partial" 
-                           protocol to apply supervised loss to only subset of positions
-    -ignore_missing=True - skip positions that have missing density (no CA coordinate)
+    -copies                - number of copies in homooligomeric unit
+    -parse_as_homooligomer - input pdb chains are parsed as homo-oligomeric units
+    -rm_template_seq       - if template is defined, remove information about template sequence
+    -fix_pos="1,2-10"      - specify which positions to keep fixed in the sequence
+                             note: supervised loss is applied to all positions, use "partial" 
+                             protocol to apply supervised loss to only subset of positions
+    -ignore_missing=True   - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
     if isinstance(chain,str): chain = chain.split(",")
@@ -66,11 +70,14 @@ class _af_prep:
                          offsets=kwargs.pop("pdb_offsets",None),
                          lengths=kwargs.pop("pdb_lengths",None))
 
-    if homooligomer:
+    if parse_as_homooligomer:
       if copies == 1: copies = len(chain)
+      assert len(self._pdb["lengths"]) % copies == 0
+
       units = len(self._pdb["lengths"]) // copies
       length = self._pdb["lengths"][:units]
       residue_index = self._pdb["residue_index"][:sum(length)]
+    
     else: 
       length = self._pdb["lengths"]
       residue_index = self._pdb["residue_index"]
@@ -246,10 +253,13 @@ class _af_prep:
     elif not isinstance(binder_len,list): 
       binder_len = [binder_len]
     
-  
     self._target_len = sum(target_len)
     self._binder_len = self._len = sum(binder_len)
     self._lengths = target_len + binder_len
+
+    # chain encoding
+    i = np.concatenate([[n]*l for n,l in enumerate(self._lengths)])
+    chain_enc = {"asym_id":i, "sym_id":i, "entity_id":i}
 
     # gather hotspot info
     if hotspot is not None:
@@ -272,13 +282,13 @@ class _af_prep:
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
     self._inputs["batch"] = self._pdb["batch"]
-    self._inputs.update(get_multi_id(self._lengths))
+    self._inputs.update(chain_enc)
 
     # configure residue index
     res_idx = self._pdb["residue_index"]
     if not redesign:
-      binder_res_idx = np.array([i + 50 * n - n for n, L in enumerate(binder_len) for i in range(L)])
-      res_idx = np.append(res_idx, res_idx[-1] + 50 + binder_res_idx)
+      binder_res_idx = np.concatenate([np.arange(L) for L in binder_len])
+      res_idx = np.append(res_idx, binder_res_idx)
     self._inputs["residue_index"] = res_idx
 
     # configure template masks

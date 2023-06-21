@@ -29,7 +29,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                debug=False,
                data_dir=".", 
                **kwargs):  
-    
     assert protocol in ["fixbb","hallucination","binder","partial"]
 
     self.protocol = protocol

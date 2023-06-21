@@ -7,7 +7,6 @@ from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 from colabdesign.af.alphafold.model import config
 
-
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import copy_dict
@@ -347,6 +346,8 @@ class _af_prep:
       weights.update({"con":1.0,"pae":0.0})
       if len(self._lengths) > 1:
         weights.update({"i_con":1.0,"i_pae":0.0})
+    else:
+      weights.update({"con":0.0,"pae":0.0,"plddt":0.0})
     if (sum(not x for x in unsupervised)) > 0:
       weights.update({"dgram_cce":1.0,"fape":0.0})
     else:

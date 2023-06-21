@@ -297,8 +297,9 @@ class _af_prep:
           # add fixed positions
           if fix_pos is not None:
             f_pos = prep_pos(fix_pos, **chain_info[chain]["idx"], error_chk=False)["pos"]
-            for p in f_pos:
-              if p in pos: fix_pos_list.append(pos.index(p) + total_len)
+            pos_list = pos.tolist()
+            for p in f_pos.tolist():
+              if p in pos: fix_pos_list.append(pos_list.index(p) + total_len)
           
         else:
           # unsupervised

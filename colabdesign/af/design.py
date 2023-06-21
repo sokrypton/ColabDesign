@@ -130,7 +130,7 @@ class _af_design:
         if sum(mask) > 0:
           pred = self.aux["seq"]["pseudo"].argmax(-1)
           seqid = ((true == pred) * mask).sum(-1) / mask.sum()
-          self.aux["log"]["seqid"] = seqid
+          self.aux["log"]["seqid"] = seqid.mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),

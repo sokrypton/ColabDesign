@@ -29,6 +29,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                debug=False,
                data_dir=".", 
                **kwargs):  
+    
     assert protocol in ["fixbb","hallucination","binder","partial"]
 
     self.protocol = protocol
@@ -126,7 +127,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #####################################
     idx = ["fixbb","hallucination","binder","partial"].index(self.protocol)
     self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_partial][idx]
-    self._get_loss   = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_partial][idx]
+    self._get_loss   = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, self._loss_fixbb][idx]
 
   def _get_model(self, cfg, callback=None):
 

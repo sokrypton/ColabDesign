@@ -92,52 +92,6 @@ class _af_loss:
     if self._args["realign"]:
       aux["atom_positions"] = align_fn(aux["atom_positions"]) * aux["atom_mask"][...,None]
 
-  def _loss_partial(self, inputs, outputs, aux):
-    '''get losses'''    
-    opt = inputs["opt"]
-    pos = opt["pos"]
-    if self._args["copies"] > 1:
-      C,L = self._args["copies"], self._len
-      pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
-      
-    def sub(x, axis=0):
-      return jax.tree_map(lambda y:jnp.take(y,pos,axis),x)
-    
-    copies = self._args["copies"]
-    aatype = sub(inputs["aatype"])
-    dgram = {"logits":sub(sub(outputs["distogram"]["logits"]),1),
-             "bin_edges":outputs["distogram"]["bin_edges"]}
-    atoms = sub(outputs["structure_module"]["final_atom_positions"])
-    
-    I = {"aatype": aatype, "batch": inputs["batch"], "seq_mask":sub(inputs["seq_mask"])}
-    O = {"distogram": dgram, "structure_module": {"final_atom_positions": atoms}}
-    aln = get_rmsd_loss(I, O, copies=copies)
-
-    # supervised losses
-    aux["losses"].update({
-      "dgram_cce": get_dgram_loss(I, O, copies=copies, aatype=I["aatype"]),
-      "fape":      get_fape_loss(I, O, copies=copies, clamp=opt["fape_cutoff"]),
-      "rmsd":      aln["rmsd"],
-    })
-    
-    # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, aux)
-
-    # sidechain specific losses
-    if self._args["use_sidechains"]:
-      seq_mask = sub(inputs["seq_mask"])
-      mask_1d = seq_mask.at[pos.shape[0]:].set(0)
-      sub_inputs = {"batch":inputs["batch"],
-                    "seq_mask":seq_mask}
-      sub_outputs = {"structure_module":{"final_atom_positions":atoms,
-                                         "sidechains":{k:sub(outputs["structure_module"]["sidechains"][k],1) \
-                                          for k in ["angles_sin_cos","unnormalized_angles_sin_cos"]}}}
-      aux["losses"].update(get_sc_loss(sub_inputs, sub_outputs, cfg=self._cfg, mask_1d=mask_1d))
-          
-    # align final atoms
-    if self._args["realign"]:
-      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
-
   def _loss_hallucination(self, inputs, outputs, aux):
     # unsupervised losses
     self._loss_unsupervised(inputs, outputs, aux)
@@ -146,18 +100,14 @@ class _af_loss:
 
     # define masks
     opt = inputs["opt"]
-    if "pos" in opt:
-      C,L = self._args["copies"], self._len
-      pos = opt["pos"]
-      if C > 1: pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
-      mask_1d = inputs["seq_mask"].at[pos].set(0)
-    else:
-      mask_1d = inputs["seq_mask"]
+    seq_mask_1d = inputs["seq_mask"]
+    if "unsupervised" in inputs:
+      mask_1d = jnp.where(inputs["unsupervised"],seq_mask_1d,0)
     
-    seq_mask_2d = mask_1d[:,None] * mask_1d[None,:]
-    mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
+    seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
+    intra_mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
     masks = {"mask_1d":mask_1d,
-             "mask_2d":jnp.where(seq_mask_2d,mask_2d,0)}
+             "mask_2d":jnp.where(intra_mask_2d,seq_mask_2d,0)}
 
     # define losses
     losses = {
@@ -171,7 +121,7 @@ class _af_loss:
     # define losses at interface
     if len(self._lengths) > 1: 
       masks = {"mask_1d": mask_1d,
-               "mask_2d": jnp.where(seq_mask_2d,mask_2d == False,0)}
+               "mask_2d": jnp.where(intra_mask_2d,0,seq_mask_2d)}
       losses.update({
         "i_pae": get_pae_loss(outputs, **masks),
         "i_con": get_con_loss(inputs, outputs, opt["i_con"], **masks),
@@ -489,62 +439,6 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
   rmsd = jnp.sqrt(msd + 1e-8)
 
   return {"rmsd":rmsd, "align":align_fn}
-
-def _get_sc_rmsd_loss(true, pred, sc):
-  '''get sidechain rmsd + alignment function'''
-
-  # select atoms
-  (T, P) = (true.reshape(-1,3), pred.reshape(-1,3))
-  (T, T_alt, P) = (T[sc["pos"]], T[sc["pos_alt"]], P[sc["pos"]])
-
-  # select non-ambigious atoms
-  (T_na, P_na) = (T[sc["non_amb"]], P[sc["non_amb"]])
-
-  # get alignment of non-ambigious atoms
-  if "weight_non_amb" in sc:
-    T_mu_na = (T_na * sc["weight_non_amb"]).sum(0)
-    P_mu_na = (P_na * sc["weight_non_amb"]).sum(0)
-    aln = _np_kabsch((P_na-P_mu_na) * sc["weight_non_amb"], T_na-T_mu_na)
-  else:
-    T_mu_na, P_mu_na = T_na.mean(0), P_na.mean(0)
-    aln = _np_kabsch(P_na-P_mu_na, T_na-T_mu_na)
-
-  # apply alignment to all atoms
-  align_fn = lambda x: (x - P_mu_na) @ aln + T_mu_na
-  P = align_fn(P)
-
-  # compute rmsd
-  sd = jnp.minimum(jnp.square(P-T).sum(-1), jnp.square(P-T_alt).sum(-1))
-  if "weight" in sc:
-    msd = (sd*sc["weight"]).sum()
-  else:
-    msd = sd.mean()
-  rmsd = jnp.sqrt(msd + 1e-8)
-  return {"rmsd":rmsd, "align":align_fn}
-
-def get_seq_ent_loss(inputs):
-  opt = inputs["opt"]
-  x = inputs["seq"]["logits"] / opt["temp"]
-  ent = -(jax.nn.softmax(x) * jax.nn.log_softmax(x)).sum(-1)
-  mask = inputs["seq_mask"][-x.shape[1]:]
-  if "fix_pos" in opt:
-    if "pos" in opt:
-      p = opt["pos"][opt["fix_pos"]]
-    else:
-      p = opt["fix_pos"]
-    mask = mask.at[p].set(0)
-  ent = (ent * mask).sum() / (mask.sum() + 1e-8)
-  return {"seq_ent":ent.mean()}
-
-def get_mlm_loss(outputs, mask, truth=None, unbias=False):
-  x = outputs["masked_msa"]["logits"][...,:20]
-  if unbias:
-    x_mean = (x * mask[...,None]).sum((0,1)) / (mask.sum() + 1e-8)
-    x = x - x_mean
-  if truth is None: truth = jax.nn.softmax(x)
-  ent = -(truth[...,:20] * jax.nn.log_softmax(x)).sum(-1)
-  ent = (ent * mask).sum(-1) / (mask.sum() + 1e-8)
-  return {"mlm":ent.mean()}
 
 def get_sc_loss(inputs, outputs, cfg, mask_1d=None):
   

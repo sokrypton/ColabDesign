@@ -59,8 +59,6 @@ class _af_prep:
     -parse_as_homooligomer - input pdb chains are parsed as homo-oligomeric units
     -rm_template_seq       - if template is defined, remove information about template sequence
     -fix_pos="1,2-10"      - specify which positions to keep fixed in the sequence
-                             note: supervised loss is applied to all positions, use "partial" 
-                             protocol to apply supervised loss to only subset of positions
     -ignore_missing=True   - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
@@ -74,35 +72,17 @@ class _af_prep:
     if parse_as_homooligomer:
       if copies == 1: copies = len(chain)
       assert len(self._pdb["lengths"]) % copies == 0
-
       units = len(self._pdb["lengths"]) // copies
       length = self._pdb["lengths"][:units]
       residue_index = self._pdb["residue_index"][:sum(length)]
-    
     else: 
       length = self._pdb["lengths"]
       residue_index = self._pdb["residue_index"]
 
-    if copies > 1 and not self._args["use_multimer"]:
-      (num_seq, block_diag) = (self._num * copies + 1, True)
-    else:
-      (num_seq, block_diag) = (self._num, False)
-
     # encode chains
+    if isinstance(length, int): length = [length]
     self._len = sum(length)
-    self._lengths = []
-    chain_enc = {"asym_id":[],"sym_id":[],"entity_id":[],"residue_index":[]}
-    asym_id = 0
-    for sym_id in range(copies):
-      for entity_id, L in enumerate(length):
-        chain_enc["asym_id"].append(np.full(L,asym_id))
-        chain_enc["sym_id"].append(np.full(L,sym_id))
-        chain_enc["entity_id"].append(np.full(L,entity_id))
-        self._lengths.append(L)
-        asym_id += 1
-      chain_enc["residue_index"].append(residue_index)
-    for k in chain_enc.keys():
-      chain_enc[k] = np.concatenate(chain_enc[k])
+    self._lengths, chain_enc = get_chain_enc(copies, length, residue_index)
     
     # get [pos]itions of interests 
     if fix_pos is not None:
@@ -111,10 +91,10 @@ class _af_prep:
         fix_pos = fix_pos[fix_pos < self._len]
       self.opt["fix_pos"] = fix_pos
     
-    self._args.update({"copies":copies,"block_diag":block_diag})
+    self._args.update({"copies":copies, "block_diag":not self._args["use_multimer"]})
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
+    self._inputs = self._prep_features(num_res=sum(self._lengths))
     self._inputs["batch"] = make_fixed_size(self._pdb["batch"],
       num_res=sum(self._lengths), num_templates=self._args["num_templates"])
     self._inputs.update(chain_enc)
@@ -146,44 +126,19 @@ class _af_prep:
       self._inputs.update(rm_dict)
       self.opt["template"]["rm_ic"] = rm_template_ic
   
-    if kwargs.pop("do_not_prep_model",False):
-      return kwargs
-    else:
-      self._prep_model(**kwargs)
+    self._prep_model(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1, **kwargs):
     '''
     prep inputs for hallucination
     '''    
     # define num copies (for homo-oligomers)
-    if copies > 1 and not self._args["use_multimer"]:
-      (num_seq, block_diag) = (self._num * copies + 1, True)
-    else:
-      (num_seq, block_diag) = (self._num, False)
-
-    self._args.update({"block_diag":block_diag,"copies":copies})
-      
-    # prep features
-    if isinstance(length,list):
-      self._len = sum(length)
-    else:
-      self._len = length
-      length = [length]
+    self._args.update({"copies":copies, "block_diag":not self._args["use_multimer"]})   
     
     # encode chains
-    self._lengths = []
-    chain_enc = {"asym_id":[],"sym_id":[],"entity_id":[],"residue_index":[]}
-    asym_id = 0
-    for sym_id in range(copies):
-      for entity_id, L in enumerate(length):
-        chain_enc["asym_id"].append(np.full(L,asym_id))
-        chain_enc["sym_id"].append(np.full(L,sym_id))
-        chain_enc["entity_id"].append(np.full(L,entity_id))
-        chain_enc["residue_index"].append(np.arange(L))
-        self._lengths.append(L)
-        asym_id += 1
-    for k in chain_enc.keys():
-      chain_enc[k] = np.concatenate(chain_enc[k])
+    if isinstance(length, int): length = [length]
+    self._len = sum(length)
+    self._lengths, chain_enc = get_chain_enc(copies, length)
     
     # set weights
     self.opt["weights"].update({"con":1.0})
@@ -191,7 +146,7 @@ class _af_prep:
       self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
     
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
+    self._inputs = self._prep_features(num_res=sum(self._lengths))
     self._inputs.update(chain_enc)
 
     self._prep_model(**kwargs)
@@ -279,7 +234,7 @@ class _af_prep:
       self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
 
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=1)
+    self._inputs = self._prep_features(num_res=sum(self._lengths))
     self._inputs["batch"] = self._pdb["batch"]
     self._inputs.update(chain_enc)
 
@@ -311,80 +266,80 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_partial(self, pdb_filename, chain="A", length=None,
-                    copies=1, pos=None, fix_pos=None, 
-                    rm_template=False,
-                    rm_template_seq=False,
-                    rm_template_sc=False,
-                    rm_template_ic=False, 
-                    ignore_missing=True,
-                    parse_as_homooligomer=False,
-                    **kwargs):
-        
-    # initialize with fixbb protocol
-    kwargs["do_not_prep_model"] = True
-    kwargs = self._prep_fixbb(
-      pdb_filename=pdb_filename,
-      chain=chain, 
-      copies=copies,
-      fix_pos=fix_pos,
-      ignore_missing=ignore_missing,
-      parse_as_homooligomer=parse_as_homooligomer,
-      **kwargs)
-
-    # configure weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
-    if self._args["copies"] > 1:
-      self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
-
-    # get positions
-    if pos is None:
-      pos = np.arange(self._len)
-    else:
-      pos = prep_pos(pos, **self._pdb["idx"])["pos"]
-      if parse_as_homooligomer:
-        pos = pos[pos < self._len]
-    self.opt["pos"] = pos
-
-    # subselect inputs
-    self._inputs["batch"] = jax.tree_map(lambda x:x[pos], self._inputs["batch"]) 
-
-    if self._args["use_sidechains"]:
-      self.opt["weights"].update({"sc_fape":0.1,"sc_chi":0.1,"sc_chi_norm":0.0})
-      self.opt["fix_pos"] = np.arange(len(pos))
-      self._wt_aatype_sub = self._wt_aatype[pos]
-
-    elif "fix_pos" in self.opt:
-      pos_list = pos.tolist()
-      sub_n,sub_i = [],[]
-      for i in self.opt["fix_pos"].tolist():
-        if i in pos_list:
-          sub_i.append(i)
-          sub_n.append(pos_list.index(i))
-      self.opt["fix_pos"] = np.array(sub_n)
-      self._wt_aatype_sub = self._wt_aatype[sub_i]
+  def _prep_partial(self,
+    contigs,
+    pdb_filename=None,
+    **kwargs):
+    '''
+    prep inputs for partial hallucination protocol
+    '''        
+    # parse contigs
+    if isinstance(contigs,str):
+      contigs = contigs.split(":")
     
-    self._wt_aatype = self._wt_aatype_sub
+    length,batch = [],[]
+    chain_info = {}
+    unsupervised = []
+    for contig in contigs:
+      contig_len = 0
+      contig_batch = []
+      for seg in contig.split("/"):
+        if seg[0].isalpha():
+          chain = seg[0]
+          if chain not in chain_info:
+            chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=True)
+          pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]
+          seg_len = len(pos)
+          contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
+          unsupervised += [False] * seg_len
+        else:
+          if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
+          seg_len = int(seg)
+          contig_batch.append({'aatype': np.full(seg_len,-1),
+                               'all_atom_positions': np.zeros((seg_len,37,3)),
+                               'all_atom_mask': np.zeros((seg_len,37)),
+                               'residue_index': np.arange(seg_len)})
+          unsupervised += [True] * seg_len
+        contig_len += seg_len
+      
+      for b in range(len(contig_batch)):
+        offset = -contig_batch[b]["residue_index"][0]
+        if b > 0:
+          offset += contig_batch[b-1]["residue_index"][-1]
+        contig_batch[b]["residue_index"] += offset + 1
+      
+      length.append(contig_len)
+      batch.append(contig_batch)
+    batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
+    self._wt_aatype = batch["aatype"]
 
-    if self._args["use_templates"]:
-      for k in ["rm_template","rm_template_sc","rm_template_seq"]:
-        self._inputs.pop(k,None)
-      self.opt["template"].update({"rm":rm_template,
-                                   "rm_ic":rm_template_ic,
-                                   "rm_sc":rm_template_sc,
-                                   "rm_seq":rm_template_seq})
+    # encode chains
+    self._len = sum(length)
+    self._lengths, chain_enc = get_chain_enc(1, length, batch["residue_index"])
+        
+    # configure input features
+    self._inputs = self._prep_features(num_res=sum(self._lengths))
+    self._inputs.update(chain_enc)
+    self._inputs["batch"] = batch
+    self._inputs["unsupervised"] = np.array(unsupervised)
+    self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised) == False]
 
+    # decide on weights
+    weights = {}
+    if sum(unsupervised) > 0:
+      weights.update({"con":1.0,"pae":0.0})
+      if len(self._lengths) > 1:
+        weights.update({"i_con":1.0,"i_pae":0.0})
+    if (sum(not x for x in unsupervised)) > 0:
+      weights.update({"dgram_cce":1.0,"fape":0.0})
+    else:
+      weights.update({"dgram_cce":0.0,"fape":0.0})
+    self.opt["weights"].update(weights)
     self._prep_model(**kwargs)
 
 #######################
 # utils
 #######################
-def repeat_idx(idx, copies=1, offset=50):
-  idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
-  return np.tile(idx,copies) + idx_offset
-
-def repeat_pos(pos, copies, length):
-  return (np.repeat(pos,copies).reshape(-1,copies) + np.arange(copies) * length).T.flatten()
 
 def prep_pdb(pdb_filename, chain=None,
              offsets=None, lengths=None,
@@ -451,7 +406,7 @@ def prep_pdb(pdb_filename, chain=None,
               "residue_index": residue_index,
               "cb_feat":cb_feat})
     
-    residue_idx.append(batch.pop("residue_index"))
+    residue_idx.append(batch["residue_index"])
     chain_idx.append([chain] * len(residue_idx[-1]))
     full_lengths.append(len(residue_index))
 
@@ -463,27 +418,23 @@ def prep_pdb(pdb_filename, chain=None,
   o["lengths"] = full_lengths
   return o
 
-def smarter_pad(arr, pad_values, pad_value=0):
-  pad_values = np.array(pad_values)
-
-  # Handle negative padding (removal of elements)
-  for idx, (pad_start, pad_end) in enumerate(pad_values):
-    if len(arr.shape) > idx:  # If the dimension exists
-      if pad_start < 0:  # If start padding is negative, remove elements from the start
-        arr = arr[abs(pad_start):]
-      if pad_end < 0:  # If end padding is negative, remove elements from the end
-        arr = arr[:arr.shape[0] + pad_end]
-
-  # Handle positive padding (addition of elements)
-  pad_values = np.where(pad_values < 0, 0, pad_values)
-  arr = np.pad(arr, pad_values, mode='constant', constant_values=pad_value)
-
-  return arr
-
 def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False):
   '''pad input features'''
-  shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
+  def pad_fn(arr, pad_values, pad_value=0):
+    pad_values = np.array(pad_values)
+    # Handle negative padding (removal of elements)
+    for idx, (pad_start, pad_end) in enumerate(pad_values):
+      if len(arr.shape) > idx:  # If the dimension exists
+        if pad_start < 0:  # If start padding is negative, remove elements from the start
+          arr = arr[abs(pad_start):]
+        if pad_end < 0:  # If end padding is negative, remove elements from the end
+          arr = arr[:arr.shape[0] + pad_end]
+    # Handle positive padding (addition of elements)
+    pad_values = np.where(pad_values < 0, 0, pad_values)
+    arr = np.pad(arr, pad_values, mode='constant', constant_values=pad_value)
+    return arr
 
+  shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
   pad_size_map = {
       shape_placeholders.NUM_RES: num_res,
       shape_placeholders.NUM_MSA_SEQ: num_seq,
@@ -498,46 +449,8 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False)
       schema = shape_schema[k][:len(shape)]
       pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
       padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-      feat[k] = smarter_pad(v, padding)
+      feat[k] = pad_fn(v, padding)
   return feat
-
-def get_sc_pos(aa_ident, atoms_to_exclude=None):
-  '''get sidechain indices/weights for all_atom14_positions'''
-
-  # decide what atoms to exclude for each residue type
-  a2e = {}
-  for r in resname_to_idx:
-    if isinstance(atoms_to_exclude,dict):
-      a2e[r] = atoms_to_exclude.get(r,atoms_to_exclude.get("ALL",["N","C","O"]))
-    else:
-      a2e[r] = ["N","C","O"] if atoms_to_exclude is None else atoms_to_exclude
-
-  # collect atom indices
-  pos,pos_alt = [],[]
-  N,N_non_amb = [],[]
-  for n,a in enumerate(aa_ident):
-    aa = idx_to_resname[a]
-    atoms = set(residue_constants.residue_atoms[aa])
-    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
-    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
-    swaps.update({v:k for k,v in swaps.items()})
-    for atom in atoms.difference(a2e[aa]):
-      pos.append(n * 14 + atoms14.index(atom))
-      if atom in swaps:
-        pos_alt.append(n * 14 + atoms14.index(swaps[atom]))
-      else:
-        pos_alt.append(pos[-1])
-        N_non_amb.append(n)
-      N.append(n)
-
-  pos, pos_alt = np.asarray(pos), np.asarray(pos_alt)
-  non_amb = pos == pos_alt
-  N, N_non_amb = np.asarray(N), np.asarray(N_non_amb)
-  w = np.array([1/(n == N).sum() for n in N])
-  w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
-  w, w_na = w/w.sum(), w_na/w_na.sum()
-  return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
-          "weight":w, "weight_non_amb":w_na[:,None]}
 
 def prep_input_features(L, N=1, T=1, one_hot_msa=True):
   '''
@@ -562,3 +475,21 @@ def prep_input_features(L, N=1, T=1, one_hot_msa=True):
             }
   inputs['msa'] = np.zeros((N,L,22)) if one_hot_msa else np.zeros((N,L),int)
   return inputs
+
+def get_chain_enc(copies, lengths, residue_idx=None):
+  if residue_idx is None:
+    residue_idx = np.concatenate([np.arange(L) for L in lengths],0)
+  chain_enc = {"asym_id":[],"sym_id":[],"entity_id":[],"residue_index":[]}
+  asym_id = 0
+  chain_lengths = []
+  for sym_id in range(copies):
+    for entity_id, L in enumerate(lengths):
+      chain_enc["asym_id"].append(np.full(L,asym_id))
+      chain_enc["sym_id"].append(np.full(L,sym_id))
+      chain_enc["entity_id"].append(np.full(L,entity_id))
+      chain_lengths.append(L)
+      asym_id += 1
+    chain_enc["residue_index"].append(residue_idx)
+  for k in chain_enc.keys():
+    chain_enc[k] = np.concatenate(chain_enc[k])
+  return chain_lengths, chain_enc

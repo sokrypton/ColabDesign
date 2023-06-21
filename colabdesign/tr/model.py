@@ -21,7 +21,7 @@ class mk_tr_model(design_model):
                optimizer="sgd", learning_rate=0.1,
                loss_callback=None):
     
-    assert protocol in ["fixbb","hallucination","partial"]
+    assert protocol in ["fixbb","hallucination"]
 
     self.protocol = protocol
     self._data_dir = "." if os.path.isfile(os.path.join("models",f"model_xaa.npy")) else data_dir
@@ -46,7 +46,7 @@ class mk_tr_model(design_model):
       p = os.path.join(self._data_dir,os.path.join("models",f"model_xa{k}.npy"))
       self._model_params.append(get_model_params(p))
 
-    if protocol in ["hallucination","partial"]:
+    if protocol in ["hallucination"]:
       self._bkg_model = TrRosetta(bkg_model=True)
   
   def _get_model(self):
@@ -57,7 +57,7 @@ class mk_tr_model(design_model):
       log_p = jax.tree_map(jax.nn.log_softmax, outputs)
 
       # bkg loss
-      if self.protocol in ["hallucination","partial"]:
+      if self.protocol in ["hallucination"]:
         p = jax.tree_map(jax.nn.softmax, outputs)
         log_q = jax.tree_map(jax.nn.log_softmax, inputs["6D_bkg"])
         aux["losses"]["bkg"] = {}
@@ -65,10 +65,7 @@ class mk_tr_model(design_model):
           aux["losses"]["bkg"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
 
       # cce loss
-      if self.protocol in ["fixbb","partial"]:
-        if "pos" in opt:
-          pos = opt["pos"]
-          log_p = jax.tree_map(lambda x:x[:,pos][pos,:], log_p)
+      if self.protocol in ["fixbb"]:
 
         q = inputs["6D"]
         aux["losses"]["cce"] = {}
@@ -90,14 +87,9 @@ class mk_tr_model(design_model):
       opt = inputs["opt"]
       seq = soft_seq(params["seq"], inputs["bias"], opt)
       if "fix_pos" in opt:
-        if "pos" in self.opt:
-          seq_ref = jax.nn.one_hot(inputs["batch"]["aatype_sub"],20)
-          p = opt["pos"][opt["fix_pos"]]
-          fix_seq = lambda x:x.at[...,p,:].set(seq_ref)
-        else:
-          seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
-          p = opt["fix_pos"]
-          fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
+        seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
+        p = opt["fix_pos"]
+        fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
         seq = jax.tree_map(fix_seq, seq)
 
       inputs.update({"seq":seq["pseudo"][0],
@@ -117,7 +109,7 @@ class mk_tr_model(design_model):
     '''
     prep inputs for TrDesign
     '''    
-    if self.protocol in ["fixbb", "partial"]:
+    if self.protocol in ["fixbb"]:
       # parse PDB file and return features compatible with TrRosetta
       pdb = prep_pdb(pdb_filename, chain, ignore_missing=ignore_missing)
       self._inputs["batch"] = pdb["batch"]
@@ -125,22 +117,6 @@ class mk_tr_model(design_model):
       if fix_pos is not None:
         self.opt["fix_pos"] = prep_pos(fix_pos, **pdb["idx"])["pos"]
       
-      if self.protocol == "partial" and pos is not None:
-        self._pos_info = prep_pos(pos, **pdb["idx"])
-        p = self._pos_info["pos"]
-        aatype = self._inputs["batch"]["aatype"]
-        self._inputs["batch"] = jax.tree_map(lambda x:x[p], self._inputs["batch"])
-        self.opt["pos"] = p
-        if "fix_pos" in self.opt:
-          sub_i,sub_p = [],[]
-          p = p.tolist()
-          for i in self.opt["fix_pos"].tolist():
-            if i in p:
-              sub_i.append(i)
-              sub_p.append(p.index(i))
-          self.opt["fix_pos"] = np.array(sub_p)
-          self._inputs["batch"]["aatype_sub"] = aatype[sub_i]
-
       self._inputs["6D"] = _np_get_6D_binned(self._inputs["batch"]["all_atom_positions"],
                                              self._inputs["batch"]["all_atom_mask"])
 
@@ -156,7 +132,7 @@ class mk_tr_model(design_model):
           # phi = [CA]-CB-CB
           self.opt["weights"]["cce"] = dict(dist=1,omega=0,phi=0,theta=0)
 
-    if self.protocol in ["hallucination", "partial"]:
+    if self.protocol in ["hallucination"]:
       # compute background distribution
       if length is not None: self._len = length
       self._inputs["6D_bkg"] = []
@@ -334,9 +310,9 @@ class mk_tr_model(design_model):
       af_model.aux["loss"] += weight * self.aux["loss"]
         
       # for verbose printout
-      if self.protocol in ["hallucination","partial"]:
+      if self.protocol in ["hallucination"]:
         af_model.aux["losses"]["TrD_bkg"] = self.get_loss("bkg", get_best=False)
-      if self.protocol in ["fixbb","partial"]:
+      if self.protocol in ["fixbb"]:
         af_model.aux["losses"]["TrD_cce"] = self.get_loss("cce", get_best=False)
       
     self.restart(seed=seed)

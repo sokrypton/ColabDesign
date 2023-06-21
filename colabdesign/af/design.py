@@ -58,7 +58,7 @@ class _af_design:
       self.set_seq(seq=seq, mode=mode, **kwargs)    
     elif hasattr(self,"_wt_aatype"):
       self.set_msa(msa=self._wt_aatype)
-    elif seq is not None:
+    else:
       self.set_msa(msa=seq)
 
     # reset optimizer
@@ -125,10 +125,7 @@ class _af_design:
 
       # compute sequence recovery
       if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-        if self.protocol == "partial":
-          aatype = self.aux["aatype"][...,self.opt["pos"]]
-        else:
-          aatype = self.aux["seq"]["pseudo"].argmax(-1)
+        aatype = self.aux["seq"]["pseudo"].argmax(-1)
 
         mask = self._wt_aatype != -1
         true = self._wt_aatype[mask]
@@ -173,7 +170,6 @@ class _af_design:
                 'prev_pair': np.zeros([L,L,128])}          
         
         # initialize coordinates
-        # TODO: add support for the 'partial' protocol
         if "batch" in self._inputs:
           ini_seq = self._inputs["batch"]["aatype"]
           ini_pos = self._inputs["batch"]["all_atom_positions"]
@@ -432,12 +428,8 @@ class _af_design:
     i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
     i_prob[np.isnan(i_prob)] = 0
     if "fix_pos" in self.opt:
-      if "pos" in self.opt:
-        p = self.opt["pos"][self.opt["fix_pos"]]
-        seq[...,p] = self._wt_aatype_sub
-      else:
-        p = self.opt["fix_pos"]
-        seq[...,p] = self._wt_aatype[...,p]
+      p = self.opt["fix_pos"]
+      seq[...,p] = self._wt_aatype[...,p]
       i_prob[p] = 0
     
     for m in range(mutation_rate):

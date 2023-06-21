@@ -102,7 +102,7 @@ class _af_utils:
     if aux is None:
       aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]    
-    if self.protocol in ["fixbb","binder"]:
+    if self.protocol in ["fixbb","partial","binder"]:
       pos_ref = self._inputs["batch"]["all_atom_positions"][:,1].copy()
       pos_ref[(pos_ref == 0).any(-1)] = np.nan
     else:
@@ -141,11 +141,8 @@ class _af_utils:
     ax2 = fig.add_subplot(gs[3:,:])
     ax1_ = ax1.twinx()
     
-    if self.protocol in ["fixbb"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self._args["use_sidechains"]:
-        rmsd = self.get_loss("sc_rmsd")
-      else:
-        rmsd = self.get_loss("rmsd")
+    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+      rmsd = self.get_loss("rmsd")
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")
       ax1.plot(rmsd,color="black")

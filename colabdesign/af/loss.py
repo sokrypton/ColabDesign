@@ -100,12 +100,14 @@ class _af_loss:
 
     # define masks
     opt = inputs["opt"]
-    mask_1d = inputs["seq_mask"]
+    seq_mask_1d = inputs["seq_mask"]
+    if "unsupervised" in inputs:
+      mask_1d = jnp.where(inputs["unsupervised"],seq_mask_1d,0)
     
-    seq_mask_2d = mask_1d[:,None] * mask_1d[None,:]
-    mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
+    seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
+    intra_mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
     masks = {"mask_1d":mask_1d,
-             "mask_2d":jnp.where(seq_mask_2d,mask_2d,0)}
+             "mask_2d":jnp.where(intra_mask_2d,seq_mask_2d,0)}
 
     # define losses
     losses = {
@@ -119,7 +121,7 @@ class _af_loss:
     # define losses at interface
     if len(self._lengths) > 1: 
       masks = {"mask_1d": mask_1d,
-               "mask_2d": jnp.where(seq_mask_2d,mask_2d == False,0)}
+               "mask_2d": jnp.where(intra_mask_2d,0,seq_mask_2d)}
       losses.update({
         "i_pae": get_pae_loss(outputs, **masks),
         "i_con": get_con_loss(inputs, outputs, opt["i_con"], **masks),
@@ -386,7 +388,7 @@ def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
   weights = jnp.where(inputs["seq_mask"],batch["all_atom_mask"][:,1],0)
   return _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
 
-def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
+def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, eps=1e-8):
   '''
   get rmsd + alignment function
   align based on the first L positions, computed weighted rmsd using all 
@@ -397,7 +399,7 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
   if weights is None:
     weights = (jnp.ones(length)/length)[...,None]
   else:
-    weights = (weights/(weights.sum(-1,keepdims=True) + 1e-8))[...,None]
+    weights = (weights/(weights.sum(-1,keepdims=True) + eps))[...,None]
 
   # determine alignment [L]ength and remaining [l]ength
   if copies > 1:
@@ -416,7 +418,7 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
     (iT,iP,iW) = (x[...,L:,:] for x in (true,pred,weights))
 
   # get alignment and rmsd functions
-  (T_mu,P_mu) = ((x*W).sum(-2,keepdims=True)/W.sum((-1,-2)) for x in (T,P))
+  (T_mu,P_mu) = ((x*W).sum(-2,keepdims=True)/(W.sum((-1,-2)) + eps) for x in (T,P))
   aln = _np_kabsch((P-P_mu)*W, T-T_mu)   
   align_fn = lambda x: (x - P_mu) @ aln + T_mu
   msd_fn = lambda t,p,w: (w*jnp.square(align_fn(p)-t)).sum((-1,-2))
@@ -431,9 +433,9 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1):
     imsd = msd_fn(iT, iP, iW.reshape(-1,C,1,iL,1).swapaxes(0,-3))
     imsd = (imsd.min(0).sum(0) + imsd.min(1).sum(0)) / 2 
     imsd = imsd.reshape(jnp.broadcast_shapes(true.shape[:-2],pred.shape[:-2]))
-    msd = (imsd + msd_fn(T,P,W)) if include_L else (imsd/iW.sum((-1,-2)))
+    msd = (imsd + msd_fn(T,P,W)) if include_L else (imsd/(iW.sum((-1,-2) + eps)))
   else:
-    msd = msd_fn(true,pred,weights) if include_L else (msd_fn(iT,iP,iW)/iW.sum((-1,-2)))
+    msd = msd_fn(true,pred,weights) if include_L else (msd_fn(iT,iP,iW)/(iW.sum((-1,-2)) + eps))
   rmsd = jnp.sqrt(msd + 1e-8)
 
   return {"rmsd":rmsd, "align":align_fn}

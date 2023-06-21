@@ -7,7 +7,6 @@ from colabdesign.af.alphafold.common import protein, residue_constants
 from colabdesign.af.alphafold.model.tf import shape_placeholders
 from colabdesign.af.alphafold.model import config
 
-
 from colabdesign.shared.protein import _np_get_cb, pdb_to_string
 from colabdesign.shared.prep import prep_pos
 from colabdesign.shared.utils import copy_dict
@@ -266,6 +265,95 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
+  def _prep_partial(self, contigs, pdb_filename=None,
+    fix_pos=None, fix_all_pos=False, **kwargs):
+    '''prep inputs for partial hallucination protocol'''
+    # parse contigs
+    if isinstance(contigs,str): contigs = contigs.split(":")    
+    length,batch = [],[]
+    chain_info = {}
+    unsupervised = []
+    fix_pos_list = []
+    total_len = 0
+
+    # for each contig
+    for contig in contigs:
+      contig_len = 0
+      contig_batch = []
+
+      # for each segment in contig
+      for seg in contig.split("/"):
+        if seg[0].isalpha():
+          # supervised
+          chain = seg[0]
+          if chain not in chain_info:
+            chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=True)
+          
+          pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]          
+          seg_len = len(pos)
+          contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
+          unsupervised += [False] * seg_len
+
+          # add fixed positions
+          if fix_pos is not None:
+            f_pos = prep_pos(fix_pos, **chain_info[chain]["idx"], error_chk=False)["pos"]
+            for p in f_pos:
+              if p in pos: fix_pos_list.append(pos.index(p) + total_len)
+          
+        else:
+          # unsupervised
+          if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
+          seg_len = int(seg)
+          contig_batch.append({'aatype': np.full(seg_len,-1),
+                               'all_atom_positions': np.zeros((seg_len,37,3)),
+                               'all_atom_mask': np.zeros((seg_len,37)),
+                               'residue_index': np.arange(seg_len)})
+          unsupervised += [True] * seg_len
+        contig_len += seg_len
+        total_len += seg_len
+      
+      # adjust residue index to be continious
+      for b in range(len(contig_batch)):
+        offset = -contig_batch[b]["residue_index"][0]
+        if b > 0:
+          offset += contig_batch[b-1]["residue_index"][-1]
+        contig_batch[b]["residue_index"] += offset + 1
+      
+      length.append(contig_len)
+      batch.append(contig_batch)
+
+    # concatenate batch
+    batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
+    self._wt_aatype = batch["aatype"]
+
+    # encode chains
+    self._len = sum(length)
+    self._lengths, chain_enc = get_chain_enc(1, length, batch["residue_index"])
+        
+    # configure input features
+    self._inputs = self._prep_features(num_res=sum(self._lengths))
+    self._inputs.update(chain_enc)
+    self._inputs["batch"] = batch
+    self._inputs["unsupervised"] = np.array(unsupervised)
+    if fix_all_pos:
+      self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised) == False]
+    elif len(fix_pos_list) > 0:
+      self.opt["fix_pos"] = np.array(fix_pos_list)
+
+    # decide on weights
+    weights = {}
+    if sum(unsupervised) > 0:
+      weights.update({"con":1.0,"pae":0.0})
+      if len(self._lengths) > 1:
+        weights.update({"i_con":1.0,"i_pae":0.0})
+    else:
+      weights.update({"con":0.0,"pae":0.0,"plddt":0.0})
+    if (sum(not x for x in unsupervised)) > 0:
+      weights.update({"dgram_cce":1.0,"fape":0.0})
+    else:
+      weights.update({"dgram_cce":0.0,"fape":0.0})
+    self.opt["weights"].update(weights)
+    self._prep_model(**kwargs)
 
 #######################
 # utils
@@ -336,7 +424,7 @@ def prep_pdb(pdb_filename, chain=None,
               "residue_index": residue_index,
               "cb_feat":cb_feat})
     
-    residue_idx.append(batch.pop("residue_index"))
+    residue_idx.append(batch["residue_index"])
     chain_idx.append([chain] * len(residue_idx[-1]))
     full_lengths.append(len(residue_index))
 

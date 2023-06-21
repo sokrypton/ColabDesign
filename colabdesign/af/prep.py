@@ -93,7 +93,7 @@ class _af_prep:
     
     self._args.update({
       "copies":copies,
-      "block_diag":copies > 1 and not self._args["use_multimer"]:
+      "block_diag":not self._args["use_multimer"]:
     })
 
     # configure input features
@@ -137,7 +137,7 @@ class _af_prep:
     '''    
     # define num copies (for homo-oligomers)
     self._args.update({
-      "block_diag":copies > 1 and not self._args["use_multimer"],
+      "block_diag":not self._args["use_multimer"],
       "copies":copies})   
     
     # encode chains
@@ -275,12 +275,6 @@ class _af_prep:
 #######################
 # utils
 #######################
-def repeat_idx(idx, copies=1, offset=50):
-  idx_offset = np.repeat(np.cumsum([0]+[idx[-1]+offset]*(copies-1)),len(idx))
-  return np.tile(idx,copies) + idx_offset
-
-def repeat_pos(pos, copies, length):
-  return (np.repeat(pos,copies).reshape(-1,copies) + np.arange(copies) * length).T.flatten()
 
 def prep_pdb(pdb_filename, chain=None,
              offsets=None, lengths=None,
@@ -359,27 +353,23 @@ def prep_pdb(pdb_filename, chain=None,
   o["lengths"] = full_lengths
   return o
 
-def smarter_pad(arr, pad_values, pad_value=0):
-  pad_values = np.array(pad_values)
-
-  # Handle negative padding (removal of elements)
-  for idx, (pad_start, pad_end) in enumerate(pad_values):
-    if len(arr.shape) > idx:  # If the dimension exists
-      if pad_start < 0:  # If start padding is negative, remove elements from the start
-        arr = arr[abs(pad_start):]
-      if pad_end < 0:  # If end padding is negative, remove elements from the end
-        arr = arr[:arr.shape[0] + pad_end]
-
-  # Handle positive padding (addition of elements)
-  pad_values = np.where(pad_values < 0, 0, pad_values)
-  arr = np.pad(arr, pad_values, mode='constant', constant_values=pad_value)
-
-  return arr
-
 def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False):
   '''pad input features'''
-  shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
+  def pad_fn(arr, pad_values, pad_value=0):
+    pad_values = np.array(pad_values)
+    # Handle negative padding (removal of elements)
+    for idx, (pad_start, pad_end) in enumerate(pad_values):
+      if len(arr.shape) > idx:  # If the dimension exists
+        if pad_start < 0:  # If start padding is negative, remove elements from the start
+          arr = arr[abs(pad_start):]
+        if pad_end < 0:  # If end padding is negative, remove elements from the end
+          arr = arr[:arr.shape[0] + pad_end]
+    # Handle positive padding (addition of elements)
+    pad_values = np.where(pad_values < 0, 0, pad_values)
+    arr = np.pad(arr, pad_values, mode='constant', constant_values=pad_value)
+    return arr
 
+  shape_schema = {k:v for k,v in config.CONFIG.data.eval.feat.items()}
   pad_size_map = {
       shape_placeholders.NUM_RES: num_res,
       shape_placeholders.NUM_MSA_SEQ: num_seq,
@@ -394,7 +384,7 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False)
       schema = shape_schema[k][:len(shape)]
       pad_size = [pad_size_map.get(s2, None) or s1 for (s1, s2) in zip(shape, schema)]
       padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
-      feat[k] = smarter_pad(v, padding)
+      feat[k] = pad_fn(v, padding)
   return feat
 
 def prep_input_features(L, N=1, T=1, one_hot_msa=True):
@@ -420,7 +410,6 @@ def prep_input_features(L, N=1, T=1, one_hot_msa=True):
             }
   inputs['msa'] = np.zeros((N,L,22)) if one_hot_msa else np.zeros((N,L),int)
   return inputs
-
 
 def get_chain_enc(copies, lengths, residue_idx=None):
   if residue_idx is None:

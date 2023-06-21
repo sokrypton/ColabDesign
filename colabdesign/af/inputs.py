@@ -24,7 +24,8 @@ class _af_inputs:
     if a3m_filename is not None:
       msa, deletion_matrix = parse_a3m(a3m_filename=a3m_filename)
 
-    assert msa is not None
+    if msa is None:
+      msa = np.zeros((self._num, self._len),int)
 
     if msa.ndim == 1:
       msa = msa[None]

@@ -58,7 +58,7 @@ class _af_design:
       self.set_seq(seq=seq, mode=mode, **kwargs)    
     elif hasattr(self,"_wt_aatype"):
       self.set_msa(msa=self._wt_aatype)
-    elif seq is not None:
+    else:
       self.set_msa(msa=seq)
 
     # reset optimizer

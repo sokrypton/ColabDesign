@@ -133,9 +133,7 @@ class _af_prep:
     prep inputs for hallucination
     '''    
     # define num copies (for homo-oligomers)
-    self._args.update({
-      "block_diag":not self._args["use_multimer"],
-      "copies":copies})   
+    self._args.update({"copies":copies, "block_diag":not self._args["use_multimer"]})   
     
     # encode chains
     if isinstance(length, int): length = [length]
@@ -415,13 +413,13 @@ def get_chain_enc(copies, lengths, residue_idx=None):
   asym_id = 0
   chain_lengths = []
   for sym_id in range(copies):
-    for entity_id, (L,R) in enumerate(zip(lengths,residue_idxs)):
+    for entity_id, L in enumerate(lengths):
       chain_enc["asym_id"].append(np.full(L,asym_id))
       chain_enc["sym_id"].append(np.full(L,sym_id))
       chain_enc["entity_id"].append(np.full(L,entity_id))
-      chain_lengths.append(residue_idx)
+      chain_lengths.append(L)
       asym_id += 1
-    chain_enc["residue_index"].append(R)
+    chain_enc["residue_index"].append(residue_idx)
   for k in chain_enc.keys():
     chain_enc[k] = np.concatenate(chain_enc[k])
   return chain_lengths, chain_enc

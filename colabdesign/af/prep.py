@@ -266,33 +266,43 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_partial(self,
-    contigs,
-    pdb_filename=None,
-    **kwargs):
-    '''
-    prep inputs for partial hallucination protocol
-    '''        
+  def _prep_partial(self, contigs, pdb_filename=None,
+    fix_pos=None, fix_all_pos=False, **kwargs):
+    '''prep inputs for partial hallucination protocol'''
     # parse contigs
-    if isinstance(contigs,str):
-      contigs = contigs.split(":")
-    
+    if isinstance(contigs,str): contigs = contigs.split(":")    
     length,batch = [],[]
     chain_info = {}
     unsupervised = []
+    fix_pos_list = []
+    total_len = 0
+
+    # for each contig
     for contig in contigs:
       contig_len = 0
       contig_batch = []
+
+      # for each segment in contig
       for seg in contig.split("/"):
         if seg[0].isalpha():
+          # supervised
           chain = seg[0]
           if chain not in chain_info:
             chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=True)
-          pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]
+          
+          pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]          
           seg_len = len(pos)
           contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
           unsupervised += [False] * seg_len
+
+          # add fixed positions
+          if fix_pos is not None:
+            f_pos = prep_pos(fix_pos, **chain_info[chain]["idx"], error_chk=False)["pos"]
+            for p in f_pos:
+              if p in pos: fix_pos_list.append(pos.index(p) + total_len)
+          
         else:
+          # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
           seg_len = int(seg)
           contig_batch.append({'aatype': np.full(seg_len,-1),
@@ -301,7 +311,9 @@ class _af_prep:
                                'residue_index': np.arange(seg_len)})
           unsupervised += [True] * seg_len
         contig_len += seg_len
+        total_len += seg_len
       
+      # adjust residue index to be continious
       for b in range(len(contig_batch)):
         offset = -contig_batch[b]["residue_index"][0]
         if b > 0:
@@ -310,6 +322,8 @@ class _af_prep:
       
       length.append(contig_len)
       batch.append(contig_batch)
+
+    # concatenate batch
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
     self._wt_aatype = batch["aatype"]
 
@@ -322,7 +336,10 @@ class _af_prep:
     self._inputs.update(chain_enc)
     self._inputs["batch"] = batch
     self._inputs["unsupervised"] = np.array(unsupervised)
-    self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised) == False]
+    if fix_all_pos:
+      self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised) == False]
+    elif len(fix_pos_list) > 0:
+      self.opt["fix_pos"] = np.array(fix_pos_list)
 
     # decide on weights
     weights = {}

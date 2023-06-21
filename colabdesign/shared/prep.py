@@ -1,5 +1,5 @@
 import numpy as np
-def prep_pos(pos, residue, chain):
+def prep_pos(pos, residue, chain, error_chk=True):
   '''
   given input [pos]itions (a string of segment ranges seperated by comma,
   for example: "1,3-4,10-15"), return list of indices to constrain.
@@ -34,13 +34,17 @@ def prep_pos(pos, residue, chain):
   for i,c in zip(residue_set, chain_set):
     if i is None:
       idx = np.where(chain == c)[0]
-      assert len(idx) > 0, f'ERROR: chain {c} not found'
-      pos_set += [n for n in idx]
-      len_set[len_set.index(c)] = len(idx)
+      if error_chk:
+        assert len(idx) > 0, f'ERROR: chain {c} not found'
+      if len(idx) > 0:
+        pos_set += [n for n in idx]
+        len_set[len_set.index(c)] = len(idx)
     else:
       idx = np.where((residue == i) & (chain == c))[0]
-      assert len(idx) == 1, f'ERROR: positions {i} and chain {c} not found'
-      pos_set.append(idx[0])
+      if error_chk:
+        assert len(idx) == 1, f'ERROR: positions {i} and chain {c} not found'
+      if len(idx) == 1:
+        pos_set.append(idx[0])
 
   return {"residue":np.array(residue_set),
           "chain":np.array(chain_set),

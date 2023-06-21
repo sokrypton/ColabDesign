@@ -59,8 +59,6 @@ class _af_prep:
     -parse_as_homooligomer - input pdb chains are parsed as homo-oligomeric units
     -rm_template_seq       - if template is defined, remove information about template sequence
     -fix_pos="1,2-10"      - specify which positions to keep fixed in the sequence
-                             note: supervised loss is applied to all positions, use "partial" 
-                             protocol to apply supervised loss to only subset of positions
     -ignore_missing=True   - skip positions that have missing density (no CA coordinate)
     ---------------------------------------------------
     '''    
@@ -131,10 +129,7 @@ class _af_prep:
       self._inputs.update(rm_dict)
       self.opt["template"]["rm_ic"] = rm_template_ic
   
-    if kwargs.pop("do_not_prep_model",False):
-      return kwargs
-    else:
-      self._prep_model(**kwargs)
+    self._prep_model(**kwargs)
     
   def _prep_hallucination(self, length=100, copies=1, **kwargs):
     '''
@@ -276,72 +271,6 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_partial(self, pdb_filename, chain="A", length=None,
-                    copies=1, pos=None, fix_pos=None, 
-                    rm_template=False,
-                    rm_template_seq=False,
-                    rm_template_sc=False,
-                    rm_template_ic=False, 
-                    ignore_missing=True,
-                    parse_as_homooligomer=False,
-                    **kwargs):
-        
-    # initialize with fixbb protocol
-    kwargs["do_not_prep_model"] = True
-    kwargs = self._prep_fixbb(
-      pdb_filename=pdb_filename,
-      chain=chain, 
-      copies=copies,
-      fix_pos=fix_pos,
-      ignore_missing=ignore_missing,
-      parse_as_homooligomer=parse_as_homooligomer,
-      **kwargs)
-
-    # configure weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":1.0})
-    if self._args["copies"] > 1:
-      self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
-
-    # get positions
-    if pos is None:
-      self._pos_info = {"seg_lengths":np.array([self._len]),
-                        "pos":np.arange(self._len)}
-    else:
-      self._pos_info = prep_pos(pos, **self._pdb["idx"])
-    
-    pos = self._pos_info["pos"]
-    if parse_as_homooligomer: pos = pos[pos < self._len]
-    self.opt["pos"] = pos
-
-    # subselect inputs
-    self._inputs["batch"] = jax.tree_map(lambda x:x[pos], self._inputs["batch"]) 
-
-    if self._args["use_sidechains"]:
-      self.opt["weights"].update({"sc_fape":0.1,"sc_chi":0.1,"sc_chi_norm":0.0})
-      self.opt["fix_pos"] = np.arange(len(pos))
-      self._wt_aatype_sub = self._wt_aatype[pos]
-
-    elif "fix_pos" in self.opt:
-      pos_list = pos.tolist()
-      sub_n,sub_i = [],[]
-      for i in self.opt["fix_pos"].tolist():
-        if i in pos_list:
-          sub_i.append(i)
-          sub_n.append(pos_list.index(i))
-      self.opt["fix_pos"] = np.array(sub_n)
-      self._wt_aatype_sub = self._wt_aatype[sub_i]
-    
-    self._wt_aatype = self._wt_aatype_sub
-
-    if self._args["use_templates"]:
-      for k in ["rm_template","rm_template_sc","rm_template_seq"]:
-        self._inputs.pop(k,None)
-      self.opt["template"].update({"rm":rm_template,
-                                   "rm_ic":rm_template_ic,
-                                   "rm_sc":rm_template_sc,
-                                   "rm_seq":rm_template_seq})
-
-    self._prep_model(**kwargs)
 
 #######################
 # utils
@@ -467,44 +396,6 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False)
       padding = [(0, p - v.shape[i]) for i, p in enumerate(pad_size)]
       feat[k] = smarter_pad(v, padding)
   return feat
-
-def get_sc_pos(aa_ident, atoms_to_exclude=None):
-  '''get sidechain indices/weights for all_atom14_positions'''
-
-  # decide what atoms to exclude for each residue type
-  a2e = {}
-  for r in resname_to_idx:
-    if isinstance(atoms_to_exclude,dict):
-      a2e[r] = atoms_to_exclude.get(r,atoms_to_exclude.get("ALL",["N","C","O"]))
-    else:
-      a2e[r] = ["N","C","O"] if atoms_to_exclude is None else atoms_to_exclude
-
-  # collect atom indices
-  pos,pos_alt = [],[]
-  N,N_non_amb = [],[]
-  for n,a in enumerate(aa_ident):
-    aa = idx_to_resname[a]
-    atoms = set(residue_constants.residue_atoms[aa])
-    atoms14 = residue_constants.restype_name_to_atom14_names[aa]
-    swaps = residue_constants.residue_atom_renaming_swaps.get(aa,{})
-    swaps.update({v:k for k,v in swaps.items()})
-    for atom in atoms.difference(a2e[aa]):
-      pos.append(n * 14 + atoms14.index(atom))
-      if atom in swaps:
-        pos_alt.append(n * 14 + atoms14.index(swaps[atom]))
-      else:
-        pos_alt.append(pos[-1])
-        N_non_amb.append(n)
-      N.append(n)
-
-  pos, pos_alt = np.asarray(pos), np.asarray(pos_alt)
-  non_amb = pos == pos_alt
-  N, N_non_amb = np.asarray(N), np.asarray(N_non_amb)
-  w = np.array([1/(n == N).sum() for n in N])
-  w_na = np.array([1/(n == N_non_amb).sum() for n in N_non_amb])
-  w, w_na = w/w.sum(), w_na/w_na.sum()
-  return {"pos":pos, "pos_alt":pos_alt, "non_amb":non_amb,
-          "weight":w, "weight_non_amb":w_na[:,None]}
 
 def prep_input_features(L, N=1, T=1, one_hot_msa=True):
   '''

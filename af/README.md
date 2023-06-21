@@ -74,14 +74,6 @@ Instead of hallucination, you can redesign an existing binder:
 model.prep_inputs(pdb_filename="4MZK.pdb", chain="A", binder_chain="T")
 ```
 
-### partial hallucination
-If you have a motif (binding motif, or functional motif) and you want to hallucinate a new scaffold around it,
-you can use partial hallucination. Or you have a protein and you want to extend one of the loops.
-```python
-af_model = mk_afdesign_model(protocol="partial")
-af_model.prep_inputs(pdb_filename="6MRR.pdb", chain="A", pos="3-30,33-68", length=100)
-af_model.rewire(loops=[36])
-```
 # FAQ
 
 #### Can I reuse the same model without needing to recompile?
@@ -178,9 +170,6 @@ To get around this problem, we propose optimizing in 3 stages or first learning 
   - *pae* - minimize PAE at interface and within binder
   - *con* - - maximize `2` contacts per binder position, within binder. `model.set_opt("con",num=2)`
   - *i_con* - maximize `1` contacts per binder position `model.set_opt("i_con",num=1)`
-
-- partial hallucination specific losses
-  - *sc_fape* - sidechain-specific fape
 
 #### How is contact defined? How do I change it?
 By default, 2 [con]tacts per positions are optimized to be within cβ-cβ < 14.0Å and sequence seperation ≥ 9. This can be changed with:

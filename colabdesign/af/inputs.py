@@ -57,12 +57,8 @@ class _af_inputs:
     def _fix_pos(seq):
       if "fix_pos" in self.opt:
         seq_ref = jax.nn.one_hot(self._wt_aatype,self._args["alphabet_size"])
-        if "pos" in self.opt:
-          p = self.opt["pos"][self.opt["fix_pos"]]
-          fix_seq = lambda x: x.at[...,p,:].set(seq_ref)
-        else:
-          p = self.opt["fix_pos"]
-          fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
+        p = self.opt["fix_pos"]
+        fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
         seq = jax.tree_map(fix_seq, seq)
       return seq
 
@@ -80,7 +76,7 @@ class _af_inputs:
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
-    if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
+    elif and self._args["copies"] > 1:
       seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
               
     # update inputs
@@ -127,34 +123,13 @@ class _af_inputs:
     # enable templates
     inputs["template_mask"] = inputs["template_mask"].at[:T].set(1)    
     
-    if self.protocol == "partial":
-      # figure out what positions to use
-      pos = opt["pos"]
-      # if homooligomer propagate the positions across copies 
-      if self._args["copies"] > 1:
-        C = self._args["copies"]
-        pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * self._len).T.flatten()
-      
-      # inject template features
-      for k,v in template_feats.items():
-        if k in ["template_dgram"]:
-          inputs[k] = inputs[k].at[:T,pos[:,None],pos[None,:]].set(v)
-        else:
-          inputs[k] = inputs[k].at[:T,pos].set(v)
-
-      # remove sidechains (mask anything beyond CB)
-      k = "template_all_atom_mask"
-      inputs[k] = inputs[k].at[:T,pos,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,pos,5:]))
-      inputs[k] = inputs[k].at[:T,pos].set(jnp.where(rm[:,None],0,inputs[k][:T,pos]))
-
-    else:
-      # inject template features
-      for k,v in template_feats.items():
-        inputs[k] = inputs[k].at[:T].set(v)      
-      # remove sidechains (mask anything beyond CB)
-      k = "template_all_atom_mask"
-      inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
-      inputs[k] = jnp.where(rm[:,None],0,inputs[k])
+    # inject template features
+    for k,v in template_feats.items():
+      inputs[k] = inputs[k].at[:T].set(v)      
+    # remove sidechains (mask anything beyond CB)
+    k = "template_all_atom_mask"
+    inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
+    inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
 def np_one_hot(x, alphabet):
   return np.pad(np.eye(alphabet),[[0,1],[0,0]])[x]

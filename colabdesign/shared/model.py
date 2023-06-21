@@ -4,7 +4,6 @@ import numpy as np
 import optax
 
 from colabdesign.shared.utils import copy_dict, update_dict, softmax, Key
-from colabdesign.shared.prep import rewire
 from colabdesign.af.alphafold.common import residue_constants
 
 aa_order = residue_constants.restype_order
@@ -69,11 +68,7 @@ class design_model:
     if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
       wt_seq = np.eye(shape[-1])[self._wt_aatype]
       wt_seq[self._wt_aatype == -1] = 0
-      if "pos" in self.opt and self.opt["pos"].shape[0] == wt_seq.shape[0]:
-        seq = np.zeros(shape)
-        seq[:,self.opt["pos"],:] = wt_seq
-      else:
-        seq = wt_seq
+      seq = wt_seq
     
     # initialize sequence
     if seq is None:
@@ -183,21 +178,6 @@ class design_model:
   
   def get_seqs(self, get_best=True):
     return self.get_seq(get_best)
-
-  def rewire(self, order=None, offset=0, loops=0):
-    '''
-    helper function for "partial" protocol
-    -----------------------------------------
-    -order=[0,1,2] - change order of specified segments
-    -offset=0 - specify start position of the first segment
-    -loops=[3,2] - specified loop lengths between segments
-    -----------------------------------------
-    '''
-    self.opt["pos"] = rewire(seg_lengths=self._pos_info["seg_lengths"],
-                             order=order, offset=offset, loops=loops)
-
-    # make default
-    if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]
 
 def soft_seq(x, bias, opt, key=None, num_seq=None, shuffle_first=True):
   seq = {"input":x}

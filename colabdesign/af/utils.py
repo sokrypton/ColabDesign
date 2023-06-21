@@ -141,8 +141,8 @@ class _af_utils:
     ax2 = fig.add_subplot(gs[3:,:])
     ax1_ = ax1.twinx()
     
-    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self.protocol == "partial" and self._args["use_sidechains"]:
+    if self.protocol in ["fixbb"] or (self.protocol == "binder" and self._args["redesign"]):
+      if self._args["use_sidechains"]:
         rmsd = self.get_loss("sc_rmsd")
       else:
         rmsd = self.get_loss("rmsd")

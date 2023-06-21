@@ -193,8 +193,8 @@ class design_model:
     -loops=[3,2] - specified loop lengths between segments
     -----------------------------------------
     '''
-    self.opt["pos"] = rewire(length=self._pos_info["length"], order=order,
-                             offset=offset, loops=loops)
+    self.opt["pos"] = rewire(seg_lengths=self._pos_info["seg_lengths"],
+                             order=order, offset=offset, loops=loops)
 
     # make default
     if hasattr(self,"_opt"): self._opt["pos"] = self.opt["pos"]

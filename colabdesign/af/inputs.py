@@ -16,38 +16,9 @@ class _af_inputs:
   def set_seq(self, seq=None, mode=None, **kwargs):
     assert self._args["optimize_seq"] == True
     self._set_seq(seq=seq, mode=mode, **kwargs)
-    
-  def _update_seq(self, params, inputs, aux, key):
-    '''get sequence features'''
-    opt = inputs["opt"]
-    k1, k2 = jax.random.split(key)
-    seq = soft_seq(params["seq"], inputs["bias"], opt, k1, num_seq=self._num,
-                   shuffle_first=self._args["shuffle_first"])
-    seq = self._fix_pos(seq)
-    aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
-    
-    # protocol specific modifications to seq features
-    if self.protocol == "binder":
-      # concatenate target and binder sequence
-      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],self._args["alphabet_size"])
-      seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
-      seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
-      
-    if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
-      seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
-              
-    # update sequence features      
-    update_seq(seq, inputs)
-    
-    # update amino acid sidechain identity
-    update_aatype(seq, inputs) 
-    inputs["seq"] = aux["seq"]
-    
-    return seq
 
   def set_msa(self, msa=None, deletion_matrix=None, a3m_filename=None):
     ''' set msa '''
-
     assert self._args["optimize_seq"] == False
 
     if a3m_filename is not None:
@@ -72,24 +43,57 @@ class _af_inputs:
       msa, deletion_matrix = expand_copies(msa, copies=self._args["copies"], 
         block_diag=self._args["block_diag"], d=deletion_matrix, use_jax=False)
 
-    self._inputs["aatype"] = msa[0]
-    self._inputs["target_feat"] = np_one_hot(msa[0],20)
-    self._inputs["msa"] = msa
-    self._inputs["msa_mask"] = np.ones_like(deletion_matrix)
-    self._inputs["deletion_matrix"] = deletion_matrix
+    self._inputs.update({
+      "msa":msa,
+      "target_feat":np_one_hot(msa[0],20),
+      "aatype":msa[0],
+      "deletion_matrix":deletion_matrix,
+      "msa_mask":np.ones_like(deletion_matrix)
+    })
   
-  def _fix_pos(self, seq, return_p=False):
-    if "fix_pos" in self.opt:
-      if "pos" in self.opt:
-        seq_ref = jax.nn.one_hot(self._wt_aatype_sub,self._args["alphabet_size"])
-        p = self.opt["pos"][self.opt["fix_pos"]]
-        fix_seq = lambda x: x.at[...,p,:].set(seq_ref)
-      else:
+  def _update_seq(self, params, inputs, aux, key):
+    '''get sequence features'''
+
+    def _fix_pos(seq):
+      if "fix_pos" in self.opt:
         seq_ref = jax.nn.one_hot(self._wt_aatype,self._args["alphabet_size"])
-        p = self.opt["fix_pos"]
-        fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
-      seq = jax.tree_map(fix_seq, seq)
-      if return_p: return seq, p
+        if "pos" in self.opt:
+          p = self.opt["pos"][self.opt["fix_pos"]]
+          fix_seq = lambda x: x.at[...,p,:].set(seq_ref)
+        else:
+          p = self.opt["fix_pos"]
+          fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
+        seq = jax.tree_map(fix_seq, seq)
+      return seq
+
+    opt = inputs["opt"]
+    k1, k2 = jax.random.split(key)
+    seq = soft_seq(params["seq"], inputs["bias"], opt, k1, num_seq=self._num,
+                   shuffle_first=self._args["shuffle_first"])
+    seq = _fix_pos(seq)
+    aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
+    
+    # protocol specific modifications to seq features
+    if self.protocol == "binder":
+      # concatenate target and binder sequence
+      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],self._args["alphabet_size"])
+      seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
+      seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
+      
+    if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
+      seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
+              
+    # update inputs
+    msa = seq["pseudo"]
+    msa = jnp.pad(msa,[[0,0],[0,0],[0,22-msa.shape[-1]]])      
+    inputs.update({
+      "msa":msa,
+      "target_feat":msa[0,:,:20],
+      "aatype":msa[0].argmax(-1),
+      "deletion_matrix":jnp.zeros(msa.shape[:2]),
+      "msa_mask":jnp.ones(msa.shape[:2])
+    })
+    
     return seq
 
   def _update_template(self, inputs):
@@ -151,24 +155,6 @@ class _af_inputs:
       k = "template_all_atom_mask"
       inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
       inputs[k] = jnp.where(rm[:,None],0,inputs[k])
-
-def update_seq(seq, inputs, use_jax=True):
-  '''update the sequence features'''  
-
-  _np = jnp if use_jax else np
-  msa = seq["pseudo"] if isinstance(seq, dict) else seq
-    
-  target_feat = msa[0,:,:20]
-  msa = _np.pad(msa,[[0,0],[0,0],[0,22-msa.shape[-1]]])
-  inputs.update({"msa":msa, "target_feat":target_feat})
-
-def update_aatype(seq, inputs, use_jax=True):
-  _np = jnp if use_jax else np
-  if isinstance(seq,dict):
-    aatype = seq["pseudo"][0].argmax(-1)
-  else:
-    aatype = seq[0].argmax(-1)
-  inputs["aatype"] = aatype
 
 def np_one_hot(x, alphabet):
   return np.pad(np.eye(alphabet),[[0,1],[0,0]])[x]

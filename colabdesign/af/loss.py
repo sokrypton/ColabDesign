@@ -103,6 +103,8 @@ class _af_loss:
     seq_mask_1d = inputs["seq_mask"]
     if "unsupervised" in inputs:
       mask_1d = jnp.where(inputs["unsupervised"],seq_mask_1d,0)
+    else:
+      mask_1d = seq_mask_1d
     
     seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
     intra_mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]

@@ -23,12 +23,11 @@ from colabdesign.af.inputs import _af_inputs
 
 class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
   def __init__(self,
-               protocol="fixbb", 
+               protocol="contigs", 
                use_multimer=False,
                use_templates=False,
                debug=False,
                data_dir=".",
-               v2=True,
                **kwargs):  
     assert protocol in ["fixbb","hallucination","binder","contigs","partial"]
 
@@ -47,7 +46,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "shuffle_first":True, "use_remat":True,
                   "alphabet_size":20, 
                   "use_initial_guess":False, "use_initial_atom_pos":False,
-                  "use_supervised_loss":False}
+                  "use_supervised_loss":False, "mask_unsupervised":True}
 
     if self.protocol == "binder": self._args["use_templates"] = True
 
@@ -129,7 +128,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #####################################
     idx = ["fixbb","hallucination","binder","contigs","partial"].index(self.protocol)
     self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_contigs, self._prep_partial][idx]
-    self._get_loss = self._get_losses
+    self._get_loss = self._loss_contigs
 
   def _get_model(self, cfg, callback=None):
 

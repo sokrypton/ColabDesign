@@ -128,36 +128,43 @@ class _af_prep:
       interchain_mask = np.ones((L,L))
       residue_index = batch["residue_index"]
 
-    self._wt_aatype = batch["aatype"]
-
     # encode chains
     self._len = sum(length)
     self._lengths, chain_enc = get_chain_enc(copies, length, residue_index)
+    self._wt_aatype = batch["aatype"][:self._len]
         
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths))
     self._inputs.update(chain_enc)
     self._inputs["batch"] = batch
-    self._inputs["unsupervised"] = np.array(unsupervised)
+    
+    # define masks
+    unsupervised = np.array(unsupervised)
+    unsupervised_2d = np.logical_or(unsupervised[:,None],unsupervised[None,:])
+    unsupervised_2d[interchain_mask == 0] = 1
+    self._inputs["unsupervised"] = unsupervised
+    self._inputs["unsupervised_2d"] = unsupervised_2d
+    self._inputs["supervised"] = unsupervised == False
+    self._inputs["supervised_2d"] = unsupervised_2d == False
+    self._inputs["interchain_mask"] = interchain_mask
+    
     if fix_all_pos:
-      self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised)[:self_len] == False]
+      self.opt["fix_pos"] = np.arange(self._len)[unsupervised[:self_len] == False]
     elif len(fix_pos_list) > 0:
       self.opt["fix_pos"] = fix_pos
-    self._inputs["interchain_mask"] = interchain_mask
 
     # decide on weights
     weights = copy_dict(self.opt["weights"]) 
     losses = ["plddt","pae","i_pae","exp_res","helix","con","i_con",
       "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
     weights.update({k:0.0 for k in losses})
-    if sum(unsupervised):
+    if self._inputs["unsupervised"].sum():
       weights["con"] = 1.0
-      if len(self._lengths) > 1:
-        weights["i_con"] = 1.0
-    if sum(not x for x in unsupervised):
-      self._args["use_supervised_loss"] = True
-      weights["dgram_cce"] = 1.0    
-    self.opt["weights"].update(weights)    
+    if self._inputs["unsupervised_2d"].sum():
+      weights["i_con"] = 1.0
+    if self._inputs["supervised_2d"].sum():
+      weights["dgram_cce"] = 1.0
+    self.opt["weights"].update(weights)
 
     # prep model
     self._prep_model(**kwargs)
@@ -243,7 +250,7 @@ class _af_prep:
 
     contigs = ["/".join(contig) for contig in contigs]
 
-    print(f"WARNING: 'partial' protocol is being depcrecated in favor of a unified 'contigs' protocol!")
+    print(f"WARNING: 'partial' protocol is being deprecated in favor of a unified 'contigs' protocol!")
     print(f"You can use the 'contigs' protocol to get the same result (but now with more flexible control):")
     print(f"model = mk_af_model('contigs')")
     print(f"model.prep_inputs(contigs='{':'.join(contigs)}', pdb_filename='{pdb_filename}')")
@@ -258,18 +265,17 @@ class _af_prep:
     pdb_filename,
     target_chain="A",
     binder_len=50,                                         
+    binder_chain=None,
+
     #rm_target = False,
     #rm_target_seq = False,
     #rm_target_sc = False,
-
-    # if binder_chain is defined
-    binder_chain=None,
     #rm_binder=True,
     #rm_binder_seq=True,
     #rm_binder_sc=True,
     #rm_template_ic=False,
+    #hotspot=None,
 
-    #hotspot=None, 
     ignore_missing=True, **kwargs):
   
     # parsing inputs
@@ -287,9 +293,24 @@ class _af_prep:
       contigs.append(b)
     if len(binder_chain) == 0:
       contigs.append(str(binder_len))
+      redesign = False
+    else:
+      redesign = True
 
     self._prep_contigs(contigs, pdb_filename,
-      fix_pos=fix_pos, ignore_missing=ignore_missing, **kwargs)
+      fix_pos=",".join(fix_pos), ignore_missing=ignore_missing, **kwargs)
+
+    self._target_len = sum(self._lengths[:len(target_chain)])
+    self._binder_len = sum(self._lengths) - self._target_len
+
+    self._inputs["supervised"][:self._target_len] = False
+    self._inputs["supervised_2d"][:self._target_len,:self._target_len] = False
+
+    # adjust weights
+    if redesign:
+      self.set_weights(i_con=0, con=0, plddt=0, dgram_cce=1, set_defaults=True)
+    else:
+      self.set_weights(i_con=1, con=0, plddt=0.1, dgram_cce=0, set_defaults=True)
 
 #######################
 # utils

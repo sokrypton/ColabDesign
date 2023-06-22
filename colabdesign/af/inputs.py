@@ -33,11 +33,11 @@ class _af_inputs:
     if deletion_matrix is None:
       deletion_matrix = np.zeros(msa.shape)
 
-    if self.protocol == "binder":
+    if self.protocol == "binder" and msa.shape[1] == self._binder_len:
       # add target sequence
       msa = np.pad(msa,[[0,0],[self._target_len,0]])
       deletion_matrix = np.pad(deletion_matrix,[[0,0],[self._target_len,0]])
-      msa[0,:self._target_len] = self._inputs["batch"]["aatype"][:self._target_len]
+      msa[0,:self._target_len] = self._wt_aatype[:self._target_len]
       msa[1:,:self._target_len,-1] = 1
     
     elif self._args["copies"] > 1:
@@ -71,9 +71,8 @@ class _af_inputs:
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     # protocol specific modifications to seq features
-    if self.protocol == "binder":
-      # concatenate target and binder sequence
-      seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],self._args["alphabet_size"])
+    if self.protocol == "binder" and seq["pseudo"].shape[1] == self._binder_len:
+      seq_target = jax.nn.one_hot(self._wt_aatype[:self._target_len],self._args["alphabet_size"])
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
       seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       

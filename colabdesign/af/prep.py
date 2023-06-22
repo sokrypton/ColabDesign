@@ -265,15 +265,17 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_contigs(self, contigs, pdb_filename=None,
+  def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
     fix_pos=None, fix_all_pos=False, ignore_missing=True, **kwargs):
     '''prep inputs for partial hallucination protocol'''
 
     # parsing inputs
-    if isinstance(contigs,str): contigs = contigs.split(":")    
+    if isinstance(contigs,str): contigs = contigs.split(":")
+
+    print(f"contigs: {contigs}")
 
     # parse contigs
-    length,batch = [],[]
+    length,batch,idx = [],[],[]
     chain_info = {}
     unsupervised = []
     fix_pos_list = []
@@ -307,6 +309,7 @@ class _af_prep:
           # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
           seg_len = int(seg)
+          contig_idx.append({})
           contig_batch.append({'aatype': np.full(seg_len,-1),
                                'all_atom_positions': np.zeros((seg_len,37,3)),
                                'all_atom_mask': np.zeros((seg_len,37)),
@@ -325,13 +328,40 @@ class _af_prep:
       length.append(contig_len)
       batch.append(contig_batch)
 
+    fix_pos = np.array(fix_pos_list)
+
     # concatenate batch
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
+    
+    # propagate batch over copies
+    if copies > 1:
+      if kwargs.pop("homooligomer",parse_as_homooligomer):
+        assert len(length) % copies == 0
+        units = len(length) // copies
+        length = length[:units]
+        L = sum(length)
+        if len(fix_pos_list) > 0:
+          fix_pos = fix_pos[fix_pos < L]
+        interchain_mask = np.ones((copies*L,copies*L))
+      else:
+        unsupervised = unsupervised * copies
+        batch = [batch]*copies
+        batch = jax.tree_map(lambda *x:np.concatenate(x),*batch)
+        L = sum(length)
+        interchain_mask = np.zeros((copies,copies,L,L))
+        interchain_mask[np.diag_indices(copies)] = 1
+        interchain_mask = interchain_mask.swapaxes(1,2).reshape(copies*L,copies*L)
+      residue_index = batch["residue_index"][:sum(length)]
+    else:
+      L = sum(length)
+      interchain_mask = np.ones((L,L))
+      residue_index = batch["residue_index"]
+
     self._wt_aatype = batch["aatype"]
 
     # encode chains
     self._len = sum(length)
-    self._lengths, chain_enc = get_chain_enc(1, length, batch["residue_index"])
+    self._lengths, chain_enc = get_chain_enc(copies, length, residue_index)
         
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths))
@@ -339,9 +369,10 @@ class _af_prep:
     self._inputs["batch"] = batch
     self._inputs["unsupervised"] = np.array(unsupervised)
     if fix_all_pos:
-      self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised) == False]
+      self.opt["fix_pos"] = np.arange(self._len)[np.array(unsupervised)[:self_len] == False]
     elif len(fix_pos_list) > 0:
-      self.opt["fix_pos"] = np.array(fix_pos_list)
+      self.opt["fix_pos"] = fix_pos
+    self._inputs["interchain_mask"] = interchain_mask
 
     # decide on weights
     weights = {}
@@ -360,36 +391,97 @@ class _af_prep:
 
   def _prep_hallucination_v2(self,
     length=100,
-    #copies=1, 
+    copies=1, 
     **kwargs):
 
     # parsing inputs
     if isinstance(length,int): length = [length]
 
     # prep model
-    self._prep_contigs([str(L) for L in length], **kwargs)
+    self._prep_contigs([str(L) for L in length], copies=copies, **kwargs)
 
   def _prep_fixbb_v2(self, 
     pdb_filename, 
     chain="A",
-    #copies=1,
+    copies=1,
     #rm_template=False,
     #rm_template_seq=True,
     #rm_template_sc=True,
     #rm_template_ic=False,
     fix_pos=None,
     ignore_missing=True,
-    #parse_as_homooligomer=False, 
+    parse_as_homooligomer=False, 
     **kwargs):
     
     # parsing inputs
-    if isinstance(chain,str): chain = chain.split(",")
+    contigs = chain.split(",") if isinstance(chain,str) else chain
 
     # prep model
-    self._prep_contigs(chain, pdb_filename,
-      fix_pos=fix_pos, ignore_missing=ignore_missing, **kwargs)
+    self._prep_contigs(contigs, pdb_filename,
+      fix_pos=fix_pos, ignore_missing=ignore_missing, 
+      copies=copies, parse_as_homooligomer=parse_as_homooligomer, **kwargs)
 
-  def _prep_binder_v2(self, 
+  def _prep_partial_v2(self,
+    pdb_filename,
+    chain="A",
+    length=None,
+    copies=1, 
+    parse_as_homooligomer=False,
+    pos=None, 
+    fix_pos=None,
+    #use_sidechains=False,
+    #atoms_to_exclude=None,
+    #rm_template=False,
+    #rm_template_seq=False,
+    #rm_template_sc=False,
+    #rm_template_ic=False,
+    ignore_missing=True,
+    **kwargs):
+
+    # parsing inputs
+    chains = chain.split(",") if isinstance(chain,str) else chain
+    
+    # prep contigs
+    contigs = [[] for c in chains]
+    if pos is not None:
+      for p in pos.split(","):
+        if p[0].isalpha():
+          if p[0] in chain:
+            contigs[chains.index(p[0])].append(p)
+        else:
+          contigs[0].append(chains[0]+p)
+    for n,chain in enumerate(chains):
+      if len(contigs[n]) == 0:
+        contigs[n].append(chain)
+      else:
+        # fill in missing regions
+        num_segments = len(contigs[n])
+        if num_segments > 1:
+          new_contig = [contigs[n][0]]
+          for i in range(num_segments-1):
+            (a, b) = (contigs[n][i], contigs[n][i+1])
+            if a[0] == b[0] and len(a) > 1 and len(b) > 1:
+              (a_end, b_start) = (int(a.split("-")[-1]), int(b.split("-")[0]))
+              gap = (b_start - a_end) - 1
+              if gap > 0:
+                new_contig.append(gap)
+            new_contig.append(b)
+          contigs[n] = new_contig
+
+    contigs = ["/".join(contig) for contig in contigs]
+
+    print(f"WARNING: 'partial' protocol is being depcrecated in favor of a unified 'contigs' protocol!")
+    print(f"You can use the 'contigs' protocol to get the same result (but now with more flexible control):")
+    print(f"model = mk_af_model('contigs')")
+    print(f"model.prep_inputs(contigs='{':'.join(contigs)}', pdb_filename='{pdb_filename}')")
+    
+    # prep model
+    self._prep_contigs(contigs, pdb_filename,
+      fix_pos=fix_pos, ignore_missing=ignore_missing, 
+      copies=copies, parse_as_homooligomer=parse_as_homooligomer**kwargs)
+
+
+  def _prep_binder_v2(self,
     pdb_filename,
     target_chain="A",
     binder_len=50,                                         

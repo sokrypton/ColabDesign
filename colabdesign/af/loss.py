@@ -38,32 +38,38 @@ class _af_loss:
     # unsupervised losses
     self._loss_unsupervised(inputs, outputs, aux)
 
-  def _loss_partial(self, inputs, outputs, aux):
-    opt = inputs["opt"]
+  def _get_losses(self, inputs, outputs, aux):
     '''get losses'''
-    copies = self._args["copies"] 
     
-    # rmsd loss
-    #aln = get_rmsd_loss(inputs, outputs, copies=copies)
-    #if self._args["realign"]:
-    #  aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
-    
-    # supervised losses
-    aux["losses"].update({
-      "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
-      "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
-      "rmsd":      0.0, #aln["rmsd"],
-    })
+    opt = inputs["opt"]
 
-    if self._args["use_sidechains"]:
-      if "fix_pos" in inputs:
-        mask_1d = jnp.zeros_like(inputs["seq_mask"]).at[inputs["fix_pos"]].set(1)
-      else:
-        mask_1d = inputs["seq_mask"].at[self._len:].set(0)
-      aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=mask_1d))
+    ###########################
+    # supervised losses
+    ###########################
+    if self._args["use_supervised_loss"]:
+      copies = self._args["copies"] 
+      # rmsd loss
+      aln = get_rmsd_loss(inputs, outputs, copies=copies)
+      if self._args["realign"]:
+        aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
+      
+      aux["losses"].update({
+        "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
+        "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
+        "rmsd":      aln["rmsd"],
+      })
+      if self._args["use_sidechains"]:
+        if "fix_pos" in inputs:
+          mask_1d = jnp.zeros_like(inputs["seq_mask"]).at[inputs["fix_pos"]].set(1)
+        else:
+          mask_1d = inputs["seq_mask"].at[self._len:].set(0)
+        aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=mask_1d))
     
+    ###########################
     # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, aux)
+    ###########################
+    if self._args["use_unsupervised_loss"]:
+      self._loss_unsupervised(inputs, outputs, aux)
 
   def _loss_binder(self, inputs, outputs, aux):
     '''get losses'''

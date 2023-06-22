@@ -265,18 +265,20 @@ class _af_prep:
 
     self._prep_model(**kwargs)
 
-  def _prep_partial(self, contigs, pdb_filename=None,
-    fix_pos=None, fix_all_pos=False, **kwargs):
+  def _prep_contigs(self, contigs, pdb_filename=None,
+    fix_pos=None, fix_all_pos=False, ignore_missing=True, **kwargs):
     '''prep inputs for partial hallucination protocol'''
-    # parse contigs
+
+    # parsing inputs
     if isinstance(contigs,str): contigs = contigs.split(":")    
+
+    # parse contigs
     length,batch = [],[]
     chain_info = {}
     unsupervised = []
     fix_pos_list = []
     total_len = 0
 
-    # for each contig
     for contig in contigs:
       contig_len = 0
       contig_batch = []
@@ -287,7 +289,7 @@ class _af_prep:
           # supervised
           chain = seg[0]
           if chain not in chain_info:
-            chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=True)
+            chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
           
           pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]          
           seg_len = len(pos)
@@ -355,6 +357,74 @@ class _af_prep:
       weights.update({"dgram_cce":0.0,"fape":0.0})
     self.opt["weights"].update(weights)
     self._prep_model(**kwargs)
+
+  def _prep_hallucination_v2(self,
+    length=100,
+    #copies=1, 
+    **kwargs):
+
+    # parsing inputs
+    if isinstance(length,int): length = [length]
+
+    # prep model
+    self._prep_contigs([str(L) for L in length], **kwargs)
+
+  def _prep_fixbb_v2(self, 
+    pdb_filename, 
+    chain="A",
+    #copies=1,
+    #rm_template=False,
+    #rm_template_seq=True,
+    #rm_template_sc=True,
+    #rm_template_ic=False,
+    fix_pos=None,
+    ignore_missing=True,
+    #parse_as_homooligomer=False, 
+    **kwargs):
+    
+    # parsing inputs
+    if isinstance(chain,str): chain = chain.split(",")
+
+    # prep model
+    self._prep_contigs(chain, pdb_filename,
+      fix_pos=fix_pos, ignore_missing=ignore_missing, **kwargs)
+
+  def _prep_binder_v2(self, 
+    pdb_filename,
+    target_chain="A",
+    binder_len=50,                                         
+    #rm_target = False,
+    #rm_target_seq = False,
+    #rm_target_sc = False,
+
+    # if binder_chain is defined
+    binder_chain=None,
+    #rm_binder=True,
+    #rm_binder_seq=True,
+    #rm_binder_sc=True,
+    #rm_template_ic=False,
+
+    #hotspot=None, 
+    ignore_missing=True, **kwargs):
+  
+    # parsing inputs
+    if isinstance(target_chain,str): target_chain = target_chain.split(",")
+    if isinstance(binder_chain,str): binder_chain = binder_chain.split(",")
+    if binder_chain is None: binder_chain = []
+
+    # define contigs
+    fix_pos = []
+    contigs = []
+    for a in target_chain:
+      contigs.append(a)
+      fix_pos.append(a)
+    for b in binder_chain:
+      contigs.append(b)
+    if len(binder_chain) == 0:
+      contigs.append(str(binder_len))
+
+    self._prep_contigs(contigs, pdb_filename,
+      fix_pos=fix_pos, ignore_missing=ignore_missing, **kwargs)
 
 #######################
 # utils

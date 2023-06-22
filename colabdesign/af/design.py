@@ -124,7 +124,7 @@ class _af_design:
       for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
       # compute sequence recovery
-      if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+      if self.protocol in ["fixbb","contigs"] or (self.protocol == "binder" and self._args["redesign"]):
         true = self._wt_aatype
         mask = true != -1
         if sum(mask) > 0:

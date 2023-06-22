@@ -191,7 +191,7 @@ def create_msa_feat(batch):
   msa = batch['msa']
   deletion_matrix = batch['deletion_matrix']
   
-  c_msa = batch.get("cluster_profile",st_one_hot(msa,23))
+  c_msa = batch.get("cluster_profile",msa)
   c_deletion_matrix = batch.get("cluster_deletion_mean",deletion_matrix)
   
   has_deletion = jnp.clip(deletion_matrix, 0., 1.)[..., None]

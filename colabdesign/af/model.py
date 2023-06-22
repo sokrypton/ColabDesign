@@ -39,6 +39,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "optimize_seq":True, "recycle_mode":"last", 
                   "realign": True, "use_sidechains": False, 
                   "num_msa":512, "num_extra_msa":1024, "use_mlm": False, "use_cluster_profile": False,
+                  "block_diag":not use_multimer,
                   "debug":debug, "copies":1,
                   "optimizer":"sgd", "best_metric":"loss", 
                   "traj_iter":1, "traj_max":10000,
@@ -46,7 +47,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "shuffle_first":True, "use_remat":True,
                   "alphabet_size":20, 
                   "use_initial_guess":False, "use_initial_atom_pos":False,
-                  "use_supervised_loss":False, "use_unsupervised_loss":False}
+                  "use_supervised_loss":False}
 
     if self.protocol == "binder": self._args["use_templates"] = True
 

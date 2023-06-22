@@ -68,8 +68,7 @@ class _af_loss:
     ###########################
     # unsupervised losses
     ###########################
-    if self._args["use_unsupervised_loss"]:
-      self._loss_unsupervised(inputs, outputs, aux)
+    self._loss_unsupervised(inputs, outputs, aux)
 
   def _loss_binder(self, inputs, outputs, aux):
     '''get losses'''

@@ -266,21 +266,18 @@ class _af_prep:
     self._prep_model(**kwargs)
 
   def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
-    fix_pos=None, fix_all_pos=False, ignore_missing=True, **kwargs):
+    fix_pos=None, fix_all_pos=False, ignore_missing=True, 
+    parse_as_homooligomer=False, **kwargs):
     '''prep inputs for partial hallucination protocol'''
 
-    # parsing inputs
-    if isinstance(contigs,str): contigs = contigs.split(":")
-
-    print(f"contigs: {contigs}")
-
     # parse contigs
-    length,batch,idx = [],[],[]
+    if isinstance(contigs,str): contigs = contigs.split(":")
     chain_info = {}
-    unsupervised = []
-    fix_pos_list = []
+    length, batch = [],[]
+    unsupervised, fix_pos_list = [],[]
     total_len = 0
-
+    
+    # for each contig
     for contig in contigs:
       contig_len = 0
       contig_batch = []
@@ -309,7 +306,6 @@ class _af_prep:
           # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
           seg_len = int(seg)
-          contig_idx.append({})
           contig_batch.append({'aatype': np.full(seg_len,-1),
                                'all_atom_positions': np.zeros((seg_len,37,3)),
                                'all_atom_mask': np.zeros((seg_len,37)),
@@ -334,6 +330,7 @@ class _af_prep:
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
     
     # propagate batch over copies
+    self._args["copies"] = copies
     if copies > 1:
       if kwargs.pop("homooligomer",parse_as_homooligomer):
         assert len(length) % copies == 0
@@ -375,18 +372,20 @@ class _af_prep:
     self._inputs["interchain_mask"] = interchain_mask
 
     # decide on weights
-    weights = {}
-    if sum(unsupervised) > 0:
-      weights.update({"con":1.0,"pae":0.0})
+    weights = copy_dict(self.opt["weights"]) 
+    losses = ["plddt","pae","i_pae","exp_res","helix","con","i_con",
+      "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
+    weights.update({k:0.0 for k in losses})
+    if sum(unsupervised):
+      weights["con"] = 1.0
       if len(self._lengths) > 1:
-        weights.update({"i_con":1.0,"i_pae":0.0})
-    else:
-      weights.update({"con":0.0,"pae":0.0,"plddt":0.0})
-    if (sum(not x for x in unsupervised)) > 0:
-      weights.update({"dgram_cce":1.0,"fape":0.0})
-    else:
-      weights.update({"dgram_cce":0.0,"fape":0.0})
-    self.opt["weights"].update(weights)
+        weights["i_con"] = 1.0
+    if sum(not x for x in unsupervised):
+      self._args["use_supervised_loss"] = True
+      weights["dgram_cce"] = 1.0    
+    self.opt["weights"].update(weights)    
+
+    # prep model
     self._prep_model(**kwargs)
 
   def _prep_hallucination_v2(self,

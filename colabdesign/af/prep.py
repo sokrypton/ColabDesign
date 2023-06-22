@@ -39,232 +39,6 @@ class _af_prep:
     return prep_input_features(L=num_res, N=num_seq, T=num_templates,
       one_hot_msa=not self._args["optimize_seq"])
 
-  def _prep_fixbb(self, 
-                  pdb_filename, 
-                  chain="A",
-                  copies=1,
-                  rm_template=False,
-                  rm_template_seq=True,
-                  rm_template_sc=True,
-                  rm_template_ic=False,
-                  fix_pos=None,
-                  ignore_missing=True,
-                  parse_as_homooligomer=False, 
-                  **kwargs):
-    '''
-    prep inputs for fixed backbone design
-    ---------------------------------------------------
-    -copies                - number of copies in homooligomeric unit
-    -parse_as_homooligomer - input pdb chains are parsed as homo-oligomeric units
-    -rm_template_seq       - if template is defined, remove information about template sequence
-    -fix_pos="1,2-10"      - specify which positions to keep fixed in the sequence
-    -ignore_missing=True   - skip positions that have missing density (no CA coordinate)
-    ---------------------------------------------------
-    '''    
-    
-    parse_as_homooligomer = kwargs.pop("homooligomer",parse_as_homooligomer)    
-    if isinstance(chain,str): chain = chain.split(",")
-    
-    # prep features
-    self._pdb = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
-
-    if parse_as_homooligomer:
-      if copies == 1: copies = len(chain)
-      assert len(self._pdb["lengths"]) % copies == 0
-      units = len(self._pdb["lengths"]) // copies
-      length = self._pdb["lengths"][:units]
-      residue_index = self._pdb["residue_index"][:sum(length)]
-    else: 
-      length = self._pdb["lengths"]
-      residue_index = self._pdb["residue_index"]
-
-    # encode chains
-    if isinstance(length, int): length = [length]
-    self._len = sum(length)
-    self._lengths, chain_enc = get_chain_enc(copies, length, residue_index)
-    
-    # get [pos]itions of interests 
-    if fix_pos is not None:
-      fix_pos = prep_pos(fix_pos, **self._pdb["idx"])["pos"]
-      if parse_as_homooligomer:
-        fix_pos = fix_pos[fix_pos < self._len]
-      self.opt["fix_pos"] = fix_pos
-    
-    self._args.update({"copies":copies, "block_diag":not self._args["use_multimer"]})
-
-    # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths))
-    self._inputs["batch"] = make_fixed_size(self._pdb["batch"],
-      num_res=sum(self._lengths), num_templates=self._args["num_templates"])
-    self._inputs.update(chain_enc)
-
-    # configure options/weights
-    self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0, "con":0.0})
-    if len(self._lengths) > 1:
-      self.opt["weights"].update({"i_pae":0.0, "i_con":0.0})
-
-    # add sidechain loss
-    if kwargs.pop("use_sidechains", self._args["use_sidechains"]):
-      self._args["use_sidechains"] = True
-      self.opt["weights"].update({"sc_fape":0.1, "sc_chi":0.1, "sc_chi_norm":0.0})
-
-    self._wt_aatype = self._inputs["batch"]["aatype"][:self._len]
-
-    # configure template masks
-    if self._args["use_templates"]:
-      rm_dict = {}
-      rm_opt = {"rm_template":    rm_template,
-                "rm_template_seq":rm_template_seq,
-                "rm_template_sc": rm_template_sc}
-      for n,x in rm_opt.items():
-        rm_dict[n] = np.full(sum(self._lengths),False)
-        if isinstance(x,str):
-          rm_dict[n][prep_pos(x,**self._pdb["idx"])["pos"]] = True
-        else:
-          rm_dict[n][:] = x
-      self._inputs.update(rm_dict)
-      self.opt["template"]["rm_ic"] = rm_template_ic
-  
-    self._prep_model(**kwargs)
-    
-  def _prep_hallucination(self, length=100, copies=1, **kwargs):
-    '''
-    prep inputs for hallucination
-    '''    
-    # define num copies (for homo-oligomers)
-    self._args.update({"copies":copies, "block_diag":not self._args["use_multimer"]})   
-    
-    # encode chains
-    if isinstance(length, int): length = [length]
-    self._len = sum(length)
-    self._lengths, chain_enc = get_chain_enc(copies, length)
-    
-    # set weights
-    self.opt["weights"].update({"con":1.0})
-    if copies > 1:
-      self.opt["weights"].update({"i_pae":0.0, "i_con":1.0})
-    
-    # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths))
-    self._inputs.update(chain_enc)
-
-    self._prep_model(**kwargs)
-
-  def _prep_binder(self, pdb_filename,
-                   target_chain="A", binder_len=50,                                         
-                   rm_target = False,
-                   rm_target_seq = False,
-                   rm_target_sc = False,
-                   
-                   # if binder_chain is defined
-                   binder_chain=None,
-                   rm_binder=True,
-                   rm_binder_seq=True,
-                   rm_binder_sc=True,
-                   rm_template_ic=False,
-
-                   hotspot=None, ignore_missing=True, **kwargs):
-    '''
-    prep inputs for binder design
-    ---------------------------------------------------
-    -binder_len = length of binder to hallucinate (option ignored if binder_chain is defined)
-    -binder_chain = chain of binder to redesign
-    -use_binder_template = use binder coordinates as template input
-    -rm_template_ic = use target and binder coordinates as seperate template inputs
-    -hotspot = define position/hotspots on target
-    -rm_[binder/target]_seq = remove sequence info from template
-    -rm_[binder/target]_sc  = remove sidechain info from template
-    -ignore_missing=True - skip positions that have missing density (no CA coordinate)
-    ---------------------------------------------------
-    '''
-    
-    # get pdb info
-    target_chain = kwargs.pop("chain",target_chain) # backward comp
-    if isinstance(target_chain,str): target_chain = target_chain.split(",")
-    if isinstance(binder_chain,str): binder_chain = binder_chain.split(",")
-    
-    # decide how to parse chains
-    if binder_chain is None or len(binder_chain) == 0:
-      # binder hallucination
-      redesign = False
-      chains = target_chain
-      ignore_missing = [True] * len(target_chain)
-    else:
-      # binder redesign
-      redesign = True
-      chains = target_chain + binder_chain
-      ignore_missing = [True] * len(target_chain) + [ignore_missing] * len(binder_chain)
-    self._args.update({"redesign":redesign})
-
-    # parse pdb
-    self._pdb = prep_pdb(pdb_filename, chain=chains, ignore_missing=ignore_missing)
-    target_len = [(self._pdb["idx"]["chain"] == c).sum() for c in target_chain]
-
-    # get lengths
-    if redesign: 
-      binder_len = [(self._pdb["idx"]["chain"] == c).sum() for c in binder_chain]
-    elif not isinstance(binder_len,list): 
-      binder_len = [binder_len]
-    
-    self._target_len = sum(target_len)
-    self._binder_len = self._len = sum(binder_len)
-    self._lengths = target_len + binder_len
-
-    # chain encoding
-    i = np.concatenate([[n]*l for n,l in enumerate(self._lengths)])
-    chain_enc = {"asym_id":i, "sym_id":i, "entity_id":i}
-
-    # gather hotspot info
-    if hotspot is not None:
-      self.opt["hotspot"] = prep_pos(hotspot, **self._pdb["idx"])["pos"]
-
-    if redesign:
-      self._wt_aatype = self._pdb["batch"]["aatype"][self._target_len:]
-      self.opt["weights"].update({"dgram_cce":1.0, "rmsd":0.0, "fape":0.0,
-                                  "con":0.0, "i_con":0.0, "i_pae":0.0})
-      # add sidechain loss
-      if kwargs.pop("use_sidechains", self._args["use_sidechains"]):
-        self._args["use_sidechains"] = True
-        self.opt["weights"].update({"sc_fape":0.1, "sc_chi":0.1, "sc_chi_norm":0.0})
-
-    else:
-      self._pdb["batch"] = make_fixed_size(self._pdb["batch"],
-        num_res=sum(self._lengths), num_templates=self._args["num_templates"])
-      self.opt["weights"].update({"plddt":0.1, "con":0.0, "i_con":1.0, "i_pae":0.0})
-
-    # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths))
-    self._inputs["batch"] = self._pdb["batch"]
-    self._inputs.update(chain_enc)
-
-    # configure residue index
-    res_idx = self._pdb["residue_index"]
-    if not redesign:
-      binder_res_idx = np.concatenate([np.arange(L) for L in binder_len])
-      res_idx = np.append(res_idx, binder_res_idx)
-    self._inputs["residue_index"] = res_idx
-
-    # configure template masks
-    rm_binder = not kwargs.pop("use_binder_template", not rm_binder) # backward comp
-    rm_dict = {}
-    rm_opt = {
-              "rm_template":    {"target":rm_target,    "binder":rm_binder},
-              "rm_template_seq":{"target":rm_target_seq,"binder":rm_binder_seq},
-              "rm_template_sc": {"target":rm_target_sc, "binder":rm_binder_sc}
-             }
-    for n,x in rm_opt.items():
-      rm_dict[n] = np.full(sum(self._lengths), False)
-      for m,y in x.items():
-        if isinstance(y,str):
-          rm_dict[n][prep_pos(y,**self._pdb["idx"])["pos"]] = True
-        else:
-          if m == "target": rm_dict[n][:self._target_len] = y
-          if m == "binder": rm_dict[n][self._target_len:] = y
-    self._inputs.update(rm_dict)        
-    self.opt["template"]["rm_ic"] = rm_template_ic
-
-    self._prep_model(**kwargs)
-
   def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
     fix_pos=None, fix_all_pos=False, ignore_missing=True, 
     parse_as_homooligomer=False, **kwargs):
@@ -388,7 +162,7 @@ class _af_prep:
     # prep model
     self._prep_model(**kwargs)
 
-  def _prep_hallucination_v2(self,
+  def _prep_hallucination(self,
     length=100,
     copies=1, 
     **kwargs):
@@ -399,7 +173,7 @@ class _af_prep:
     # prep model
     self._prep_contigs([str(L) for L in length], copies=copies, **kwargs)
 
-  def _prep_fixbb_v2(self, 
+  def _prep_fixbb(self, 
     pdb_filename, 
     chain="A",
     copies=1,
@@ -420,7 +194,7 @@ class _af_prep:
       fix_pos=fix_pos, ignore_missing=ignore_missing, 
       copies=copies, parse_as_homooligomer=parse_as_homooligomer, **kwargs)
 
-  def _prep_partial_v2(self,
+  def _prep_partial(self,
     pdb_filename,
     chain="A",
     length=None,
@@ -480,7 +254,7 @@ class _af_prep:
       copies=copies, parse_as_homooligomer=parse_as_homooligomer**kwargs)
 
 
-  def _prep_binder_v2(self,
+  def _prep_binder(self,
     pdb_filename,
     target_chain="A",
     binder_len=50,                                         

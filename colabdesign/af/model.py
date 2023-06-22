@@ -128,15 +128,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     # set protocol specific functions
     #####################################
     idx = ["fixbb","hallucination","binder","contigs","partial"].index(self.protocol)
-    if v2:
-      self.prep_inputs = [self._prep_fixbb_v2, self._prep_hallucination_v2, self._prep_binder_v2, 
-        self._prep_contigs, self._prep_partial_v2][idx]
-      self._get_loss = self._get_losses
-    else:
-      self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, 
-        self._prep_contigs, self._prep_partial_v2][idx]
-      self._get_loss = [self._loss_fixbb, self._loss_hallucination, self._loss_binder, 
-        self._get_losses, self._get_losses][idx]
+    self.prep_inputs = [self._prep_fixbb, self._prep_hallucination, self._prep_binder, self._prep_contigs, self._prep_partial][idx]
+    self._get_loss = self._get_losses
 
   def _get_model(self, cfg, callback=None):
 

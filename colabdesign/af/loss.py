@@ -15,28 +15,6 @@ from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer
 
 class _af_loss:
   # protocol specific loss functions
-  def _loss_fixbb(self, inputs, outputs, aux):
-    opt = inputs["opt"]
-    '''get losses'''
-    copies = self._args["copies"] 
-    # rmsd loss
-    aln = get_rmsd_loss(inputs, outputs, copies=copies)
-    if self._args["realign"]:
-      aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
-    
-    # supervised losses
-    aux["losses"].update({
-      "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
-      "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
-      "rmsd":      aln["rmsd"],
-    })
-
-    if self._args["use_sidechains"]:
-      mask_1d = inputs["seq_mask"].at[self._len:].set(0)
-      aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=mask_1d))
-    
-    # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, aux)
 
   def _get_losses(self, inputs, outputs, aux):
     '''get losses'''
@@ -70,77 +48,15 @@ class _af_loss:
     ###########################
     self._loss_unsupervised(inputs, outputs, aux)
 
-  def _loss_binder(self, inputs, outputs, aux):
-    '''get losses'''
-    opt = inputs["opt"]
-    mask = inputs["seq_mask"]
-    mask_2d = mask[:,None] * mask[None,:]
-    zeros = jnp.zeros_like(mask)
-    tL,bL = self._target_len, self._binder_len
-    binder_id = zeros.at[-bL:].set(mask[-bL:])
-    if "hotspot" in opt:
-      target_id = zeros.at[opt["hotspot"]].set(mask[opt["hotspot"]])
-      i_con_loss = get_con_loss(inputs, outputs, opt["i_con"], mask_1d=target_id, mask_1b=binder_id)
-    else:
-      target_id = zeros.at[:tL].set(mask[:tL])
-      i_con_loss = get_con_loss(inputs, outputs, opt["i_con"], mask_1d=binder_id, mask_1b=target_id)
-
-    # unsupervised losses
-    aux["losses"].update({
-      "plddt":   get_plddt_loss(outputs, mask_1d=binder_id), # plddt over binder
-      "exp_res": get_exp_res_loss(outputs, mask_1d=binder_id),
-      "pae":     get_pae_loss(outputs, mask_1d=binder_id), # pae over binder + interface
-      "con":     get_con_loss(inputs, outputs, opt["con"], mask_1d=binder_id, mask_1b=binder_id),
-      # interface
-      "i_con":   i_con_loss,
-      "i_pae":   get_pae_loss(outputs, mask_1d=binder_id, mask_1b=target_id),
-    })
-
-    # supervised losses
-    if self._args["redesign"]:      
-  
-      aln = get_rmsd_loss(inputs, outputs, L=tL, include_L=False)
-      align_fn = aln["align"]
-      
-      # compute cce of binder + interface
-      aatype = inputs["aatype"]
-      cce = get_dgram_loss(inputs, outputs, aatype=aatype, return_mtx=True)
-
-      # compute fape
-      fape = get_fape_loss(inputs, outputs, clamp=opt["fape_cutoff"], return_mtx=True)
-
-      aux["losses"].update({
-        "rmsd":      aln["rmsd"],
-        "dgram_cce": cce[-bL:].sum()  / (mask_2d[-bL:].sum() + 1e-8),
-        "fape":      fape[-bL:].sum() / (mask_2d[-bL:].sum() + 1e-8)
-      })
-
-      if self._args["use_sidechains"]:
-        aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=binder_id))
-
-    else:
-      align_fn = get_rmsd_loss(inputs, outputs, L=tL)["align"]
-
-    if self._args["realign"]:
-      aux["atom_positions"] = align_fn(aux["atom_positions"]) * aux["atom_mask"][...,None]
-
-  def _loss_hallucination(self, inputs, outputs, aux):
-    # unsupervised losses
-    self._loss_unsupervised(inputs, outputs, aux)
-
   def _loss_unsupervised(self, inputs, outputs, aux):
 
     # define masks
     opt = inputs["opt"]
-    seq_mask_1d = inputs["seq_mask"]
-    if "unsupervised" in inputs:
-      mask_1d = jnp.where(inputs["unsupervised"],seq_mask_1d,0)
-    else:
-      mask_1d = seq_mask_1d
-    
+    seq_mask_1d = inputs["seq_mask"]    
     seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
     intra_mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
-    masks = {"mask_1d":mask_1d,
+    
+    masks = {"mask_1d":seq_mask_1d,
              "mask_2d":jnp.where(intra_mask_2d,seq_mask_2d,0)}
 
     # define losses
@@ -340,7 +256,10 @@ def get_dgram_loss(inputs, outputs, copies=1, aatype=None, return_mtx=False):
     return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
   
   weights = jnp.where(inputs["seq_mask"],weights,0)
-  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
+  weights_2d = weights[:,None] * weights[None,:]
+  if "interchain_mask" in inputs:
+    weights_2d = jnp.where(inputs["interchain_mask"], weights_2d, 0)
+  return _get_pw_loss(true, pred, loss_fn, weights_2d=weights_2d, copies=copies, return_mtx=return_mtx)
 
 def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
 
@@ -375,15 +294,20 @@ def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, return_mtx=False):
   true = get_ij(get_R(true[:,N],true[:,CA],true[:,C]),true[:,CA])
   pred = get_ij(get_R(pred[:,N],pred[:,CA],pred[:,C]),pred[:,CA])
 
-  return _get_pw_loss(true, pred, loss_fn, weights=weights, copies=copies, return_mtx=return_mtx)
+  weights_2d = weights[:,None] * weights[None,:]
+  if "interchain_mask" in inputs:
+    weights_2d = jnp.where(inputs["interchain_mask"], weights_2d, 0)
+  return _get_pw_loss(true, pred, loss_fn, weights_2d=weights_2d, copies=copies, return_mtx=return_mtx)
 
-def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
+def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False, weights_2d=None):
   length = true.shape[0]
   
   if weights is None:
     weights = jnp.ones(length)
+  if weights_2d is None:
+    weights_2d = weights[:,None] * weights[None,:]
   
-  F = {"t":true, "p":pred, "m":weights[:,None] * weights[None,:]}  
+  F = {"t":true, "p":pred, "m":weights_2d}  
 
   if copies > 1:
     (L,C) = (length//copies, copies-1)
@@ -420,6 +344,8 @@ def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
   true = batch["all_atom_positions"][:,1]
   pred = outputs["structure_module"]["final_atom_positions"][:,1]
   weights = jnp.where(inputs["seq_mask"],batch["all_atom_mask"][:,1],0)
+  if "interchain_mask" in inputs:
+    weights = jnp.where(inputs["interchain_mask"][0],weights,0)
   return _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
 
 def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, eps=1e-8):

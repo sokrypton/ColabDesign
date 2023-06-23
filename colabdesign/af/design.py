@@ -470,7 +470,6 @@ class _af_design:
     # get current plddt
     aux = self.predict(seq, return_aux=True, verbose=False, **model_flags, **kwargs)
     plddt = self.aux["plddt"]
-    plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
 
     # optimize!
     if verbose:
@@ -495,7 +494,6 @@ class _af_design:
 
       # update plddt
       plddt = best["aux"]["plddt"]
-      plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
       self._k += 1
 
   def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10, e_tries=None,
@@ -578,7 +576,6 @@ class _af_design:
         (current_seq,current_loss) = (mut_seq,loss)
         
         plddt = aux["all"]["plddt"].mean(0)
-        plddt = plddt[self._target_len:] if self.protocol == "binder" else plddt[:self._len]
         
         if loss < best_loss:
           (best_loss, self._k) = (loss, i)

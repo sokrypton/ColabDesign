@@ -65,8 +65,9 @@ class _af_loss:
       mask_2d_inter = m(intra_mask_2d,0,mask_2d)
       inter_masks = dict(mask_1d=mask_1d, mask_2d=mask_2d_inter)
     
-    if self.protocol == "binder":
-      inter_masks["mask_1d"] = inter_masks["mask_1d"].at[:self._target_len].set(False)
+    if "hotspot" in opt:
+      hotspot_mask = jnp.zeros_like(seq_mask_1d).at[opt["hotspot"]].set(seq_mask_1d[opt["hotspot"]])
+      inter_masks["mask_1d"] = hotspot_mask
 
     aux["masks"] = dict(mask_1d=mask_1d, intra_masks=intra_masks, inter_masks=inter_masks)    
 

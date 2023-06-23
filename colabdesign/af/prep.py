@@ -40,15 +40,15 @@ class _af_prep:
       one_hot_msa=not self._args["optimize_seq"])
 
   def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
-    fix_pos=None, fix_all_pos=False, ignore_missing=True, 
-    parse_as_homooligomer=False, **kwargs):
+    fix_pos=None, fix_all_pos=False, hotspot=None,
+    ignore_missing=True, parse_as_homooligomer=False, **kwargs):
     '''prep inputs for partial hallucination protocol'''
 
     # parse contigs
     if isinstance(contigs,str): contigs = contigs.split(":")
     chain_info = {}
     length, batch = [],[]
-    unsupervised, fix_pos_list = [],[]
+    unsupervised, fix_pos_list, hotspot_list = [],[],[]
     total_len = 0
     
     # for each contig
@@ -79,7 +79,16 @@ class _af_prep:
                 i = pos_list.index(p)
                 if not unsup[i]:
                   fix_pos_list.append(i + total_len)
-                  
+          
+          # add hotspots
+          if hotspot is not None:
+            f_pos = prep_pos(hotspot, **chain_info[chain]["idx"], error_chk=False)["pos"]
+            pos_list = pos.tolist()
+            for p in f_pos.tolist():
+              if p in pos_list:
+                i = pos_list.index(p)
+                hotspot_list.append(i + total_len)
+
         else:
           # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
@@ -103,6 +112,7 @@ class _af_prep:
       batch.append(contig_batch)
 
     fix_pos = np.array(fix_pos_list)
+    hotspot = np.array(hotspot_list)
 
     # concatenate batch
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
@@ -117,6 +127,9 @@ class _af_prep:
         L = sum(length)
         if len(fix_pos_list) > 0:
           fix_pos = fix_pos[fix_pos < L]
+        if len(hotspot_list) > 0:
+          hotspot = hotspot[hotspot < L]
+
         interchain_mask = np.ones((copies*L,copies*L))
       else:
         unsupervised = unsupervised * copies
@@ -156,6 +169,8 @@ class _af_prep:
       self.opt["fix_pos"] = np.arange(self._len)[unsupervised[:self_len] == False]
     elif len(fix_pos_list) > 0:
       self.opt["fix_pos"] = fix_pos
+    if len(hotspot_list) > 0:
+      self.opt["hotspot"] = hotspot
 
     # decide on weights
     weights = copy_dict(self.opt["weights"]) 
@@ -280,19 +295,22 @@ class _af_prep:
     #rm_template_ic=False,
     #hotspot=None,
 
-    ignore_missing=True, **kwargs):
+    hotspot=None,
+    fix_pos=None,
+    ignore_missing=True,
+    **kwargs):
   
     # parsing inputs
     if isinstance(target_chain,str): target_chain = target_chain.split(",")
     if isinstance(binder_chain,str): binder_chain = binder_chain.split(",")
     if binder_chain is None: binder_chain = []
 
-    # define contigs
-    fix_pos = []
+    # define contigs and fix_pos
+    fix_pos_list = []
     contigs = []
     for a in target_chain:
       contigs.append(a)
-      fix_pos.append(a)
+      fix_pos_list.append(a)
     for b in binder_chain:
       contigs.append(b)
     if len(binder_chain) == 0:
@@ -300,12 +318,40 @@ class _af_prep:
       redesign = False
     else:
       redesign = True
+      if fix_pos is not None:
+        for a in fix_pos.split(","):
+          if a[0].isalpha():
+            if a[0].isalpha() in binder_chain:
+              fix_pos_list.append(a)
+          else:
+            fix_pos_list.append(binder_chain[0]+a)
+    fix_pos = ",".join(fix_pos_list)
 
+    # define hotspot
+    hotspot_list = []
+    if hotspot is None:
+      if redesign:
+        hotspot_list += binder_chain
+    else:
+      for a in hotspot.split(","):
+        if a[0].isalpha():
+          if a[0].isalpha() in target_chain:
+            hotspot_list.append(a)
+        else:
+          hotspot_list.append(target_chain[0]+a)
+
+    if len(hotspot_list) > 0:
+      hotspot = ",".join(hotspot_list)
+    
     self._prep_contigs(contigs, pdb_filename,
-      fix_pos=",".join(fix_pos), ignore_missing=ignore_missing, **kwargs)
+      fix_pos=fix_pos, hotspot=hotspot,
+      ignore_missing=ignore_missing, **kwargs)
 
     self._target_len = sum(self._lengths[:len(target_chain)])
     self._binder_len = sum(self._lengths) - self._target_len
+
+    if hotspot is None:
+      self.opt["hotspot"] = np.array(self._target_len,self._target_len+self._binder_len)
 
     self._inputs["supervised"][:self._target_len] = False
     self._inputs["supervised_2d"][:self._target_len,:self._target_len] = False

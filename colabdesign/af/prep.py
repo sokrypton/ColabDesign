@@ -45,7 +45,7 @@ class _af_prep:
     '''prep inputs for partial hallucination protocol'''
 
     # parse contigs
-    if isinstance(contigs,str): contigs = contigs.split(":")
+    if isinstance(contigs,str): contigs = contigs.replace(",",":").split(":")
     chain_info = {}
     length, batch = [],[]
     unsupervised, fix_pos_list, hotspot_list = [],[],[]
@@ -293,7 +293,6 @@ class _af_prep:
     #rm_binder_seq=True,
     #rm_binder_sc=True,
     #rm_template_ic=False,
-    #hotspot=None,
 
     hotspot=None,
     fix_pos=None,
@@ -351,7 +350,7 @@ class _af_prep:
     self._binder_len = sum(self._lengths) - self._target_len
 
     if hotspot is None:
-      self.opt["hotspot"] = np.array(self._target_len,self._target_len+self._binder_len)
+      self.opt["hotspot"] = np.arange(self._target_len,self._target_len+self._binder_len)
 
     self._inputs["supervised"][:self._target_len] = False
     self._inputs["supervised_2d"][:self._target_len,:self._target_len] = False

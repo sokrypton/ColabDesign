@@ -289,11 +289,11 @@ class _af_prep:
     #rm_target = False,
     #rm_target_seq = False,
     #rm_target_sc = False,
-    #rm_binder=True,
     #rm_binder_seq=True,
     #rm_binder_sc=True,
-    #rm_template_ic=False,
-
+    
+    rm_binder=True,
+    rm_template_ic=True,
     hotspot=None,
     fix_pos=None,
     ignore_missing=True,
@@ -346,14 +346,24 @@ class _af_prep:
       fix_pos=fix_pos, hotspot=hotspot,
       ignore_missing=ignore_missing, **kwargs)
 
+    L = sum(self._lengths)
     self._target_len = sum(self._lengths[:len(target_chain)])
-    self._binder_len = sum(self._lengths) - self._target_len
+    self._binder_len = L - self._target_len
 
     if hotspot is None:
       self.opt["hotspot"] = np.arange(self._target_len,self._target_len+self._binder_len)
 
     self._inputs["supervised"][:self._target_len] = False
     self._inputs["supervised_2d"][:self._target_len,:self._target_len] = False
+
+    # mask template
+    self._inputs["rm_template"] = np.full(L,False)
+    if redesign:
+      if rm_template_ic:
+        self._inputs["interchain_mask"][:self._target_len,self._target_len:] = False
+        self._inputs["interchain_mask"][self._target_len:,:self._target_len] = False
+      if rm_binder:
+        self._inputs["rm_template"][self._target_len:] = True
 
     # adjust weights
     if redesign:

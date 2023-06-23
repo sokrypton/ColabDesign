@@ -127,6 +127,8 @@ class _af_design:
       if hasattr(self,"_wt_aatype"):
         true = self._wt_aatype
         mask = true != -1
+        if "fix_pos" in self.opt:
+          mask[self.opt["fix_pos"]] = False
         if sum(mask) > 0:
           pred = self.aux["seq"]["pseudo"].argmax(-1)
           seqid = ((true == pred) * mask).sum(-1) / mask.sum()

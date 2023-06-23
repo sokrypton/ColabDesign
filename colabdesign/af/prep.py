@@ -67,15 +67,19 @@ class _af_prep:
           pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]          
           seg_len = len(pos)
           contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
-          unsupervised += [False] * seg_len
+          unsup = (contig_batch[-1]["aatype"] == -1).tolist()
+          unsupervised += unsup
 
           # add fixed positions
           if fix_pos is not None:
             f_pos = prep_pos(fix_pos, **chain_info[chain]["idx"], error_chk=False)["pos"]
             pos_list = pos.tolist()
             for p in f_pos.tolist():
-              if p in pos: fix_pos_list.append(pos_list.index(p) + total_len)
-          
+              if p in pos_list:
+                i = pos_list.index(p)
+                if not unsup[i]:
+                  fix_pos_list.append(i + total_len)
+                  
         else:
           # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
@@ -258,7 +262,7 @@ class _af_prep:
     # prep model
     self._prep_contigs(contigs, pdb_filename,
       fix_pos=fix_pos, ignore_missing=ignore_missing, 
-      copies=copies, parse_as_homooligomer=parse_as_homooligomer**kwargs)
+      copies=copies, parse_as_homooligomer=parse_as_homooligomer, **kwargs)
 
 
   def _prep_binder(self,
@@ -366,10 +370,10 @@ def prep_pdb(pdb_filename, chain=None,
         y[r] = x
         return y
 
-      batch = {"aatype":scatter(batch["aatype"],-1),
-               "all_atom_positions":scatter(batch["all_atom_positions"]),
-               "all_atom_mask":scatter(batch["all_atom_mask"]),
-               "residue_index":scatter(batch["residue_index"],-1)}
+      batch.update({"aatype":scatter(batch["aatype"],-1),
+        "all_atom_positions":scatter(batch["all_atom_positions"]),
+        "all_atom_mask":scatter(batch["all_atom_mask"])})
+      batch["residue_index"] = np.arange(batch["residue_index"][0], batch["residue_index"][-1] + 1)
       
       residue_index = np.arange(length) + last
     

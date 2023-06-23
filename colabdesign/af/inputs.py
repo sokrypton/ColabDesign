@@ -55,33 +55,23 @@ class _af_inputs:
   def _update_seq(self, params, inputs, aux, key):
     '''get sequence features'''
 
-    def _fix_pos(seq):
-      if "fix_pos" in self.opt:
-        seq_ref = jax.nn.one_hot(self._wt_aatype,self._args["alphabet_size"])
-        p = self.opt["fix_pos"]
-        fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
-        seq = jax.tree_map(fix_seq, seq)
-      return seq
-
     opt = inputs["opt"]
     k1, k2 = jax.random.split(key)
     seq = soft_seq(params["seq"], inputs["bias"], opt, k1, num_seq=self._num,
                    shuffle_first=self._args["shuffle_first"])
-    seq = _fix_pos(seq)
+    
+    A = seq["pseudo"].shape[-1]
+    if "fix_pos" in inputs:
+      wt_seq = jax.nn.one_hot(inputs["wt_aatype"],A)
+      seq = jax.tree_map(lambda x: jnp.where(inputs["fix_pos"][:,None],wt_seq,x), seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
-    # protocol specific modifications to seq features
-    if self.protocol == "binder" and seq["pseudo"].shape[1] == self._binder_len:
-      seq_target = jax.nn.one_hot(self._wt_aatype[:self._target_len],self._args["alphabet_size"])
-      seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
-      seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
-      
-    elif self._args["copies"] > 1:
+    if self._args["copies"] > 1:
       seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
               
     # update inputs
     msa = seq["pseudo"]
-    msa = jnp.pad(msa,[[0,0],[0,0],[0,22-msa.shape[-1]]])      
+    msa = jnp.pad(msa,[[0,0],[0,0],[0,22-A]])      
     inputs.update({
       "msa":msa,
       "target_feat":msa[0,:,:20],

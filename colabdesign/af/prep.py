@@ -39,10 +39,28 @@ class _af_prep:
     return prep_input_features(L=num_res, N=num_seq, T=num_templates,
       one_hot_msa=not self._args["optimize_seq"])
 
-  def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
-    fix_pos=None, fix_all_pos=False, hotspot=None,
-    ignore_missing=True, parse_as_homooligomer=False, **kwargs):
+  def _prep_contigs(self,
+    contigs,
+    pdb_filename=None,
+    copies=1,
+    ignore_missing=True,
+    parse_as_homooligomer=False, **kwargs):
     '''prep inputs for partial hallucination protocol'''
+  
+    # position constraints
+    pos_cst = {}
+    keys = ["hotspot", "fix_pos", "rm_template", "rm_template_seq", "rm_template_sc"]
+    for k in keys:
+      v = kwargs.pop(k, None)
+      if v is not None:
+        if isinstance(v,str):
+          pos_cst[k] = [v,[]]
+        elif isinstance(v,bool):
+          if "template" in k:
+            k_ = {"rm_template":"rm","rm_template_seq":"rm_seq","rm_template_sc":"rm_sc"}[k]
+            self.opt["template"][k_] = v
+          elif k == "fix_pos":
+            kwargs["fix_all_pos"] = True
 
     # parse contigs
     if isinstance(contigs,str): contigs = contigs.replace(",",":").split(":")
@@ -50,7 +68,7 @@ class _af_prep:
     length, batch = [],[]
     unsupervised, fix_pos_list, hotspot_list = [],[],[]
     total_len = 0
-    
+
     # for each contig
     for contig in contigs:
       contig_len = 0
@@ -64,31 +82,21 @@ class _af_prep:
           if chain not in chain_info:
             chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
           
-          pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]          
+          pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]
           seg_len = len(pos)
           contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
           unsup = (contig_batch[-1]["aatype"] == -1).tolist()
           unsupervised += unsup
-
-          # add fixed positions
-          if fix_pos is not None:
-            f_pos = prep_pos(fix_pos, **chain_info[chain]["idx"], error_chk=False)["pos"]
-            pos_list = pos.tolist()
-            for p in f_pos.tolist():
-              if p in pos_list:
-                i = pos_list.index(p)
-                if not unsup[i]:
-                  fix_pos_list.append(i + total_len)
           
-          # add hotspots
-          if hotspot is not None:
-            f_pos = prep_pos(hotspot, **chain_info[chain]["idx"], error_chk=False)["pos"]
-            pos_list = pos.tolist()
-            for p in f_pos.tolist():
+          # parse position constraints
+          pos_list = pos.tolist()
+          for k,(x,_) in pos_cst.items():
+            x_pos_list = prep_pos(x, **chain_info[chain]["idx"], error_chk=False)["pos"].tolist()
+            for p in x_pos_list:
               if p in pos_list:
                 i = pos_list.index(p)
-                hotspot_list.append(i + total_len)
-
+                if k != "fix_pos" or not unsup[i]:
+                  pos_cst[k][1].append(i + total_len)
         else:
           # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
@@ -111,8 +119,8 @@ class _af_prep:
       length.append(contig_len)
       batch.append(contig_batch)
 
-    fix_pos = np.array(fix_pos_list)
-    hotspot = np.array(hotspot_list)
+    # cst
+    pos_cst = {k:np.array(v) for k,(x,v) in pos_cst.items() if len(v) > 0}
 
     # concatenate batch
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
@@ -125,12 +133,9 @@ class _af_prep:
         units = len(length) // copies
         length = length[:units]
         L = sum(length)
-        if len(fix_pos_list) > 0:
-          fix_pos = fix_pos[fix_pos < L]
-        if len(hotspot_list) > 0:
-          hotspot = hotspot[hotspot < L]
-
         interchain_mask = np.ones((copies*L,copies*L))
+        pos_cst = jax.tree_map(lambda x:x[x<L], pos_cst)
+
       else:
         unsupervised = unsupervised * copies
         batch = [batch]*copies
@@ -149,10 +154,12 @@ class _af_prep:
     self._len = sum(length)
     self._lengths, chain_enc = get_chain_enc(copies, length, residue_index)
     self._wt_aatype = batch["aatype"][:self._len]
+    num_res = sum(self._lengths)
         
     # configure input features
-    self._inputs = self._prep_features(num_res=sum(self._lengths))
+    self._inputs = self._prep_features(num_res=num_res)
     self._inputs.update(chain_enc)
+    self._inputs["wt_aatype"] = batch["aatype"]
     self._inputs["batch"] = batch
     
     # define masks
@@ -165,12 +172,13 @@ class _af_prep:
     self._inputs["supervised_2d"] = unsupervised_2d == False
     self._inputs["interchain_mask"] = interchain_mask
     
-    if fix_all_pos:
-      self.opt["fix_pos"] = np.arange(self._len)[unsupervised[:self_len] == False]
-    elif len(fix_pos_list) > 0:
-      self.opt["fix_pos"] = fix_pos
-    if len(hotspot_list) > 0:
-      self.opt["hotspot"] = hotspot
+    # set positional constraints
+    if kwargs.pop("fix_all_pos",False):
+      pos_cst["fix_pos"] = np.arange(self._len)[unsupervised[:self._len] == False]
+    for k,p in pos_cst.items():
+      m = np.full(num_res,0)
+      m[p] = 1
+      self._inputs[k] = m
 
     # decide on weights
     weights = copy_dict(self.opt["weights"]) 
@@ -203,9 +211,6 @@ class _af_prep:
     pdb_filename, 
     chain="A",
     copies=1,
-    #rm_template=False,
-    #rm_template_seq=True,
-    #rm_template_sc=True,
     #rm_template_ic=False,
     fix_pos=None,
     ignore_missing=True,
@@ -213,7 +218,7 @@ class _af_prep:
     **kwargs):
     
     # parsing inputs
-    contigs = chain.split(",") if isinstance(chain,str) else chain
+    chains, contigs = parse_chain(chain)
 
     # prep model
     self._prep_contigs(contigs, pdb_filename,
@@ -228,11 +233,6 @@ class _af_prep:
     parse_as_homooligomer=False,
     pos=None, 
     fix_pos=None,
-    #use_sidechains=False,
-    #atoms_to_exclude=None,
-    #rm_template=False,
-    #rm_template_seq=False,
-    #rm_template_sc=False,
     #rm_template_ic=False,
     ignore_missing=True,
     **kwargs):
@@ -279,91 +279,96 @@ class _af_prep:
       fix_pos=fix_pos, ignore_missing=ignore_missing, 
       copies=copies, parse_as_homooligomer=parse_as_homooligomer, **kwargs)
 
-
   def _prep_binder(self,
     pdb_filename,
     target_chain="A",
-    binder_len=50,                                         
+    binder_len=50,
     binder_chain=None,
-
-    #rm_target = False,
-    #rm_target_seq = False,
-    #rm_target_sc = False,
-    #rm_binder_seq=True,
-    #rm_binder_sc=True,
-    
-    rm_binder=True,
-    rm_template_ic=True,
     hotspot=None,
     fix_pos=None,
+    target_flexible=False,
     ignore_missing=True,
     **kwargs):
-  
+
     # parsing inputs
-    if isinstance(target_chain,str): target_chain = target_chain.split(",")
-    if isinstance(binder_chain,str): binder_chain = binder_chain.split(",")
-    if binder_chain is None: binder_chain = []
+    target_chains, target_contigs = parse_chain(target_chain)
+    binder_chains, binder_contigs = parse_chain(binder_chain)
+    assert len(binder_contigs) > 0 or isinstance(binder_len,int)
+    if len(binder_contigs) == 0:
+      if isinstance(binder_len,int): binder_len = [binder_len]
+      for i in binder_len:
+        binder_contigs.append(str(i))
 
     # define contigs and fix_pos
-    fix_pos_list = []
-    contigs = []
-    for a in target_chain:
-      contigs.append(a)
-      fix_pos_list.append(a)
-    for b in binder_chain:
-      contigs.append(b)
-    if len(binder_chain) == 0:
-      contigs.append(str(binder_len))
+    contigs_list = target_contigs + binder_contigs
+    fix_pos_list = target_chains    
+    if len(binder_chains) == 0:
       redesign = False
     else:
       redesign = True
       if fix_pos is not None:
+        if isinstance(fix_pos,str):
+          fix_pos = fix_pos.split(",")
         for a in fix_pos.split(","):
           if a[0].isalpha():
-            if a[0].isalpha() in binder_chain:
+            if a[0].isalpha() in binder_chains:
               fix_pos_list.append(a)
           else:
-            fix_pos_list.append(binder_chain[0]+a)
+            fix_pos_list.append(binder_chains[0]+a)
+    
+    contigs = ":".join(contigs_list)
     fix_pos = ",".join(fix_pos_list)
 
     # define hotspot
     hotspot_list = []
-    if hotspot is None:
-      if redesign:
-        hotspot_list += binder_chain
-    else:
-      for a in hotspot.split(","):
+    if hotspot is not None:
+      if isinstance(hotspot,str):
+        hotspot = hotspot.split(",")
+      for a in hotspot:
         if a[0].isalpha():
-          if a[0].isalpha() in target_chain:
+          if a[0].isalpha() in target_chains:
             hotspot_list.append(a)
         else:
-          hotspot_list.append(target_chain[0]+a)
+          hotspot_list.append(target_chains[0]+a)
 
     if len(hotspot_list) > 0:
       hotspot = ",".join(hotspot_list)
-    
-    self._prep_contigs(contigs, pdb_filename,
-      fix_pos=fix_pos, hotspot=hotspot,
-      ignore_missing=ignore_missing, **kwargs)
 
-    L = sum(self._lengths)
-    self._target_len = sum(self._lengths[:len(target_chain)])
-    self._binder_len = L - self._target_len
+    args = {
+      "rm_target":False, "rm_target_seq":False, "rm_target_sc":False,
+      "rm_binder":True,  "rm_binder_seq":True,  "rm_binder_sc":True,
+      "rm_template_ic":True
+    }
+    for k,v in args.items():
+      args[k] = kwargs.pop(k,v)
+    if target_flexible:
+      args["rm_target_seq"] = True
+      args["rm_target_sc"] = True
+
+    self._prep_contigs(contigs,
+      pdb_filename=pdb_filename,
+      fix_pos=fix_pos,
+      hotspot=hotspot,
+      ignore_missing=ignore_missing,
+      **kwargs)
+
+    num_res = sum(self._lengths)
+    self._target_len = tL = sum(self._lengths[:len(target_contigs)])
+    self._binder_len = bL = num_res - tL
 
     if hotspot is None:
-      self.opt["hotspot"] = np.arange(self._target_len,self._target_len+self._binder_len)
-
-    self._inputs["supervised"][:self._target_len] = False
-    self._inputs["supervised_2d"][:self._target_len,:self._target_len] = False
+      self._inputs["hotspot"] = np.array([0]*tL+[1]*bL)
+    self._inputs["supervised"][:tL] = 0
+    self._inputs["supervised_2d"][:tL,:tL] = 0
 
     # mask template
-    self._inputs["rm_template"] = np.full(L,False)
-    if redesign:
-      if rm_template_ic:
-        self._inputs["interchain_mask"][:self._target_len,self._target_len:] = False
-        self._inputs["interchain_mask"][self._target_len:,:self._target_len] = False
-      if rm_binder:
-        self._inputs["rm_template"][self._target_len:] = True
+    self._inputs.update({f"rm_template{k}": np.full(num_res,0) for k in ["","_seq","_sc"]})
+    if args["rm_template_ic"]:
+      self._inputs["interchain_mask"][:tL,tL:] = 0
+      self._inputs["interchain_mask"][tL:,:tL] = 0
+    for k in ["","_seq","_sc"]:
+      if args[f"rm_binder{k}"]: self._inputs[f"rm_template{k}"][tL:] = 1
+      if args[f"rm_target{k}"]: self._inputs[f"rm_template{k}"][:tL] = 1
 
     # adjust weights
     if redesign:
@@ -374,6 +379,20 @@ class _af_prep:
 #######################
 # utils
 #######################
+
+def parse_chain(chain):
+  if chain is None:
+    return [],[]
+  if isinstance(chain,str):
+    chain = chain.replace(",",":").split(":")
+  chains, contigs = [],[]
+  for c in chain:
+    contigs.append(c)
+    for seg in c.split("/"):
+      if seg[0].isalpha():
+        if seg[0] not in chains:
+          chains.append(seg[0])
+  return chains, contigs
 
 def prep_pdb(pdb_filename, chain=None,
              offsets=None, lengths=None,
@@ -493,6 +512,7 @@ def prep_input_features(L, N=1, T=1, one_hot_msa=True):
   '''
   inputs = {'aatype': np.zeros(L,int),
             'target_feat': np.zeros((L,20)),
+            'bias': np.zeros((L,20)),
             'deletion_matrix': np.zeros((N,L)),
             'msa_mask': np.ones((N,L)),
             'seq_mask': np.ones(L),                        

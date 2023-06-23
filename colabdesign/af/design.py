@@ -127,8 +127,9 @@ class _af_design:
       if hasattr(self,"_wt_aatype"):
         true = self._wt_aatype
         mask = true != -1
-        if "fix_pos" in self.opt:
-          mask[self.opt["fix_pos"]] = False
+        if "fix_pos" in self._inputs:
+          m = self._inputs["fix_pos"][:self._len] == 1
+          mask[m] = False
         if sum(mask) > 0:
           pred = self.aux["seq"]["pseudo"].argmax(-1)
           seqid = ((true == pred) * mask).sum(-1) / mask.sum()
@@ -429,9 +430,9 @@ class _af_design:
     # fix some positions
     i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
     i_prob[np.isnan(i_prob)] = 0
-    if "fix_pos" in self.opt:
-      p = self.opt["fix_pos"]
-      seq[...,p] = self._wt_aatype[...,p]
+    if "fix_pos" in self._inputs:
+      m = self._inputs["fix_pos"][:self._len] == 1
+      seq[...,m] = self._wt_aatype[...,m]
       i_prob[p] = 0
     
     for m in range(mutation_rate):

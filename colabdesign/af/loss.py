@@ -37,8 +37,7 @@ class _af_loss:
     })
     if self._args["use_sidechains"]:
       if "fix_pos" in inputs:
-        mask_1d = jnp.zeros_like(inputs["seq_mask"]).at[inputs["fix_pos"]].set(1)
-        aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=mask_1d))    
+        aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=inputs["fix_pos"]))    
       # TODO: add support for optimize_seq=False
 
   def _loss_unsupervised(self, inputs, outputs, aux, mask_1d=None, mask_2d=None):
@@ -65,9 +64,8 @@ class _af_loss:
       mask_2d_inter = m(intra_mask_2d,0,mask_2d)
       inter_masks = dict(mask_1d=mask_1d, mask_2d=mask_2d_inter)
     
-    if "hotspot" in opt:
-      hotspot_mask = jnp.zeros_like(seq_mask_1d).at[opt["hotspot"]].set(seq_mask_1d[opt["hotspot"]])
-      inter_masks["mask_1d"] = hotspot_mask
+    if "hotspot" in inputs:
+      inter_masks["mask_1d"] = jnp.where(inputs["hotspot"],seq_mask_1d,0)
 
     aux["masks"] = dict(mask_1d=mask_1d, intra_masks=intra_masks, inter_masks=inter_masks)    
 
@@ -345,7 +343,7 @@ def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1):
   true = batch["all_atom_positions"][:,1]
   pred = outputs["structure_module"]["final_atom_positions"][:,1]
   weights = jnp.where(inputs["seq_mask"],batch["all_atom_mask"][:,1],0)
-  weights = jnp.where(inputs["unsupervised_2d"][0],0,weights)
+  weights = jnp.where(inputs["interchain_mask"][0],weights,0)
   return _get_rmsd_loss(true, pred, weights=weights, L=L, include_L=include_L, copies=copies)
 
 def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, eps=1e-8):

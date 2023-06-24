@@ -56,8 +56,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"rm":False, "rm_ic":False, "rm_sc":True, "rm_seq":True},                
-                "mlm":      {"replace_fraction":0.15,"uniform_prob":0.1,"profile_prob":0.1,"same_prob":0.1},                
-                "weights":  {"plddt":0.0, "pae":0.0, "exp_res":0.0, "helix":0.0}}
+                "mlm":      {"replace_fraction":0.15,"uniform_prob":0.1,"profile_prob":0.1,"same_prob":0.1}}
+    
+    weights_keys = ["plddt","pae","i_pae","exp_res","helix","con","i_con",
+                    "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
+    self.opt["weights"] = {k:0.0 for k in weights_keys}
 
     self._params = {}
     self._inputs = {}

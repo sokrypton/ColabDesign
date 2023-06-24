@@ -39,12 +39,8 @@ class _af_prep:
     return prep_input_features(L=num_res, N=num_seq, T=num_templates,
       one_hot_msa=not self._args["optimize_seq"])
 
-  def _prep_contigs(self,
-    contigs,
-    pdb_filename=None,
-    copies=1,
-    ignore_missing=True,
-    parse_as_homooligomer=False, **kwargs):
+  def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
+    ignore_missing=True, parse_as_homooligomer=False, **kwargs):
     '''prep inputs for partial hallucination protocol'''
   
     # position constraints
@@ -166,11 +162,13 @@ class _af_prep:
     unsupervised = np.array(unsupervised)
     unsupervised_2d = np.logical_or(unsupervised[:,None],unsupervised[None,:])
     unsupervised_2d[interchain_mask == 0] = 1
-    self._inputs["unsupervised"] = unsupervised
-    self._inputs["unsupervised_2d"] = unsupervised_2d
-    self._inputs["supervised"] = unsupervised == False
-    self._inputs["supervised_2d"] = unsupervised_2d == False
-    self._inputs["interchain_mask"] = interchain_mask
+    self._inputs.update({
+      "unsupervised":unsupervised,
+      "unsupervised_2d":unsupervised_2d,
+      "supervised":unsupervised == False,
+      "supervised_2d":unsupervised_2d = False,
+      "interchain_mask":interchain_mask
+    })
     
     # set positional constraints
     if kwargs.pop("fix_all_pos",False):
@@ -181,17 +179,10 @@ class _af_prep:
       self._inputs[k] = m
 
     # decide on weights
-    weights = copy_dict(self.opt["weights"]) 
-    losses = ["plddt","pae","i_pae","exp_res","helix","con","i_con",
-      "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
-    weights.update({k:0.0 for k in losses})
-    if self._inputs["unsupervised"].sum():
-      weights["con"] = 1.0
-    if self._inputs["unsupervised_2d"].sum():
-      weights["i_con"] = 1.0
-    if self._inputs["supervised_2d"].sum():
-      weights["dgram_cce"] = 1.0
-    self.opt["weights"].update(weights)
+    self.set_opt(weights=0)
+    if self._inputs["unsupervised"].sum():    self.set_weights(con=1)
+    if self._inputs["unsupervised_2d"].sum(): self.set_weights(i_con=1)
+    if self._inputs["supervised_2d"].sum():   self.set_weights(dgram_cce=1)
 
     # prep model
     self._prep_model(**kwargs)
@@ -334,16 +325,13 @@ class _af_prep:
     if len(hotspot_list) > 0:
       hotspot = ",".join(hotspot_list)
 
-    args = {
+    template_args = {
       "rm_target":False, "rm_target_seq":False, "rm_target_sc":False,
       "rm_binder":True,  "rm_binder_seq":True,  "rm_binder_sc":True,
       "rm_template_ic":True
     }
-    for k,v in args.items():
-      args[k] = kwargs.pop(k,v)
-    if target_flexible:
-      args["rm_target_seq"] = True
-      args["rm_target_sc"] = True
+    template_args.update({k:kwargs.pop(k,v) for k,v in template_args.items()})
+    if target_flexible: template_args.update({"rm_target_seq":True, "rm_target_sc":True})
 
     self._prep_contigs(contigs,
       pdb_filename=pdb_filename,
@@ -352,6 +340,13 @@ class _af_prep:
       ignore_missing=ignore_missing,
       **kwargs)
 
+    # adjust weights
+    if redesign:
+      self.set_weights(i_con=0, con=0, plddt=0, dgram_cce=1, set_defaults=True)
+    else:
+      self.set_weights(i_con=1, con=0, plddt=0.1, dgram_cce=0, set_defaults=True)
+
+    # adjust masks
     num_res = sum(self._lengths)
     self._target_len = tL = sum(self._lengths[:len(target_contigs)])
     self._binder_len = bL = num_res - tL
@@ -361,20 +356,15 @@ class _af_prep:
     self._inputs["supervised"][:tL] = 0
     self._inputs["supervised_2d"][:tL,:tL] = 0
 
-    # mask template
-    self._inputs.update({f"rm_template{k}": np.full(num_res,0) for k in ["","_seq","_sc"]})
-    if args["rm_template_ic"]:
+    if template_args["rm_template_ic"]:
       self._inputs["interchain_mask"][:tL,tL:] = 0
       self._inputs["interchain_mask"][tL:,:tL] = 0
     for k in ["","_seq","_sc"]:
-      if args[f"rm_binder{k}"]: self._inputs[f"rm_template{k}"][tL:] = 1
-      if args[f"rm_target{k}"]: self._inputs[f"rm_template{k}"][:tL] = 1
+      m = np.full(num_res,0)
+      if template_args[f"rm_target{k}"]: m[:tL] = 1
+      if template_args[f"rm_binder{k}"]: m[tL:] = 1
+      self._inputs[f"rm_template{k}"] = m
 
-    # adjust weights
-    if redesign:
-      self.set_weights(i_con=0, con=0, plddt=0, dgram_cce=1, set_defaults=True)
-    else:
-      self.set_weights(i_con=1, con=0, plddt=0.1, dgram_cce=0, set_defaults=True)
 
 #######################
 # utils

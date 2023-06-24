@@ -374,19 +374,18 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
 
   # get alignment and rmsd functions
   (T_mu,P_mu) = ((x*W).sum(-2,keepdims=True)/(W.sum((-1,-2)) + eps) for x in (T,P))
-  aln = jax.lax.stop_gradient(_np_kabsch((P-P_mu)*W,(T-T_mu)*W))
-  aln_pt_fn = lambda x: (x - P_mu) @ aln + T_mu
-  aln_tp_fn = lambda x: (x - T_mu) @ aln.T + P_mu
+  
+  # align from both directions (might be overkill)
+  aln_pt = jax.lax.stop_gradient(_np_kabsch((P-P_mu)*W,(T-T_mu)*W))
+  aln_tp = jax.lax.stop_gradient(_np_kabsch((T-T_mu)*W,(P-P_mu)*W))
+  aln_pt_fn = lambda x: (x - P_mu) @ aln_pt + T_mu
+  aln_tp_fn = lambda x: (x - T_mu) @ aln_tp + P_mu
   def msd_fn(t,p,w):
-    sq_diff_pt = jnp.square(align_fn(p)-t)
-    sq_diff_tp = jnp.square(align_fn(t)-p)
-    sq_diff = (diff_pt + diff_tp)/2
-    return (sq_diff * w).sum((-1,-2))
-  
-  #aln = jax.lax.stop_gradient(_np_kabsch((P-P_mu)*W, T-T_mu))
-  #align_fn = 
-  #msd_fn = lambda t,p,w: (w*jnp.square(align_fn(p)-t)).sum((-1,-2))
-  
+    sq_diff_pt = (w*jnp.square(aln_pt_fn(p)-t)).sum(-1)
+    sq_diff_tp = (w*jnp.square(aln_tp_fn(t)-p)).sum(-1)
+    sq_diff = (sq_diff_pt + sq_diff_tp)/2
+    return sq_diff.sum(-1)
+    
   # compute rmsd
   if iL == 0:
     msd = msd_fn(true,pred,weights)
@@ -400,7 +399,7 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
     msd = (imsd + msd_fn(T,P,W)) if include_L else (imsd/(iW.sum((-1,-2) + eps)))
   else:
     msd = msd_fn(true,pred,weights) if include_L else (msd_fn(iT,iP,iW)/(iW.sum((-1,-2)) + eps))
-  rmsd = jnp.sqrt(msd + 1e-8)
+  rmsd = jnp.sqrt(msd + eps)
 
   return {"rmsd":rmsd, "align":aln_pt_fn}
 

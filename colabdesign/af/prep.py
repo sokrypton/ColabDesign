@@ -165,8 +165,8 @@ class _af_prep:
     self._inputs.update({
       "unsupervised":unsupervised,
       "unsupervised_2d":unsupervised_2d,
-      "supervised":unsupervised == False,
-      "supervised_2d":unsupervised_2d = False,
+      "supervised":(unsupervised == False),
+      "supervised_2d":(unsupervised_2d == False),
       "interchain_mask":interchain_mask
     })
     

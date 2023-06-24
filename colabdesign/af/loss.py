@@ -6,13 +6,11 @@ from colabdesign.shared.utils import Key, copy_dict
 from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
 from colabdesign.af.alphafold.model import model, folding, all_atom, geometry
 from colabdesign.af.alphafold.common import confidence, residue_constants
-
 from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer
 
 ####################################################
 # AF_LOSS - setup loss function
 ####################################################
-
 
 class _af_loss:
   # protocol specific loss functions
@@ -23,19 +21,18 @@ class _af_loss:
     self._loss_unsupervised(inputs, outputs, aux)
 
   def _loss_supervised(self, inputs, outputs, aux):
-    opt = inputs["opt"]
-    copies = self._args["copies"] 
-    # rmsd loss
-    aln = get_rmsd_loss(inputs, outputs, copies=copies)
-    if self._args["realign"]:
+    a,opt = self._args, inputs["opt"]
+
+    aln = get_rmsd_loss(inputs, outputs, copies=a["copies"])
+    if a["realign"]:
       aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
     
     aux["losses"].update({
-      "fape":      get_fape_loss(inputs, outputs, copies=copies, clamp=opt["fape_cutoff"]),
-      "dgram_cce": get_dgram_loss(inputs, outputs, copies=copies, aatype=inputs["aatype"]),
+      "fape":      get_fape_loss(inputs, outputs, copies=a["copies"], clamp=opt["fape_cutoff"]),
+      "dgram_cce": get_dgram_loss(inputs, outputs, copies=a["copies"], aatype=inputs["aatype"]),
       "rmsd":      aln["rmsd"],
     })
-    if self._args["use_sidechains"]:
+    if a["use_sidechains"]:
       if "fix_pos" in inputs:
         aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=inputs["fix_pos"]))    
       # TODO: add support for optimize_seq=False
@@ -377,9 +374,18 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
 
   # get alignment and rmsd functions
   (T_mu,P_mu) = ((x*W).sum(-2,keepdims=True)/(W.sum((-1,-2)) + eps) for x in (T,P))
-  aln = _np_kabsch((P-P_mu)*W, T-T_mu)   
-  align_fn = lambda x: (x - P_mu) @ aln + T_mu
-  msd_fn = lambda t,p,w: (w*jnp.square(align_fn(p)-t)).sum((-1,-2))
+  aln = jax.lax.stop_gradient(_np_kabsch((P-P_mu)*W,(T-T_mu)*W))
+  aln_pt_fn = lambda x: (x - P_mu) @ aln + T_mu
+  aln_tp_fn = lambda x: (x - T_mu) @ aln.T + P_mu
+  def msd_fn(t,p,w):
+    sq_diff_pt = jnp.square(align_fn(p)-t)
+    sq_diff_tp = jnp.square(align_fn(t)-p)
+    sq_diff = (diff_pt + diff_tp)/2
+    return (sq_diff * w).sum((-1,-2))
+  
+  #aln = jax.lax.stop_gradient(_np_kabsch((P-P_mu)*W, T-T_mu))
+  #align_fn = 
+  #msd_fn = lambda t,p,w: (w*jnp.square(align_fn(p)-t)).sum((-1,-2))
   
   # compute rmsd
   if iL == 0:
@@ -396,7 +402,7 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
     msd = msd_fn(true,pred,weights) if include_L else (msd_fn(iT,iP,iW)/(iW.sum((-1,-2)) + eps))
   rmsd = jnp.sqrt(msd + 1e-8)
 
-  return {"rmsd":rmsd, "align":align_fn}
+  return {"rmsd":rmsd, "align":aln_pt_fn}
 
 def get_sc_loss(inputs, outputs, cfg, mask_1d=None):
   

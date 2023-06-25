@@ -15,7 +15,7 @@ from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer
 class _af_loss:
   # protocol specific loss functions
 
-  def _loss_contigs(self, inputs, outputs, aux):
+  def _get_loss(self, inputs, outputs, aux):
     opt = inputs["opt"]
     self._loss_supervised(inputs, outputs, aux)
     self._loss_unsupervised(inputs, outputs, aux)
@@ -23,7 +23,11 @@ class _af_loss:
   def _loss_supervised(self, inputs, outputs, aux):
     a,opt = self._args, inputs["opt"]
 
-    aln = get_rmsd_loss(inputs, outputs, copies=a["copies"])
+    if self.protocol == "binder":
+      # TODO: remove protocol specific losses
+      aln = get_rmsd_loss(inputs, outputs, copies=a["copies"], include_L=False, L=self._target_len)
+    else:
+      aln = get_rmsd_loss(inputs, outputs, copies=a["copies"])
     if a["realign"]:
       aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]
     
@@ -374,17 +378,9 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
 
   # get alignment and rmsd functions
   (T_mu,P_mu) = ((x*W).sum(-2,keepdims=True)/(W.sum((-1,-2)) + eps) for x in (T,P))
-  
-  # align from both directions (might be overkill)
-  aln_pt = jax.lax.stop_gradient(_np_kabsch((P-P_mu)*W,(T-T_mu)*W))
-  aln_tp = jax.lax.stop_gradient(_np_kabsch((T-T_mu)*W,(P-P_mu)*W))
-  aln_pt_fn = lambda x: (x - P_mu) @ aln_pt + T_mu
-  aln_tp_fn = lambda x: (x - T_mu) @ aln_tp + P_mu
-  def msd_fn(t,p,w):
-    sq_diff_pt = (w*jnp.square(aln_pt_fn(p)-t)).sum(-1)
-    sq_diff_tp = (w*jnp.square(aln_tp_fn(t)-p)).sum(-1)
-    sq_diff = (sq_diff_pt + sq_diff_tp)/2
-    return sq_diff.sum(-1)
+  aln_mtx = _np_kabsch((P-P_mu)*W,(T-T_mu)*W)
+  aln_fn = lambda x: (x - P_mu) @ jax.lax.stop_gradient(aln_mtx) + T_mu
+  msd_fn = lambda t,p,w: (w*jnp.square(aln_fn(p)-t)).sum(-1).sum(-1)
     
   # compute rmsd
   if iL == 0:
@@ -401,7 +397,7 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
     msd = msd_fn(true,pred,weights) if include_L else (msd_fn(iT,iP,iW)/(iW.sum((-1,-2)) + eps))
   rmsd = jnp.sqrt(msd + eps)
 
-  return {"rmsd":rmsd, "align":aln_pt_fn}
+  return {"rmsd":rmsd, "align":aln_fn}
 
 def get_sc_loss(inputs, outputs, cfg, mask_1d=None):
   

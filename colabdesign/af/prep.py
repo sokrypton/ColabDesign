@@ -44,6 +44,7 @@ class _af_prep:
     '''prep inputs for partial hallucination protocol'''
   
     # position constraints
+    self.opt["template"]["rm_ic"] = kwargs.pop("rm_template_ic",False)
     pos_cst = {}
     keys = ["hotspot", "fix_pos", "rm_template", "rm_template_seq", "rm_template_sc"]
     for k in keys:
@@ -202,7 +203,6 @@ class _af_prep:
     pdb_filename, 
     chain="A",
     copies=1,
-    #rm_template_ic=False,
     fix_pos=None,
     ignore_missing=True,
     parse_as_homooligomer=False, 
@@ -224,7 +224,6 @@ class _af_prep:
     parse_as_homooligomer=False,
     pos=None, 
     fix_pos=None,
-    #rm_template_ic=False,
     ignore_missing=True,
     **kwargs):
 

@@ -132,7 +132,7 @@ def expand_copies(x, copies=1, block_diag=True, d=None, use_jax=True):
 
   N,L = x.shape[:2]
   if x.ndim == 3:
-    x = _np.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]])
+    A = x.shape[-1]
     x = _np.tile(x,[1,copies,1])
   else:
     x = _np.tile(x,[1,copies])
@@ -143,14 +143,14 @@ def expand_copies(x, copies=1, block_diag=True, d=None, use_jax=True):
   if copies > 1 and block_diag:
     i = _np.arange(copies)    
     if x.ndim == 3:
-      x_ = x.reshape((N,copies,L,22))
-      x_diag = _np.zeros((N,copies,copies,L,22))
+      x_ = x.reshape((N,copies,L,A))
+      x_diag = _np.zeros((N,copies,copies,L,A))
       if use_jax:
         x_diag = x_diag.at[...,-1].set(1).at[:,i,i].set(x_)
       else:
         x_diag[...,-1] = 1
         x_diag[:,i,i] = x_
-      x_diag = x_diag.swapaxes(0,1).reshape((N*copies,copies*L,22))
+      x_diag = x_diag.swapaxes(0,1).reshape((N*copies,copies*L,A))
     
     else:
       x_ = x.reshape((N,copies,L))

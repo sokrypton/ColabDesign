@@ -105,7 +105,7 @@ def make_masked_msa(key, batch, opt=None, epsilon=1e-6):
   
   random_aa = jnp.array([0.05] * 20 + [0., 0.], dtype=jnp.float32)
 
-  msa_one_hot = st_one_hot(batch['msa'], 22)
+  msa_one_hot = st_one_hot(batch['msa'])
   categorical_probs = (
       opt["uniform_prob"] * random_aa +
       opt["profile_prob"] * batch['msa_profile'] +
@@ -135,10 +135,10 @@ def make_masked_msa(key, batch, opt=None, epsilon=1e-6):
   batch['true_msa'] = msa
   batch['msa'] = bert_msa
 
-def st_one_hot(x, num_classes, axis=-1):
+def st_one_hot(x, axis=-1):
   '''one_hot with straight-through, to allow gradients to pass'''
   y = jax.nn.one_hot(x.argmax(axis),
-    num_classes=num_classes,
+    num_classes=x.shape[-1],
     dtype=x.dtype)
   return jax.lax.stop_gradient(y - x) + x
 
@@ -153,10 +153,10 @@ def nearest_neighbor_clusters(batch, gap_agreement_weight=0.):
   weights = jnp.array([1.] * 21 + [gap_agreement_weight] + [0.], dtype=jnp.float32)
 
   msa_mask = batch['msa_mask']
-  msa_one_hot = st_one_hot(batch['msa'],23)
+  msa_one_hot = st_one_hot(batch['msa'])
 
   extra_mask = batch['extra_msa_mask']
-  extra_one_hot = st_one_hot(batch['extra_msa'],23)
+  extra_one_hot = st_one_hot(batch['extra_msa'])
 
   msa_one_hot_masked = msa_mask[:, :, None] * msa_one_hot
   extra_one_hot_masked = extra_mask[:, :, None] * extra_one_hot
@@ -262,7 +262,7 @@ def sample_msa(key, batch, max_seq):
 def make_msa_profile(batch):
   """Compute the MSA profile."""
   # Compute the profile for every residue (over all MSA sequences).
-  msa_1hot = st_one_hot(batch['msa'],22)
+  msa_1hot = st_one_hot(batch['msa'])
   batch["msa_profile"] = utils.mask_mean(batch['msa_mask'][:,:,None], msa_1hot, axis=0)
 
 def pad_msa_N(batch, num_msa, num_extra_msa):

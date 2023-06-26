@@ -190,15 +190,9 @@ class _af_prep:
     # prep model
     self._prep_model(**kwargs)
 
-  def _prep_hallucination(self,
-    length=100,
-    copies=1, 
-    **kwargs):
-
-    # parsing inputs
-    if isinstance(length,int): length = [length]
-
+  def _prep_hallucination(self, length=100, copies=1, **kwargs):
     # prep model
+    if isinstance(length,int): length = [length]
     self._prep_contigs([str(L) for L in length], copies=copies, **kwargs)
 
   def _prep_fixbb(self, 

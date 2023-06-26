@@ -141,6 +141,7 @@ class _af_prep:
         interchain_mask = np.zeros((copies,copies,L,L))
         interchain_mask[np.diag_indices(copies)] = 1
         interchain_mask = interchain_mask.swapaxes(1,2).reshape(copies*L,copies*L)
+
       residue_index = batch["residue_index"][:sum(length)]
     else:
       L = sum(length)
@@ -181,9 +182,10 @@ class _af_prep:
 
     # decide on weights
     self.set_opt(weights=0)
-    if self._inputs["unsupervised"].sum():    self.set_weights(con=1)
-    if self._inputs["unsupervised_2d"].sum(): self.set_weights(i_con=1)
-    if self._inputs["supervised_2d"].sum():   self.set_weights(dgram_cce=1)
+    self.set_weights(
+      con=self._inputs["unsupervised"].max(),
+      i_con=self._inputs["unsupervised_2d"].max(),
+      dgram_cce=self._inputs["supervised_2d"].max())
 
     # prep model
     self._prep_model(**kwargs)

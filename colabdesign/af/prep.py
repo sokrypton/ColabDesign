@@ -167,18 +167,18 @@ class _af_prep:
     self._inputs["batch"] = batch
     
     # define masks
-    unsupervised = np.array(unsupervised)
-    unsupervised_2d = np.logical_or(unsupervised[:,None],unsupervised[None,:])
+    unsupervised = np.array(unsupervised).astype(float)
+    unsupervised_2d = np.logical_or(unsupervised[:,None],unsupervised[None,:]).astype(float)
 
-    fix_pos = np.full(num_res,kwargs.pop("fix_all_pos",False))
+    fix_pos = np.full(num_res,kwargs.pop("fix_all_pos",False)).astype(float)
     if "fix_pos" in pos_cst:
-      fix_pos[pos_cst.pop("fix_pos")] = True
+      fix_pos[pos_cst.pop("fix_pos")] = 1
 
     self._inputs.update({
       "unsupervised":unsupervised,
       "unsupervised_2d":unsupervised_2d,
-      "supervised":unsupervised == False,
-      "supervised_2d":unsupervised_2d == False,
+      "supervised":(unsupervised == False).astype(float),
+      "supervised_2d":(unsupervised_2d == False).astype(float),
       "interchain_mask":interchain_mask,
       "fix_pos":fix_pos
     })

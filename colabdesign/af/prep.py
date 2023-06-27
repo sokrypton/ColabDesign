@@ -39,8 +39,14 @@ class _af_prep:
     return prep_input_features(L=num_res, N=num_seq, T=num_templates,
       one_hot_msa=not self._args["optimize_seq"])
 
-  def _prep_contigs(self, contigs, pdb_filename=None, copies=1,
-    ignore_missing=True, parse_as_homooligomer=False, **kwargs):
+  def _prep_contigs(self,
+    contigs,
+    pdb_filename=None,
+    copies=1,
+    ignore_missing=True,
+    parse_as_homooligomer=False,
+    partial_loss=True,
+    **kwargs):
     '''prep inputs for partial hallucination protocol'''
   
     # position constraints
@@ -181,7 +187,7 @@ class _af_prep:
       self._inputs[k] = m
 
     # decide on weights
-    self.set_opt(weights=0)
+    self.set_opt(weights=0, partial_loss=partial_loss)
     self.set_weights(
       con=self._inputs["unsupervised"].max(),
       i_con=self._inputs["unsupervised_2d"].max(),
@@ -200,8 +206,9 @@ class _af_prep:
     chain="A",
     copies=1,
     fix_pos=None,
+    parse_as_homooligomer=False,
     ignore_missing=True,
-    parse_as_homooligomer=False, 
+    partial_loss=False,
     **kwargs):
     
     # parsing inputs
@@ -210,17 +217,19 @@ class _af_prep:
     # prep model
     self._prep_contigs(contigs, pdb_filename,
       fix_pos=fix_pos, ignore_missing=ignore_missing, 
-      copies=copies, parse_as_homooligomer=parse_as_homooligomer, **kwargs)
+      copies=copies, parse_as_homooligomer=parse_as_homooligomer, 
+      partial_loss=partial_loss, **kwargs)
 
   def _prep_partial(self,
     pdb_filename,
     chain="A",
     length=None,
     copies=1, 
-    parse_as_homooligomer=False,
     pos=None, 
     fix_pos=None,
+    parse_as_homooligomer=False,
     ignore_missing=True,
+    partial_loss=True,
     **kwargs):
 
     # parsing inputs
@@ -263,7 +272,8 @@ class _af_prep:
     # prep model
     self._prep_contigs(contigs, pdb_filename,
       fix_pos=fix_pos, ignore_missing=ignore_missing, 
-      copies=copies, parse_as_homooligomer=parse_as_homooligomer, **kwargs)
+      copies=copies, parse_as_homooligomer=parse_as_homooligomer, 
+      partial_loss=partial_loss, **kwargs)
 
   def _prep_binder(self,
     pdb_filename,

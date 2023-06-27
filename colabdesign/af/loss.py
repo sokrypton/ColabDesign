@@ -44,41 +44,38 @@ class _af_loss:
   def _loss_unsupervised(self, inputs, outputs, aux, mask_1d=None, mask_2d=None):
 
     opt = inputs["opt"]
+
+    # define masks
     seq_mask_1d = inputs["seq_mask"]
     seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
     intra_mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
     m = lambda a,b,c: jnp.where(a,b,c)
 
-    # define masks      
-    if self._args["mask_unsupervised"]:
-      mask_1d = m(seq_mask_1d,inputs["unsupervised"],0)
-      mask_2d = m(seq_mask_2d,inputs["unsupervised_2d"],0)      
-      mask_2d_intra = m(intra_mask_2d,mask_2d,0)
-      intra_masks = dict(mask_1d=mask_2d_intra.max(1), mask_2d=mask_2d_intra)
-      mask_2d_inter = m(intra_mask_2d,0,mask_2d)
-      inter_masks = dict(mask_1d=mask_2d_inter.max(1), mask_2d=mask_2d_inter)
-    else:
-      mask_1d = seq_mask_1d
-      mask_2d = seq_mask_2d
-      mask_2d_intra = m(intra_mask_2d,mask_2d,0)
-      intra_masks = dict(mask_1d=mask_1d, mask_2d=mask_2d_intra)
-      mask_2d_inter = m(intra_mask_2d,0,mask_2d)
-      inter_masks = dict(mask_1d=mask_1d, mask_2d=mask_2d_inter)
+    # partial masks
+    mask_1d = m(seq_mask_1d,inputs["unsupervised"],0)
+    mask_2d = m(seq_mask_2d,inputs["unsupervised_2d"],0)      
+    masks_partial = {"mask_1d":mask_1d,              "mask_2d":mask_2d,
+     "intra_masks": {"mask_1d":mask_2d_intra.max(1), "mask_2d":m(intra_mask_2d,mask_2d,0)},
+     "inter_masks": {"mask_1d":mask_2d_inter.max(1), "mask_2d":m(intra_mask_2d,0,mask_2d)}}
     
-    if "hotspot" in inputs:
-      inter_masks["mask_1d"] = jnp.where(inputs["hotspot"],seq_mask_1d,0)
-
-    aux["masks"] = dict(mask_1d=mask_1d, intra_masks=intra_masks, inter_masks=inter_masks)    
+    # full masks
+    masks_full =    {"mask_1d":seq_mask_1d, "mask_2d":seq_mask_2d,
+      "intra_masks":{"mask_1d":seq_mask_1d, "mask_2d":m(intra_mask_2d,seq_mask_2d,0)},
+      "inter_masks":{"mask_1d":seq_mask_1d, "mask_2d":m(intra_mask_2d,0,seq_mask_2d)}}
+    
+    masks = jax.tree_map(lambda x,y: m(opt["partial_loss"],x,y), partial_masks, full_masks)
+    if "hotspot" in inputs: masks["inter_masks"]["mask_1d"] = m(inputs["hotspot"],seq_mask_1d,0)
+    aux["masks"] = masks
 
     # define losses
     losses = {
-      "exp_res": get_exp_res_loss(outputs, mask_1d=mask_1d),
-      "plddt":   get_plddt_loss(outputs, mask_1d=mask_1d),
-      "pae":     get_pae_loss(outputs, mask_2d=mask_2d_intra),
-      "con":     get_con_loss(inputs, outputs, opt["con"], **intra_masks),
-      "helix":   get_helix_loss(inputs, outputs, mask_2d=mask_2d),
-      "i_pae":   get_pae_loss(outputs, mask_2d=mask_2d_inter),
-      "i_con":   get_con_loss(inputs, outputs, opt["i_con"], **inter_masks),
+      "exp_res": get_exp_res_loss(outputs, mask_1d=masks["mask_1d"]),
+      "plddt":   get_plddt_loss(outputs, mask_1d=masks["mask_1d"]),
+      "pae":     get_pae_loss(outputs, mask_2d=masks["intra_masks"]["mask_2d"]),
+      "con":     get_con_loss(inputs, outputs, opt["con"], **masks["intra_masks"]),
+      "helix":   get_helix_loss(inputs, outputs, mask_2d=masks["mask_2d"]),
+      "i_pae":   get_pae_loss(outputs, mask_2d=masks["inter_masks"]["mask_2d"]),
+      "i_con":   get_con_loss(inputs, outputs, opt["i_con"], **masks["inter_masks"]),
     }
     aux["losses"].update(losses)
 

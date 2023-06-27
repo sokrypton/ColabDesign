@@ -45,14 +45,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "clear_prev": True, "use_dgram":False, "use_dgram_pred":False,
                   "shuffle_first":True, "use_remat":True,
                   "alphabet_size":20, 
-                  "use_initial_guess":False, "use_initial_atom_pos":False,
-                  "use_supervised_loss":False, "mask_unsupervised":True}
+                  "use_initial_guess":False, "use_initial_atom_pos":False}
 
     if self.protocol == "binder": self._args["use_templates"] = True
 
     self.opt = {"dropout":True, "pssm_hard":False, "learning_rate":0.1, "norm_seq_grad":True,
                 "num_recycles":0, "num_models":1, "sample_models":True, "fape_cutoff":10.0,
-                "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0,
+                "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0, "partial_loss":True,
                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
                 "template": {"rm":False, "rm_ic":False, "rm_sc":True, "rm_seq":True},                

@@ -149,7 +149,7 @@ class _af_utils:
     ax2 = fig.add_subplot(gs[3:,:])
     ax1_ = ax1.twinx()
     
-    if self._args["use_supervised_loss"]:
+    if "log" in self._tmp and len(self._tmp["log"]) > 0 and "rmsd" in self._tmp["log"][0]:
       rmsd = self.get_loss("rmsd")
       for k in [0.5,1,2,4,8,16,32]:
         ax1.plot([0,len(rmsd)],[k,k],color="lightgrey")

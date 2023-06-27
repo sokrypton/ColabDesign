@@ -102,19 +102,12 @@ class _af_utils:
     if aux is None:
       aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
-    align_xyz = False
+    align_xyz = True
     if "batch" in self._inputs:
-      pos_ref = self._inputs["batch"]["all_atom_positions"][:,1].copy()
-      pos_ref_mask = self._inputs["batch"]["all_atom_mask"][:,1]
-      
+      pos_ref_mask = self._inputs["batch"]["all_atom_mask"][:,1]      
       if pos_ref_mask.sum() > 2:
-        pos_ref[pos_ref_mask == 0] = np.nan
-      else:
-        align_xyz = True
-    
-    if align_xyz:
-      pos_ref = aux["atom_positions"][0,:,1,:].copy()
-
+        align_xyz = False
+    pos_ref = aux["atom_positions"][0,:,1,:].copy()
     pos_ref[self._inputs["seq_mask"] == 0] = np.nan
 
     if traj is None: traj = self._tmp["traj"]

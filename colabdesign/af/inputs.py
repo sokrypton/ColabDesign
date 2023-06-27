@@ -60,10 +60,10 @@ class _af_inputs:
     seq = soft_seq(params["seq"], inputs["bias"], opt, k1, num_seq=self._num,
                    shuffle_first=self._args["shuffle_first"])
     
-    A = seq["pseudo"].shape[-1]
-    if "fix_pos" in inputs:
-      wt_seq = jax.nn.one_hot(inputs["wt_aatype"],A)
-      seq = jax.tree_map(lambda x: jnp.where(inputs["fix_pos"][:,None],wt_seq,x), seq)
+    # TODO: not pad friendly
+    N,L,A = seq["pseudo"].shape
+    wt_seq = jax.nn.one_hot(inputs["wt_aatype"][:L],A)
+    seq = jax.tree_map(lambda x: jnp.where(inputs["fix_pos"][:L,None],wt_seq,x), seq)
     aux.update({"seq":seq, "seq_pseudo":seq["pseudo"]})
     
     if self._args["copies"] > 1:

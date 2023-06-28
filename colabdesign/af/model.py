@@ -33,7 +33,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
-    self._args = {"use_templates":use_templates, "num_templates":1,
+    self._args = {"use_templates":use_templates, "num_templates":1, "use_batch_as_template":True,
                   "use_multimer":use_multimer, "use_bfloat16":True,
                   "optimize_seq":True, "recycle_mode":"last", 
                   "realign": True, "use_sidechains": False, 
@@ -147,17 +147,13 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # INPUTS
       #######################################################################
       # get sequence
-      if a["optimize_seq"]:
-        seq = self._update_seq(params, inputs, aux, key())
+      self._update_seq(params, inputs, aux, key())
+      seq = aux["seq"] = inputs["msa"]
 
-      # make msa features
       inputs = make_msa_feats(inputs, key(),
         num_msa=self._args["num_msa"], num_extra_msa=self._args["num_extra_msa"],
         use_mlm=self._args["use_mlm"], mlm_opt=opt["mlm"],
         use_cluster_profile=self._args["use_cluster_profile"])
-
-      if not a["optimize_seq"]:
-        seq = aux["seq"] = inputs["msa"]
 
       # update template features
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]

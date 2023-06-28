@@ -283,12 +283,8 @@ class _af_design:
     if (self._k % self._args["traj_iter"]) == 0:
       traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
-              "pae":   aux["pae"]}
-      if self._args["optimize_seq"]:
-        traj["seq"] = aux["seq"]["pseudo"]
-      else:
-        traj["seq"] = aux["seq"]
-              
+              "pae":   aux["pae"],
+              "seq":   aux["seq"]}
       for k,v in traj.items():
         # rm traj (if max number reached)
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:

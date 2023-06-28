@@ -32,13 +32,6 @@ class _af_prep:
     self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
-  def _prep_features(self, num_res, num_seq=None, num_templates=None):
-    '''process features'''
-    if num_seq is None: num_seq = self._num
-    if num_templates is None: num_templates = self._args["num_templates"]
-    return prep_input_features(L=num_res, N=num_seq, T=num_templates,
-      one_hot_msa=not self._args["optimize_seq"])
-
   def _prep_contigs(self,
     contigs,
     pdb_filename=None,
@@ -161,7 +154,8 @@ class _af_prep:
     num_res = sum(self._lengths)
         
     # configure input features
-    self._inputs = self._prep_features(num_res=num_res)
+    self._inputs = prep_input_features(L=num_res, N=self._num, C=self._args["copies"],
+      T=self._args["num_templates"], one_hot_msa=not self._args["optimize_seq"])
     self._inputs.update(chain_enc)
     self._inputs["wt_aatype"] = batch["aatype"]
     self._inputs["batch"] = batch
@@ -175,17 +169,17 @@ class _af_prep:
       fix_pos[pos_cst.pop("fix_pos")] = True
 
     self._inputs.update({
-      "unsupervised":unsupervised.astype(int),
-      "unsupervised_2d":unsupervised_2d.astype(int),
-      "supervised":(unsupervised == False).astype(int),
-      "supervised_2d":(unsupervised_2d == False).astype(int),
-      "interchain_mask":interchain_mask.astype(int),
-      "fix_pos":fix_pos.astype(int)
+      "unsupervised":unsupervised.astype(float),
+      "unsupervised_2d":unsupervised_2d.astype(float),
+      "supervised":(unsupervised == False).astype(float),
+      "supervised_2d":(unsupervised_2d == False).astype(float),
+      "interchain_mask":interchain_mask.astype(float),
+      "fix_pos":fix_pos.astype(float)
     })
     
     # set positional constraints
     for k,p in pos_cst.items():
-      m = np.full(num_res,0)
+      m = np.zeros(num_res)
       m[p] = 1
       self._inputs[k] = m
 
@@ -351,9 +345,9 @@ class _af_prep:
 
     # adjust weights
     if redesign:
-      self.set_weights(i_con=0, con=0, plddt=0, dgram_cce=1, set_defaults=True)
+      self.set_weights(i_con=0, con=0, plddt=0, dgram_cce=1)
     else:
-      self.set_weights(i_con=1, con=0, plddt=0.1, dgram_cce=0, set_defaults=True)
+      self.set_weights(i_con=1, con=0, plddt=0.1, dgram_cce=0)
 
     # adjust masks
     num_res = sum(self._lengths)
@@ -503,17 +497,16 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False)
       feat[k] = pad_fn(v, padding)
   return feat
 
-def prep_input_features(L, N=1, T=1, one_hot_msa=True):
+def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=True):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
   '''
-  inputs = {'aatype': np.zeros(L,int),
-            'target_feat': np.zeros((L,20)),
+  sub_L = L//C
+  inputs = {'msa': np.zeros((N,sub_L),int) if one_hot_msa else np.zeros((N,sub_L,22)),
+            'deletion_matrix': np.zeros((N,sub_L),int),
             'bias': np.zeros((L,20)),
-            'deletion_matrix': np.zeros((N,L)),
-            'msa_mask': np.ones((N,L)),
-            'seq_mask': np.ones(L),                        
+            'seq_mask': np.ones(L),
             'residue_index': np.arange(L),
             'asym_id': np.zeros(L,int),
             'sym_id': np.zeros(L,int),
@@ -525,7 +518,6 @@ def prep_input_features(L, N=1, T=1, one_hot_msa=True):
             'template_all_atom_positions': np.zeros((T,L,37,3)),
             'template_mask': np.zeros(T)
             }
-  inputs['msa'] = np.zeros((N,L,22)) if one_hot_msa else np.zeros((N,L),int)
   return inputs
 
 def get_chain_enc(copies, lengths, residue_idx=None):

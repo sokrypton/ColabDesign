@@ -169,8 +169,9 @@ class _af_design:
       
       # intialize previous inputs
       if "prev" not in self._inputs or a["clear_prev"]:
-        prev = {'prev_msa_first_row': np.zeros([L,256]),
-                'prev_pair': np.zeros([L,L,128])}          
+        dtype = jnp.bfloat16 if self._args["use_bfloat16"] else jnp.float32
+        prev = {'prev_msa_first_row': np.zeros([L,256],dtype),
+                'prev_pair': np.zeros([L,L,128],dtype)}          
         
         # initialize coordinates
         if "batch" in self._inputs:

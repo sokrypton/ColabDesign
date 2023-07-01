@@ -137,14 +137,14 @@ class _af_prep:
         batch = [batch]*copies
         batch = jax.tree_map(lambda *x:np.concatenate(x),*batch)
         L = sum(length)
-        interchain_mask = np.zeros((copies,copies,L,L))
-        interchain_mask[np.diag_indices(copies)] = 1
+        interchain_mask = np.full((copies,copies,L,L),False)
+        interchain_mask[np.diag_indices(copies)] = True
         interchain_mask = interchain_mask.swapaxes(1,2).reshape(copies*L,copies*L)
 
       residue_index = batch["residue_index"][:sum(length)]
     else:
       L = sum(length)
-      interchain_mask = np.ones((L,L))
+      interchain_mask = np.full((L,L),True)
       residue_index = batch["residue_index"]
 
     # encode chains
@@ -169,18 +169,18 @@ class _af_prep:
       fix_pos[pos_cst.pop("fix_pos")] = True
 
     self._inputs.update({
-      "unsupervised":unsupervised.astype(float),
-      "unsupervised_2d":unsupervised_2d.astype(float),
-      "supervised":(unsupervised == False).astype(float),
-      "supervised_2d":(unsupervised_2d == False).astype(float),
-      "interchain_mask":interchain_mask.astype(float),
-      "fix_pos":fix_pos.astype(float)
+      "unsupervised":unsupervised,
+      "unsupervised_2d":unsupervised_2d,
+      "supervised":(unsupervised == False),
+      "supervised_2d":(unsupervised_2d == False),
+      "interchain_mask":interchain_mask,
+      "fix_pos":fix_pos
     })
     
     # set positional constraints
     for k,p in pos_cst.items():
-      m = np.zeros(num_res)
-      m[p] = 1
+      m = np.full(num_res,False)
+      m[p] = True
       self._inputs[k] = m
 
     # decide on weights
@@ -360,12 +360,12 @@ class _af_prep:
     self._inputs["supervised_2d"][:tL,:tL] = 0
 
     if template_args["rm_template_ic"]:
-      self._inputs["interchain_mask"][:tL,tL:] = 0
-      self._inputs["interchain_mask"][tL:,:tL] = 0
+      self._inputs["interchain_mask"][:tL,tL:] = False
+      self._inputs["interchain_mask"][tL:,:tL] = False
     for k in ["","_seq","_sc"]:
       m = np.full(num_res,0)
-      if template_args[f"rm_target{k}"]: m[:tL] = 1
-      if template_args[f"rm_binder{k}"]: m[tL:] = 1
+      if template_args[f"rm_target{k}"]: m[:tL] = True
+      if template_args[f"rm_binder{k}"]: m[tL:] = True
       self._inputs[f"rm_template{k}"] = m
 
 #######################
@@ -506,7 +506,7 @@ def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=True):
   inputs = {'msa': np.zeros((N,sub_L),int) if one_hot_msa else np.zeros((N,sub_L,22)),
             'deletion_matrix': np.zeros((N,sub_L),int),
             'bias': np.zeros((L,20)),
-            'seq_mask': np.ones(L),
+            'seq_mask': np.full(L,True),
             'residue_index': np.arange(L),
             'asym_id': np.zeros(L,int),
             'sym_id': np.zeros(L,int),
@@ -516,8 +516,7 @@ def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=True):
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
             'template_all_atom_positions': np.zeros((T,L,37,3)),
-            'template_mask': np.zeros(T)
-            }
+            'template_mask': np.zeros(T)}
   return inputs
 
 def get_chain_enc(copies, lengths, residue_idx=None):

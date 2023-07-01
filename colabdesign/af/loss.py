@@ -11,7 +11,6 @@ from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer
 ####################################################
 # AF_LOSS - setup loss function
 ####################################################
-
 class _af_loss:
   # protocol specific loss functions
 
@@ -25,14 +24,13 @@ class _af_loss:
 
     # define masks
     seq_mask_1d = inputs["seq_mask"]
-    seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
-    mask_1d = seq_mask_1d * inputs["supervised"] * inputs["interchain_mask"][0]    
-    mask_2d = seq_mask_2d * inputs["supervised_2d"] * inputs["interchain_mask"]
+    seq_mask_2d = and_masks(seq_mask_1d[:,None],seq_mask_1d[None,:])
+    mask_1d = and_masks(seq_mask_1d,inputs["supervised"],inputs["interchain_mask"][0])
+    mask_2d = and_masks(seq_mask_2d,inputs["supervised_2d"],inputs["interchain_mask"])
 
     fix_mask_1d = inputs["fix_pos"]
-    fix_mask_2d = fix_mask_1d[:,None] * fix_mask_1d[None,:]
+    fix_mask_2d = and_masks(fix_mask_1d[:,None],fix_mask_1d[None,:])
     mask_2d = jnp.where(opt["partial_loss"],jnp.where(fix_mask_2d,0,mask_2d),mask_2d)
-    aux["mask_2d_sup"] = mask_2d
 
     # RMSD
     rmsd_flags = dict(include_L=False, L=self._target_len) if self.protocol == "binder" else {}
@@ -47,7 +45,7 @@ class _af_loss:
     })
 
     if a["use_sidechains"] and "fix_pos" in inputs:
-      aux["losses"].update(get_sc_loss(inputs, outputs, cfg=self._cfg, mask_1d=inputs["fix_pos"]))    
+      aux["losses"].update(get_sc_loss(inputs, outputs, mask_1d=inputs["fix_pos"], cfg=self._cfg))    
 
   def _loss_unsupervised(self, inputs, outputs, aux, mask_1d=None, mask_2d=None):
 
@@ -55,27 +53,27 @@ class _af_loss:
 
     # define masks
     seq_mask_1d = inputs["seq_mask"]
-    seq_mask_2d = seq_mask_1d[:,None] * seq_mask_1d[None,:]
+    seq_mask_2d = and_masks(seq_mask_1d[:,None],seq_mask_1d[None,:])
     intra_mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
 
     # partial masks
-    mask_1d = seq_mask_1d * inputs["unsupervised"]
-    unsup_2d = jnp.logical_or(inputs["unsupervised_2d"],inputs["interchain_mask"] == 0)
-    mask_2d = seq_mask_2d * unsup_2d
-    mask_2d_intra = intra_mask_2d * mask_2d
-    mask_2d_inter = (intra_mask_2d == False) * mask_2d
+    mask_1d = and_masks(seq_mask_1d,inputs["unsupervised"])
+    unsup_2d = or_masks(inputs["unsupervised_2d"],inputs["interchain_mask"] == 0)
+    mask_2d = and_masks(seq_mask_2d,unsup_2d)
+    mask_2d_intra = and_masks(intra_mask_2d,mask_2d)
+    mask_2d_inter = and_masks((intra_mask_2d == False),mask_2d)
     masks_partial = {"mask_1d":mask_1d,              "mask_2d":mask_2d,
-     "intra_masks": {"mask_1d":mask_2d_intra.max(1), "mask_2d":mask_2d_intra},
-     "inter_masks": {"mask_1d":mask_2d_inter.max(1), "mask_2d":mask_2d_inter}}
+     "intra_masks": {"mask_1d":mask_2d_intra.any(1), "mask_2d":mask_2d_intra},
+     "inter_masks": {"mask_1d":mask_2d_inter.any(1), "mask_2d":mask_2d_inter}}
     
     # full masks
     masks_full =    {"mask_1d":seq_mask_1d, "mask_2d":seq_mask_2d,
-      "intra_masks":{"mask_1d":seq_mask_1d, "mask_2d":(intra_mask_2d * seq_mask_2d)},
-      "inter_masks":{"mask_1d":seq_mask_1d, "mask_2d":(intra_mask_2d == False) * seq_mask_2d}}
+      "intra_masks":{"mask_1d":seq_mask_1d, "mask_2d":and_masks(intra_mask_2d,seq_mask_2d)},
+      "inter_masks":{"mask_1d":seq_mask_1d, "mask_2d":and_masks((intra_mask_2d == False),seq_mask_2d)}}
     
     masks = jax.tree_map(lambda x,y: jnp.where(opt["partial_loss"],x,y), masks_partial, masks_full)
-    if "hotspot" in inputs: masks["inter_masks"]["mask_1d"] = inputs["hotspot"] * seq_mask_1d
-    aux["masks"] = masks
+    if "hotspot" in inputs:
+      masks["inter_masks"]["mask_1d"] = and_masks(inputs["hotspot"],seq_mask_1d)
 
     # define losses
     losses = {
@@ -135,22 +133,17 @@ def get_contact_map(outputs, dist=8.0):
 ####################
 # confidence metrics
 ####################
-def mask_loss(x, mask=None, mask_grad=False):
-  if mask is None:
-    return x.mean()
-  else:
-    x_masked = (x * mask).sum() / (1e-8 + mask.sum())
-    if mask_grad:
-      return jax.lax.stop_gradient(x.mean() - x_masked) + x_masked
-    else:
-      return x_masked
+def mask_loss(x, mask):
+  mask = mask.astype(x.dtype)
+  x_masked = (x * mask).sum() / (1e-8 + mask.sum())
+  return x_masked
 
-def get_exp_res_loss(outputs, mask_1d=None):
+def get_exp_res_loss(outputs, mask_1d):
   p = jax.nn.sigmoid(outputs["experimentally_resolved"]["logits"])
   p = 1 - p[...,residue_constants.atom_order["CA"]]
   return mask_loss(p, mask_1d)
 
-def get_plddt_loss(outputs, mask_1d=None):
+def get_plddt_loss(outputs, mask_1d):
   p = 1 - get_plddt(outputs)
   return mask_loss(p, mask_1d)
 
@@ -158,10 +151,10 @@ def get_pae_loss(outputs, mask_1d=None, mask_1b=None, mask_2d=None):
   p = get_pae(outputs) / 31.0
   p = (p + p.T) / 2
   L = p.shape[0]
-  if mask_1d is None: mask_1d = jnp.ones(L)
-  if mask_1b is None: mask_1b = jnp.ones(L)
-  if mask_2d is None: mask_2d = jnp.ones((L,L))
-  mask_2d = mask_2d * mask_1d[:,None] * mask_1b[None,:]
+  if mask_1d is None: mask_1d = jnp.full(L,True)
+  if mask_1b is None: mask_1b = jnp.full(L,True)
+  if mask_2d is None: mask_2d = jnp.full((L,L),True)
+  mask_2d = and_masks(mask_1d[:,None],mask_1b[None,:],mask_2d)
   return mask_loss(p, mask_2d)
 
 def get_con_loss(inputs, outputs, con_opt,
@@ -170,7 +163,7 @@ def get_con_loss(inputs, outputs, con_opt,
   # get top k
   def min_k(x, k=1, mask=None):
     y = jnp.sort(x if mask is None else jnp.where(mask,x,jnp.nan))
-    k_mask = jnp.logical_and(jnp.arange(y.shape[-1]) < k, jnp.isnan(y) == False)
+    k_mask = and_masks(jnp.arange(y.shape[-1]) < k, jnp.isnan(y) == False)
     return (k_mask * y).sum(-1) / (k_mask.sum(-1) + 1e-8)
   
   # decide on what offset to use
@@ -188,16 +181,16 @@ def get_con_loss(inputs, outputs, con_opt,
   if "seqsep" in con_opt:
     m = jnp.abs(offset) >= con_opt["seqsep"]
   else:
-    m = jnp.ones_like(offset)
+    m = jnp.full_like(offset, True)
 
   # mask results
-  if mask_1d is None: mask_1d = jnp.ones(m.shape[0])
-  if mask_1b is None: mask_1b = jnp.ones(m.shape[0])
+  if mask_2d is not None:
+    m = and_masks(m,mask_2d)
+  elif mask_1b is not None:
+    m = and_masks(m,mask_1b)
   
-  if mask_2d is None:
-    m = jnp.logical_and(m, mask_1b)
-  else:
-    m = jnp.logical_and(m, mask_2d)  
+  if mask_1d is None:
+    mask_1d = jnp.full(p.shape[0],True)
 
   p = min_k(p, con_opt["num"], m)
   return min_k(p, con_opt["num_pos"], mask_1d)
@@ -234,11 +227,11 @@ def _get_helix_loss(dgram, dgram_bins, offset=None, mask_2d=None, **kwargs):
     if mask_2d is None:
       return jnp.diagonal(x,3).mean()
     else:
-      return jnp.diagonal(x * mask_2d,3).sum() + (jnp.diagonal(mask_2d,3).sum() + 1e-8)
+      return jnp.diagonal(x * mask_2d,3).sum() / (jnp.diagonal(mask_2d,3).sum() + 1e-8)
   else:
     mask = offset == 3
     if mask_2d is not None:
-      mask = mask * mask_2d
+      mask = and_masks(mask, mask_2d)
     return (mask * x).sum() / (mask.sum() + 1e-8)
 
 ####################
@@ -250,9 +243,6 @@ def get_dgram_loss(inputs, outputs, copies=1, aatype=None, mask_1d=None, mask_2d
   # gather features
   if aatype is None: aatype = batch["aatype"]
   pred = outputs["distogram"]["logits"]
-
-  if mask_1d is None: mask_1d = jnp.ones(aatype.shape[0])
-  if mask_2d is None: mask_2d = mask_1d[:,None] * mask_1d[None,:]
 
   # get true features
   x, weights = model.modules.pseudo_beta_fn(aatype=aatype,
@@ -267,9 +257,10 @@ def get_dgram_loss(inputs, outputs, copies=1, aatype=None, mask_1d=None, mask_2d
     cce = -(t*jax.nn.log_softmax(p)).sum(-1)
     return cce, (cce*m).sum((-1,-2))/(m.sum((-1,-2))+1e-8)
   
-  weights = mask_1d * weights
-  weights_2d = mask_2d * weights[:,None] * weights[None,:]
-  return _get_pw_loss(true, pred, loss_fn, weights_2d=weights_2d, copies=copies)
+  if mask_1d is not None: weights *= mask_1d
+  weights_2d = weights[:,None] * weights[None,:]
+  if mask_2d is not None: weights_2d *= mask_2d
+  return _get_pw_loss(true, pred, loss_fn, weights_2d, copies=copies)
 
 def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, mask_1d=None, mask_2d=None):
 
@@ -296,29 +287,23 @@ def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, mask_1d=None, mask_2d=N
   true = inputs["batch"]["all_atom_positions"]
   pred = outputs["structure_module"]["final_atom_positions"]
 
-  if mask_1d is None: mask_1d = jnp.ones(true.shape[0])
-  if mask_2d is None: mask_2d = mask_1d[:,None] * mask_1d[None,:]
-
   N,CA,C = (residue_constants.atom_order[k] for k in ["N","CA","C"])
 
   true = get_ij(get_R(true[:,N],true[:,CA],true[:,C]),true[:,CA])
   pred = get_ij(get_R(pred[:,N],pred[:,CA],pred[:,C]),pred[:,CA])
 
   true_mask = inputs["batch"]["all_atom_mask"]
-  weights = mask_1d * true_mask[:,N] * true_mask[:,CA] * true_mask[:,C]
-  weights_2d = mask_2d * weights[:,None] * weights[None,:]
+  weights = true_mask[:,N] * true_mask[:,CA] * true_mask[:,C]
+  if mask_1d is not None: weights *= mask_1d
+  weights_2d = weights[:,None] * weights[None,:]
+  if mask_2d is not None: weights_2d *= mask_2d
 
-  return _get_pw_loss(true, pred, loss_fn, weights_2d=weights_2d, copies=copies)
+  return _get_pw_loss(true, pred, loss_fn, weights_2d, copies=copies)
 
-def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, weights_2d=None):
-  length = true.shape[0]
-  
-  if weights is None:
-    weights = jnp.ones(length)
-  if weights_2d is None:
-    weights_2d = weights[:,None] * weights[None,:]
-  
-  F = {"t":true, "p":pred, "m":weights_2d}  
+def _get_pw_loss(true, pred, loss_fn, weights, copies=1):
+  dtype = pred.dtype
+  length = pred.shape[0]
+  F = {"t":true.astype(dtype), "p":pred, "m":weights.astype(dtype)}  
 
   if copies > 1:
     (L,C) = (length//copies, copies-1)
@@ -358,18 +343,18 @@ def get_rmsd_loss(inputs, outputs, L=None, include_L=True, copies=1, mask_1d=Non
   mask_1d = mask_1d * batch["all_atom_mask"][:,1]
   return _get_rmsd_loss(true, pred, weights=mask_1d, L=L, include_L=include_L, copies=copies)
 
-def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, eps=1e-8):
+def _get_rmsd_loss(true, pred, weights, L=None, include_L=True, copies=1, eps=1e-8):
   '''
   get rmsd + alignment function
   align based on the first L positions, computed weighted rmsd using all 
   positions (if include_L=True) or remaining positions (if include_L=False).
   '''
+  dtype = pred.dtype
+  length = pred.shape[0]  
+  true, weights = true.astype(dtype), weights.astype(dtype)
+  
   # normalize weights
-  length = true.shape[-2]
-  if weights is None:
-    weights = (jnp.ones(length)/length)[...,None]
-  else:
-    weights = (weights/(weights.sum(-1,keepdims=True) + eps))[...,None]
+  weights = (weights/(weights.sum(-1,keepdims=True) + eps))[...,None]
 
   # determine alignment [L]ength and remaining [l]ength
   if copies > 1:
@@ -410,13 +395,11 @@ def _get_rmsd_loss(true, pred, weights=None, L=None, include_L=True, copies=1, e
 
   return {"rmsd":rmsd, "align":aln_fn}
 
-def get_sc_loss(inputs, outputs, cfg, mask_1d=None):
-  
+def get_sc_loss(inputs, outputs, mask_1d, cfg):
+
   batch = inputs["batch"]
   aatype = batch["aatype"] 
-  mask = batch["all_atom_mask"]
-  if mask_1d is None: mask_1d = jnp.ones(aatype.shape[0])
-  mask = mask * mask_1d[:,None]
+  mask = batch["all_atom_mask"] * mask_1d[:,None]
 
   # atom37 representation
   pred_pos = geometry.Vec3Array.from_array(outputs["structure_module"]["final_atom_positions"])
@@ -461,3 +444,14 @@ def get_sc_loss(inputs, outputs, cfg, mask_1d=None):
   return {"sc_fape":sc_fape,
           "sc_chi":chi_loss,
           "sc_chi_norm": chi_norm_loss}
+
+def and_masks(*m):
+  mask = m[0]
+  for n in range(1,len(m)):
+    mask = jnp.logical_and(mask,m[n])
+  return mask
+def or_masks(*m):
+  mask = m[0]
+  for n in range(1,len(m)):
+    mask = jnp.logical_or(mask,m[n])
+  return mask

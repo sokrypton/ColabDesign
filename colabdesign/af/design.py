@@ -131,7 +131,7 @@ class _af_design:
           m = self._inputs["fix_pos"][:self._len]
           mask[m] = False
         if sum(mask) > 0:
-          pred = self.aux["seq"][0].argmax(-1)
+          pred = self.aux["seq"][0,:self._len].argmax(-1)
           seqid = ((true == pred) * mask).sum() / mask.sum()
           self.aux["log"]["seqid"] = seqid.mean()
 

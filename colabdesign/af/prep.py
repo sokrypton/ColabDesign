@@ -169,12 +169,12 @@ class _af_prep:
       fix_pos[pos_cst.pop("fix_pos")] = True
 
     self._inputs.update({
-      "unsupervised":unsupervised,
-      "unsupervised_2d":unsupervised_2d,
-      "supervised":(unsupervised == False),
-      "supervised_2d":(unsupervised_2d == False),
-      "interchain_mask":interchain_mask,
-      "fix_pos":fix_pos
+      "unsupervised":    unsupervised,
+      "unsupervised_2d": unsupervised_2d,
+      "supervised":      unsupervised == False,
+      "supervised_2d":   unsupervised_2d == False,
+      "interchain_mask": interchain_mask,
+      "fix_pos":         fix_pos
     })
     
     # set positional constraints
@@ -185,11 +185,12 @@ class _af_prep:
 
     # decide on weights
     self.set_opt(weights=0, partial_loss=partial_loss)
+    unsup_mask = np.logical_or(unsupervised_2d, interchain_mask == False)
     intra_mask = self._inputs["asym_id"][:,None] == self._inputs["asym_id"][None,:]
     self.set_weights(
-      con=(self._inputs["unsupervised_2d"] * intra_mask).max(),
-      i_con=(self._inputs["unsupervised_2d"] * (intra_mask == False)).max(),
-      dgram_cce=self._inputs["supervised_2d"].max())
+      con=np.logical_and(unsup_mask,intra_mask).any(),
+      i_con=np.logical_and(unsup_mask,intra_mask == False).any(),
+      dgram_cce=self._inputs["supervised_2d"].any())
 
     # prep model
     self._prep_model(**kwargs)

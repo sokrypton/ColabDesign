@@ -128,11 +128,11 @@ class _af_design:
         true = self._wt_aatype
         mask = true != -1
         if "fix_pos" in self._inputs:
-          m = self._inputs["fix_pos"][:self._len] == 1
+          m = self._inputs["fix_pos"][:self._len]
           mask[m] = False
         if sum(mask) > 0:
-          pred = self.aux["seq"]["pseudo"].argmax(-1)
-          seqid = ((true == pred) * mask).sum(-1) / mask.sum()
+          pred = self.aux["seq"][0].argmax(-1)
+          seqid = ((true == pred) * mask).sum() / mask.sum()
           self.aux["log"]["seqid"] = seqid.mean()
 
     self.aux["log"] = to_float(self.aux["log"])

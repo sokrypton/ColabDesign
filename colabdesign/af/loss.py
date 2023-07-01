@@ -30,7 +30,7 @@ class _af_loss:
 
     fix_mask_1d = inputs["fix_pos"]
     fix_mask_2d = and_masks(fix_mask_1d[:,None],fix_mask_1d[None,:])
-    mask_2d = jnp.where(opt["partial_loss"],jnp.where(fix_mask_2d,0,mask_2d),mask_2d)
+    mask_2d = jnp.where(opt["partial_loss"],jnp.where(fix_mask_2d,False,mask_2d),mask_2d)
 
     # RMSD
     rmsd_flags = dict(include_L=False, L=self._target_len) if self.protocol == "binder" else {}

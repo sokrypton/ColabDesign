@@ -124,16 +124,13 @@ class _af_design:
       for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
       # compute sequence recovery
-      if hasattr(self,"_wt_aatype"):
-        true = self._wt_aatype
-        mask = true != -1
-        if "fix_pos" in self._inputs:
-          m = self._inputs["fix_pos"][:self._len]
-          mask[m] = False
-        if sum(mask) > 0:
-          pred = self.aux["seq"][0,:self._len].argmax(-1)
-          seqid = ((true == pred) * mask).sum() / mask.sum()
-          self.aux["log"]["seqid"] = seqid.mean()
+      L = self._len
+      true = self._inputs["wt_aatype"][:L]
+      mask = np.where(self._inputs["fix_pos"][:L], False, true != -1)
+      if sum(mask) > 0:
+        pred = self.aux["seq"][0,:L].argmax(-1)
+        seqid = ((true == pred) * mask).sum() / mask.sum()
+        self.aux["log"]["seqid"] = seqid.mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
@@ -282,10 +279,21 @@ class _af_design:
 
     # update traj
     if (self._k % self._args["traj_iter"]) == 0:
+      
+      # subselect sequence to show
+      if self.protocol == "binder":
+        seq = aux["seq"][:,self._target_len:]
+      elif self._copies > 1:
+        seq = aux["seq"][:,:self._len]
+        if self._args["block_diag"]:
+          seq = seq[1:].reshape(copies,-1,self._len,22)[0]
+      else:
+        seq = aux["seq"]
+      
       traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"],
-              "seq":   aux["seq"]}
+              "seq":   seq}
       for k,v in traj.items():
         # rm traj (if max number reached)
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:
@@ -426,11 +434,10 @@ class _af_design:
 
     # fix some positions
     i_prob = np.ones(L) if plddt is None else np.maximum(1-plddt,0)
-    i_prob[np.isnan(i_prob)] = 0
-    if "fix_pos" in self._inputs:
-      m = self._inputs["fix_pos"][:self._len] == 1
-      seq[...,m] = self._wt_aatype[...,m]
-      i_prob[p] = 0
+    i_prob[np.isnan(i_prob)] = 0    
+    fp = self._inputs["fix_pos"][:L]
+    seq = np.where(fp, self._inputs["wt_aatype"][:L],seq)
+    i_prob[fp] = 0
     
     for m in range(mutation_rate):
       # sample position

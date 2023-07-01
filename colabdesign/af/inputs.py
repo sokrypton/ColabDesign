@@ -107,31 +107,20 @@ class _af_inputs:
     opt = inputs["opt"]
     # gather features
     if self._args["use_batch_as_template"]:
-      batch = inputs["batch"]
-      (T,L) = (1,batch["aatype"].shape[0])
+      template_feats = inputs["batch"]
+      template_feats["mask"] = True
 
-      # define template features
-      template_feats = {"template_aatype":batch["aatype"], "template_mask":True}
-
-      if "dgram" in batch:
-        # use dgram from batch if provided
-        template_feats.update({"template_dgram":batch["dgram"]})
-        if "template_feats" not in inputs:
-          nT,nL = inputs["template_aatype"].shape
-          inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
+      if "dgram" in template_feats and "template_feats" not in inputs:
+        nT,nL = inputs["template_aatype"].shape
+        inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
         
-      if "all_atom_positions" in batch:
-        # use coordinates from batch if provided
-        template_feats.update({f"template_all_atom_{k}":batch[k] for k in ["positions","mask"]})
-
       # inject template features
       for k,v in template_feats.items():
-        inputs[k] = inputs[k].at[0].set(v) 
+        K = f"template_{k}"
+        if K in inputs: inputs[K] = inputs[K].at[0].set(v) 
     
-    else:
-      (T,L) = inputs["template_aatype"].shape
-      
     # decide which position to remove sequence and/or sidechains
+    L      = inputs["template_aatype"].shape[1]
     opt_T  = opt["template"]
     rm     = jnp.broadcast_to(inputs.get("rm_template",opt_T["rm"]),L)
     rm_seq = jnp.where(rm,True,jnp.broadcast_to(inputs.get("rm_template_seq",opt_T["rm_seq"]),L))
@@ -141,7 +130,7 @@ class _af_inputs:
     k = "template_aatype"
     inputs[k] = jnp.where(rm_seq[:,None],21,inputs[k])
     k = "template_all_atom_mask"
-    inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
+    inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
     inputs[k] = jnp.where(rm[:,None],0,inputs[k])
 
 def np_one_hot(x, alphabet):

@@ -517,7 +517,7 @@ def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=True):
             'template_aatype': np.zeros((T,L),int),
             'template_all_atom_mask': np.zeros((T,L,37)),
             'template_all_atom_positions': np.zeros((T,L,37,3)),
-            'template_mask': np.zeros(T)}
+            'template_mask': np.full(T,True)}
   return inputs
 
 def get_chain_enc(copies, lengths, residue_idx=None):

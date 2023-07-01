@@ -149,12 +149,11 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       #######################################################################
       # get sequence
       self._update_seq(params, inputs, aux, key())
-      seq = aux["seq"] = inputs["msa"]
-
       inputs = make_msa_feats(inputs, key(),
         num_msa=self._args["num_msa"], num_extra_msa=self._args["num_extra_msa"],
         use_mlm=self._args["use_mlm"], mlm_opt=opt["mlm"],
         use_cluster_profile=self._args["use_cluster_profile"])
+      seq = aux["seq"] = inputs["msa"]
 
       # update template features
       inputs["mask_template_interchain"] = opt["template"]["rm_ic"]

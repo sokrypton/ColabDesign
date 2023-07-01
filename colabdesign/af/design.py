@@ -55,11 +55,9 @@ class _af_design:
     # initialize sequence
     self.set_seed(seed)
     if self._args["optimize_seq"]:
-      self.set_seq(seq=seq, mode=mode, **kwargs)    
-    elif hasattr(self,"_wt_aatype"):
-      self.set_msa(msa=self._wt_aatype)
-    else:
-      self.set_msa(msa=seq)
+      self.set_seq(seq=seq, mode=mode, **kwargs)
+    else:   
+      self.set_msa(msa=self._inputs["batch"]["wt_aatype"])
 
     # reset optimizer
     self._k = 0
@@ -283,10 +281,6 @@ class _af_design:
       # subselect sequence to show
       if self.protocol == "binder":
         seq = aux["seq"][:,self._target_len:]
-      elif self._copies > 1:
-        seq = aux["seq"][:,:self._len]
-        if self._args["block_diag"]:
-          seq = seq[1:].reshape(copies,-1,self._len,22)[0]
       else:
         seq = aux["seq"]
       

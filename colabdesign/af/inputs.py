@@ -38,8 +38,8 @@ class _af_inputs:
       # add target sequence
       msa = np.pad(msa,[[0,0],[self._target_len,0]])
       deletion_matrix = np.pad(deletion_matrix,[[0,0],[self._target_len,0]])
-      msa[0,:self._target_len] = self._wt_aatype[:self._target_len]
-      msa[1:,:self._target_len,-1] = 1
+      msa[:1,:self._target_len] = self._inputs["batch"]["wt_aatype"][:self._target_len]
+      msa[1:,:self._target_len] = 21 # gap character
     
     self._inputs["msa"] = msa
 
@@ -53,8 +53,9 @@ class _af_inputs:
 
     if n == 0 and self._arg["use_batch_as_template"]:
       self._inputs["batch"].update(batch)
+    
     else:
-      self._inputs["template_mask"][n] = 1
+      self._inputs["template_mask"][n] = True
       for k in ["aatype","all_atom_mask","all_atom_positions"]:
         self._inputs[f"template_{k}"][n] = batch[k]
 
@@ -91,16 +92,14 @@ class _af_inputs:
     
     else:
       f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
-      msa = expand_copies(inputs["msa"], 21, **f),
+      msa = expand_copies(inputs["msa"], 21, **f)
       inputs.update({
         "msa":msa,
-        "target_feat":jax.nn.one_hot(msa,20),
+        "target_feat":jax.nn.one_hot(msa[0],20),
         "aatype":msa[0],
         "deletion_matrix":expand_copies(inputs["deletion_matrix"], **f),
         "msa_mask":jnp.ones(msa.shape[:2])
       })
-    
-    return seq
 
   def _update_template(self, inputs):
     ''''dynamically update template features''' 
@@ -112,24 +111,22 @@ class _af_inputs:
       (T,L) = (1,batch["aatype"].shape[0])
 
       # define template features
-      template_feats = {"template_aatype":batch["aatype"]}
+      template_feats = {"template_aatype":batch["aatype"], "template_mask":True}
 
       if "dgram" in batch:
         # use dgram from batch if provided
         template_feats.update({"template_dgram":batch["dgram"]})
-        nT,nL = inputs["template_aatype"].shape
-        inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
+        if "template_feats" not in inputs:
+          nT,nL = inputs["template_aatype"].shape
+          inputs["template_dgram"] = jnp.zeros((nT,nL,nL,39))
         
       if "all_atom_positions" in batch:
         # use coordinates from batch if provided
-        template_feats.update({"template_all_atom_positions": batch["all_atom_positions"],
-                               "template_all_atom_mask":      batch["all_atom_mask"]})
-      # enable templates
-      inputs["template_mask"] = inputs["template_mask"].at[:T].set(1)
-      
+        template_feats.update({f"template_all_atom_{k}":batch[k] for k in ["positions","mask"]})
+
       # inject template features
       for k,v in template_feats.items():
-        inputs[k] = inputs[k].at[:T].set(v) 
+        inputs[k] = inputs[k].at[0].set(v) 
     
     else:
       (T,L) = inputs["template_aatype"].shape
@@ -143,7 +140,6 @@ class _af_inputs:
     # remove sidechains (mask anything beyond CB)
     k = "template_aatype"
     inputs[k] = jnp.where(rm_seq[:,None],21,inputs[k])
-    jnp.where(rm_seq,21,)
     k = "template_all_atom_mask"
     inputs[k] = inputs[k].at[:T,:,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][:T,:,5:]))
     inputs[k] = jnp.where(rm[:,None],0,inputs[k])

@@ -149,6 +149,19 @@ class mk_tr_model(design_model):
     self._opt = copy_dict(self.opt)
     self.restart(**kwargs)
 
+  def set_weights(self, *args, **kwargs):
+    '''
+    set weights
+    -------------------
+    note: model.restart() resets the weights to their defaults
+    use model.set_weights(..., set_defaults=True) to avoid this
+    -------------------
+    model.set_weights(rmsd=1)
+    '''
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt["weights"], *args, **kwargs)
+    update_dict(self.opt["weights"], *args, **kwargs)
+
   def set_opt(self, *args, **kwargs):
     '''
     set [opt]ions

@@ -10,18 +10,6 @@ aa_order = residue_constants.restype_order
 order_aa = {b:a for a,b in aa_order.items()}
 
 class design_model:
-  def set_weights(self, *args, **kwargs):
-    '''
-    set weights
-    -------------------
-    note: model.restart() resets the weights to their defaults
-    use model.set_weights(..., set_defaults=True) to avoid this
-    -------------------
-    model.set_weights(rmsd=1)
-    '''
-    if kwargs.pop("set_defaults", False):
-      update_dict(self._opt["weights"], *args, **kwargs)
-    update_dict(self.opt["weights"], *args, **kwargs)
 
   def _set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, return_values=False, **kwargs):
     '''

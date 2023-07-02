@@ -29,11 +29,23 @@ class _af_utils:
     '''
     ks = list(kwargs.keys())
     self.set_args(**{k:kwargs.pop(k) for k in ks if k in self._args})
-        
+    
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
+    update_dict(self._inputs["opt"], *args, **kwargs)
 
-    update_dict(self.opt, *args, **kwargs)
+  def set_weights(self, *args, **kwargs):
+    '''
+    set weights
+    -------------------
+    note: model.restart() resets the weights to their defaults
+    use model.set_weights(..., set_defaults=True) to avoid this
+    -------------------
+    model.set_weights(rmsd=1)
+    '''
+    if kwargs.pop("set_defaults", False):
+      update_dict(self._opt["weights"], *args, **kwargs)
+    update_dict(self._inputs["opt"]["weights"], *args, **kwargs)
 
   def set_args(self, **kwargs):
     '''

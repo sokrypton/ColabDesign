@@ -33,33 +33,40 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
-    self._args = {"use_templates":use_templates, "num_templates":1, "use_batch_as_template":True,
-                  "use_multimer":use_multimer, "use_bfloat16":True,
-                  "optimize_seq":True, "recycle_mode":"last", 
-                  "realign": True, "use_sidechains": False, 
-                  "num_msa":512, "num_extra_msa":1024, "use_mlm": False, "use_cluster_profile": False,
-                  "block_diag":not use_multimer,
-                  "debug":debug, "copies":1,
-                  "optimizer":"sgd", "best_metric":"loss", 
-                  "traj_iter":1, "traj_max":10000,
-                  "clear_prev": True, "use_dgram":False, "use_dgram_pred":False,
-                  "shuffle_first":True, "use_remat":True,
-                  "alphabet_size":20, 
-                  "use_initial_guess":False, "use_initial_atom_pos":False}
+    self._args = {
+      # structure options
+      "use_templates":use_templates, "num_templates":1, "use_batch_as_template":True,
+      "use_initial_guess":False, "use_initial_atom_pos":False,
+      "use_dgram":False, "use_dgram_pred":False, "realign": True, "use_sidechains": False, 
+      
+      # sequence options
+      "optimize_seq":True, "alphabet_size":20, "shuffle_first":True, "copies":1,
+      "num_msa":512, "num_extra_msa":1024, "use_mlm": False, "use_cluster_profile": False,
+
+      # model options
+      "use_multimer":use_multimer, "block_diag":not use_multimer,
+
+      # optimizer options
+      "optimizer":"sgd", "best_metric":"loss", 
+      "traj_iter":1, "traj_max":10000, "clear_prev": True,  "recycle_mode":"last", 
+
+      # technical options
+      "use_remat":True, "use_bfloat16":True, "debug":debug
+    }
 
     if self.protocol == "binder": self._args["use_templates"] = True
 
-    self.opt = {"dropout":True, "pssm_hard":False, "learning_rate":0.1, "norm_seq_grad":True,
-                "num_recycles":0, "num_models":1, "sample_models":True, "fape_cutoff":10.0,
-                "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0, "partial_loss":True,
-                "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
-                "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
-                "template": {"rm":False, "rm_ic":False, "rm_sc":True, "rm_seq":True},                
-                "mlm":      {"replace_fraction":0.15,"uniform_prob":0.1,"profile_prob":0.1,"same_prob":0.1}}
+    self._opt = {"dropout":True, "pssm_hard":False, "learning_rate":0.1, "norm_seq_grad":True,
+                 "num_recycles":0, "num_models":1, "sample_models":True, "fape_cutoff":10.0,
+                 "temp":1.0, "soft":0.0, "hard":0.0, "alpha":2.0, "partial_loss":True,
+                 "con":      {"num":2, "cutoff":14.0, "binary":False, "seqsep":9, "num_pos":float("inf")},
+                 "i_con":    {"num":1, "cutoff":21.6875, "binary":False, "num_pos":float("inf")},
+                 "template": {"rm":False, "rm_ic":False, "rm_sc":True, "rm_seq":True},                
+                 "mlm":      {"replace_fraction":0.15,"uniform_prob":0.1,"profile_prob":0.1,"same_prob":0.1}}
     
     weights_keys = ["plddt","pae","i_pae","exp_res","helix","con","i_con",
                     "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
-    self.opt["weights"] = {k:0.0 for k in weights_keys}
+    self._opt["weights"] = {k:0.0 for k in weights_keys}
 
     self._params = {}
     self._inputs = {}
@@ -72,7 +79,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     keys = list(kwargs.keys())
     for k in keys:
       if k in self._args: self._args[k] = kwargs.pop(k)
-      if k in self.opt: self.opt[k] = kwargs.pop(k)
+      if k in self._opt:  self._opt[k]  = kwargs.pop(k)
+
+    self.opt = self._opt # backward compatibility
 
     assert self._args["recycle_mode"] in ["average","first","last","sample"]
 

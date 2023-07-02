@@ -78,7 +78,8 @@ class mk_mpnn_model():
       p = prep_pos(fix_pos, **pdb["idx"])["pos"]
       if inverse:
         p = np.delete(np.arange(L),p)
-      self._inputs["fix_pos"] = p
+      self._inputs["fix_pos"] = np.full(L,False)
+      self._inputs["fix_pos"][p] = True
       self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
     
     if homooligomer:
@@ -95,7 +96,7 @@ class mk_mpnn_model():
       print("lengths", self._lengths)
       if "fix_pos" in self._inputs:
         print("the following positions will be fixed:")
-        print(self._inputs["fix_pos"])
+        print(np.where(self._inputs["fix_pos"])[0])
 
   def get_af_inputs(self, af):
     '''get inputs from alphafold model'''
@@ -124,13 +125,12 @@ class mk_mpnn_model():
 
     # fix positions
     if af.protocol == "binder":
-      p = np.arange(af._target_len)
+      fix_pos = np.array([True]*self._target_len + [False] * self._binder_len)
     else:
-      p = af.opt.get("fix_pos",None)
+      fix_pos = af._inputs["fix_pos"]
     
-    if p is not None:
-      self._inputs["fix_pos"] = p
-      self._inputs["bias"][p] = 1e7 * np.eye(21)[self._inputs["S"]][p,:20]
+    self._inputs["fix_pos"] = fix_pos
+    self._inputs["bias"][fix_pos] = 1e7 * np.eye(21)[self._inputs["S"]][fix_pos,:20]
 
     # tie positions
     if af._args["copies"] > 1:
@@ -204,11 +204,14 @@ class mk_mpnn_model():
     '''score sequence'''
     I = copy_dict(self._inputs)
     if seq is not None:
-      p = np.arange(I["S"].shape[0])
+      
       if self._tied_lengths and len(seq) == self._lengths[0]:
         seq = seq * len(self._lengths)
-      if "fix_pos" in I and len(seq) == (I["S"].shape[0] - I["fix_pos"].shape[0]):
-        p = np.delete(p,I["fix_pos"])
+
+      p = np.arange(I["S"].shape[0])
+      if "fix_pos" in I and len(seq) == (I["S"].shape[0] - sum(I["fix_pos"])):
+        p = p[I["fix_pos"]]
+      
       I["S"][p] = np.array([aa_order.get(aa,-1) for aa in seq])
     I.update(kwargs)
     key = I.pop("key",self.key())
@@ -242,7 +245,7 @@ class mk_mpnn_model():
         key, sub_key = jax.random.split(key)
         randn = jax.random.uniform(sub_key, (I["X"].shape[0],))    
         randn = jnp.where(I["mask"], randn, randn+1)
-        if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)        
+        if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)
         I["decoding_order"] = randn.argsort()
 
       for k in ["S","bias"]:

@@ -24,8 +24,8 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 ####################################################
 
 class _af_design:
-  def restart(self, seed=None, opt=None, weights=None,
-              seq=None, mode=None, keep_history=False, reset_opt=True, **kwargs):   
+  def restart(self, seed=None, seq=None, mode=None,
+    keep_history=False, reset_opt=True, **kwargs):   
     '''
     restart the optimization
     ------------
@@ -39,18 +39,19 @@ class _af_design:
     '''
     # reset [opt]ions
     if reset_opt and not keep_history:
-      copy_missing(self.opt, self._opt)
-      self.opt = copy_dict(self._opt)
+      
+      if hasattr(self,"opt"):
+        copy_missing(self.opt, self._opt)
+      if "opt" in self._inputs:
+        copy_missing(self._inputs["opt"], self._opt)
+      self._inputs["opt"] = self.opt = copy_dict(self._opt)
+      
       if hasattr(self,"aux"): del self.aux
     
     if not keep_history:
       # initialize trajectory
       self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
                    "log":[],"best":{}}
-
-    # update options/settings (if defined)
-    self.set_opt(opt)
-    self.set_weights(weights)
   
     # initialize sequence
     self.set_seed(seed)
@@ -65,8 +66,9 @@ class _af_design:
 
   def _get_model_nums(self, num_models=None, sample_models=None, models=None):
     '''decide which model params to use'''
-    if num_models is None: num_models = self.opt["num_models"]
-    if sample_models is None: sample_models = self.opt["sample_models"]
+    opt = self._inputs["opt"]
+    if num_models is None: num_models = opt["num_models"]
+    if sample_models is None: sample_models = opt["sample_models"]
 
     ns_name = self._model_names
     ns = list(range(len(ns_name)))
@@ -119,7 +121,7 @@ class _af_design:
 
     if self._args["optimize_seq"]:
       # keep track of sequence mode
-      for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
+      for k in ["hard","soft","temp"]: self.aux["log"][k] = self._inputs["opt"][k]
 
       # compute sequence recovery
       L = self._len
@@ -138,7 +140,6 @@ class _af_design:
 
   def _single(self, model_params, backprop=True):
     '''single pass through the model'''
-    self._inputs["opt"] = self.opt
     flags  = [self._params, model_params, self._inputs, self.key()]
     if backprop:
       (loss, aux), grad = self._model["grad_fn"](*flags)
@@ -153,7 +154,7 @@ class _af_design:
     a = self._args
     mode = a["recycle_mode"]
     if num_recycles is None:
-      num_recycles = self.opt["num_recycles"]
+      num_recycles = self._inputs["opt"]["num_recycles"]
 
     if mode in ["backprop","add_prev"]:
       # recycles compiled into model, only need single-pass
@@ -239,12 +240,12 @@ class _af_design:
              models=models, backprop=backprop, callback=callback)
 
     # modify gradients
-    if self._args["optimize_seq"] and self.opt["norm_seq_grad"]:
+    if self._args["optimize_seq"] and self._inputs["opt"]["norm_seq_grad"]:
       self._norm_seq_grad()
     self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"], self._params)
   
     # apply gradients
-    lr = self.opt["learning_rate"] * lr_scale
+    lr = self._inputs["opt"]["learning_rate"] * lr_scale
     self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # save results
@@ -266,7 +267,7 @@ class _af_design:
       else:
         aux["log"].pop("i_ptm")
 
-    print(dict_to_str(aux["log"], filt=self.opt["weights"],
+    print(dict_to_str(aux["log"], filt=self._inputs["opt"]["weights"],
                       print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
 
   def _save_results(self, aux=None, save_best=False,
@@ -317,8 +318,8 @@ class _af_design:
 
     # save current settings
     if "save" in self._tmp:
-      [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
-    self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
+      [self._args, self._params, self._inputs] = self._tmp.pop("save")
+    self._tmp["save"] = [copy_dict(x) for x in [self._args, self._params, self._inputs]]
 
     # set seed if defined
     if seed is not None: self.set_seed(seed)
@@ -333,7 +334,7 @@ class _af_design:
     if verbose: self._print_log("predict")
 
     # load previous settings
-    [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
+    [self._args, self._params, self._inputs] = self._tmp.pop("save")
 
     # return (or save) results
     if return_aux: return self.aux
@@ -353,6 +354,8 @@ class _af_design:
 
     # update options/settings (if defined)
     self.set_opt(opt, dropout=dropout)
+    opt = self._inputs["opt"]
+
     self.set_weights(weights)    
     m = {"soft":[soft,e_soft],"temp":[temp,e_temp],
          "hard":[hard,e_hard],"step":[step,e_step]}
@@ -360,7 +363,7 @@ class _af_design:
 
     if ramp_recycles:
       if num_recycles is None:
-        num_recycles = self.opt["num_recycles"]
+        num_recycles = opt["num_recycles"]
       m["num_recycles"] = [0,num_recycles]
 
     for i in range(iters):
@@ -374,7 +377,7 @@ class _af_design:
           else: self.set_opt({k:v})
       
       # decay learning rate based on temperature
-      lr_scale = step * ((1 - self.opt["soft"]) + (self.opt["soft"] * self.opt["temp"]))
+      lr_scale = step * ((1 - opt["soft"]) + (opt["soft"] * opt["temp"]))
       
       self.step(lr_scale=lr_scale, num_recycles=num_recycles,
                 num_models=num_models, sample_models=sample_models, models=models,

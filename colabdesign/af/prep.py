@@ -29,7 +29,6 @@ class _af_prep:
         self._cfg.model.global_config.subbatch_size = 4
         self._model["fn"] = self._get_model(self._cfg)["fn"]
 
-    self._opt = copy_dict(self.opt)  
     self.restart(**kwargs)
 
   def _prep_contigs(self,
@@ -43,7 +42,7 @@ class _af_prep:
     '''prep inputs for partial hallucination protocol'''
   
     # position constraints
-    self.opt["template"]["rm_ic"] = kwargs.pop("rm_template_ic",False)
+    self._opt["template"]["rm_ic"] = kwargs.pop("rm_template_ic",False)
     pos_cst = {}
     keys = ["hotspot", "fix_pos", "rm_template", "rm_template_seq", "rm_template_sc"]
     for k in keys:
@@ -54,7 +53,7 @@ class _af_prep:
         elif isinstance(v,bool):
           if "template" in k:
             k_ = {"rm_template":"rm","rm_template_seq":"rm_seq","rm_template_sc":"rm_sc"}[k]
-            self.opt["template"][k_] = v
+            self._opt["template"][k_] = v
           elif k == "fix_pos":
             kwargs["fix_all_pos"] = True
 
@@ -184,13 +183,13 @@ class _af_prep:
       self._inputs[k] = m
 
     # decide on weights
-    self.set_opt(weights=0, partial_loss=partial_loss)
+    self.set_opt(weights=0, partial_loss=partial_loss, set_defaults=True)
     unsup_mask = np.logical_or(unsupervised_2d, interchain_mask == False)
     intra_mask = self._inputs["asym_id"][:,None] == self._inputs["asym_id"][None,:]
     self.set_weights(
       con=np.logical_and(unsup_mask,intra_mask).any(),
       i_con=np.logical_and(unsup_mask,intra_mask == False).any(),
-      dgram_cce=self._inputs["supervised_2d"].any())
+      dgram_cce=self._inputs["supervised_2d"].any(), set_defaults=True)
 
     # prep model
     self._prep_model(**kwargs)

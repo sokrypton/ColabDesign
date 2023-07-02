@@ -30,9 +30,12 @@ class _af_utils:
     ks = list(kwargs.keys())
     self.set_args(**{k:kwargs.pop(k) for k in ks if k in self._args})
     
+    if hasattr(self,"_inputs") and "opt" in self._inputs:
+      update_dict(self._inputs["opt"], *args, **kwargs)
+    else:
+      kwargs["set_defaults"] = True
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt, *args, **kwargs)
-    update_dict(self._inputs["opt"], *args, **kwargs)
 
   def set_weights(self, *args, **kwargs):
     '''
@@ -43,9 +46,12 @@ class _af_utils:
     -------------------
     model.set_weights(rmsd=1)
     '''
+    if hasattr(self,"_inputs") and "opt" in self._inputs and "weights" in self._inputs["opt"]:
+      update_dict(self._inputs["opt"]["weights"], *args, **kwargs)
+    else:
+      kwargs["set_defaults"] = True
     if kwargs.pop("set_defaults", False):
       update_dict(self._opt["weights"], *args, **kwargs)
-    update_dict(self._inputs["opt"]["weights"], *args, **kwargs)
 
   def set_args(self, **kwargs):
     '''

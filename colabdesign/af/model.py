@@ -98,6 +98,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         if not isinstance(v,list): v = [v]
         self._callbacks[m][k] = v
 
+    old_params = kwargs.pop("old_params",{})
     assert len(kwargs) == 0, f"ERROR: the following inputs were not set: {kwargs}"
 
     #############################
@@ -125,7 +126,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         else:
           model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
 
-    old_params = kwargs.pop("old_params",{})
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
       if model_name in old_params:

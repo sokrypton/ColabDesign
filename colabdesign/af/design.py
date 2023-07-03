@@ -58,7 +58,7 @@ class _af_design:
     if self._args["optimize_seq"]:
       self.set_seq(seq=seq, mode=mode, **kwargs)
     else:   
-      self.set_msa(msa=self._inputs["batch"]["wt_aatype"])
+      self.set_msa(msa=self._inputs["wt_aatype"])
 
     # reset optimizer
     self._k = 0

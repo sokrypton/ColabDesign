@@ -125,10 +125,14 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         else:
           model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
 
+    old_params = kwargs.pop("old_params",{})
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
-      params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir,
-        fuse=True, rm_templates=(not self._args["use_templates"] and not self._args["use_multimer"]))
+      if model_name in old_params:
+        params = old_params[model_name]
+      else:
+        params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir,
+          fuse=True, rm_templates=(not self._args["use_templates"] and not self._args["use_multimer"]))
       if params is not None:
         self._model_params.append(params)
         self._model_names.append(model_name)

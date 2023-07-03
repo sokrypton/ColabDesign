@@ -259,9 +259,14 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
 
   fig.subplots_adjust(top=0.95,bottom=0.1,right=0.95,left=0.05,hspace=0,wspace=0)
   fig.set_figwidth(8); fig.set_figheight(6); fig.set_dpi(dpi)
-  ax2.set_xlabel("positions"); ax2.set_yticks([])
-  if seq[0].shape[0] > 1: ax2.set_ylabel("sequences")
-  else: ax2.set_ylabel("amino acids")
+  if seq[0].shape[0] > seq[0].shape[1]:
+    ax2.set_ylabel("positions")
+    ax2.set_xlabel("sequences")
+    ax2.set_xticks([])
+  else:
+    ax2.set_xlabel("positions")
+    ax2.set_ylabel("sequences" if seq[0].shape[0] > 1 else "amino acids")
+    ax2.set_yticks([])
 
   if xyz is None:
     ax1.set_title("predicted contact map")
@@ -319,6 +324,8 @@ def make_animation(seq, con=None, xyz=None, plddt=None, pae=None,
       msa_oh = seq[k][:,:,:20]
       msa = msa_oh.argmax(-1).astype(float)
       msa[msa_oh.sum(-1) == 0] = np.nan
+      if msa.shape[0] > msa.shape[1]:
+        msa = msa.T
       ims[-1].append(ax2.imshow(msa, animated=True, cmap=cmap, vmin=0, vmax=vmax, interpolation="none"))
     
     if pae is not None:

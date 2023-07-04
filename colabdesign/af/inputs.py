@@ -91,13 +91,15 @@ class _af_inputs:
       }) 
     
     else:
-      f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
-      msa = expand_copies(inputs["msa"], 21, **f)
+      msa, deletion_matrix = inputs["msa"], inputs["deletion_matrix"]
+      if self._args["copies"] > 1:
+        f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
+        msa, deletion_matrix = expand_copies(msa, 21, **f), expand_copies(deletion_matrix, **f)
       inputs.update({
         "msa":msa,
         "target_feat":jax.nn.one_hot(msa[0],20),
         "aatype":msa[0],
-        "deletion_matrix":expand_copies(inputs["deletion_matrix"], **f),
+        "deletion_matrix":deletion_matrix,
         "msa_mask":jnp.ones(msa.shape[:2])
       })
 
@@ -128,7 +130,7 @@ class _af_inputs:
 
     # remove sidechains (mask anything beyond CB)
     k = "template_aatype"
-    inputs[k] = jnp.where(rm_seq[:,None],21,inputs[k])
+    inputs[k] = jnp.where(rm_seq,21,inputs[k])
     k = "template_all_atom_mask"
     inputs[k] = inputs[k].at[...,5:].set(jnp.where(rm_sc[:,None],0,inputs[k][...,5:]))
     inputs[k] = jnp.where(rm[:,None],0,inputs[k])

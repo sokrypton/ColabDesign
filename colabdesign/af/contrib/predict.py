@@ -17,6 +17,7 @@ from collections import OrderedDict, Counter
 
 import Bio
 from Bio.Align import substitution_matrices
+
 aligner = Bio.Align.PairwiseAligner()
 aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
 
@@ -109,7 +110,8 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None, copies=1, propag
   for n,(pdb,chain) in enumerate(zip(pdbs,chains)):
     if isinstance(chain,str): chain = chain.split(",")
     for c in chain:
-      info = prep_pdb(get_pdb_fn(pdb), c)
+      pdb_filename = get_pdb_fn(pdb)
+      info = prep_pdb(pdb_filename, c)
       N.append(n)
       X.append(info)
       L.append(info.pop("lengths")[0])
@@ -128,7 +130,6 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None, copies=1, propag
   seq = X["batch"]["aatype"] if use_seq else None
   X["batch"]["dgram"] = get_dgram(X["batch"]["all_atom_positions"], seq) * mask[...,None]
   template_seq = "".join(order_aa.get(a,"X") for a in X["batch"]["aatype"])
-  
   
   Q = query_seq if propagate_to_copies else query_seq * copies
   i, j = get_template_idx(Q, template_seq, query_a3m=query_a3m, align_fn=align_fn)

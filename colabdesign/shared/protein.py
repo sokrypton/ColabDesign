@@ -1,27 +1,165 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
+from Bio.PDB.MMCIF2Dict import MMCIF2Dict
 
 from colabdesign.af.alphafold.common import residue_constants
 from string import ascii_uppercase, ascii_lowercase
 alphabet_list = list(ascii_uppercase+ascii_lowercase)
 
-MODRES = {'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
-          'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
-          'HSK':'HIS','SAC':'SER','PCA':'GLU','DAL':'ALA',
-          'CME':'CYS','CSD':'CYS','OCS':'CYS','DPR':'PRO',
-          'B3K':'LYS','ALY':'LYS','YCM':'CYS','MLZ':'LYS',
-          '4BF':'TYR','KCX':'LYS','B3E':'GLU','B3D':'ASP',
-          'HZP':'PRO','CSX':'CYS','BAL':'ALA','HIC':'HIS',
-          'DBZ':'ALA','DCY':'CYS','DVA':'VAL','NLE':'LEU',
-          'SMC':'CYS','AGM':'ARG','B3A':'ALA','DAS':'ASP',
-          'DLY':'LYS','DSN':'SER','DTH':'THR','GL3':'GLY',
-          'HY3':'PRO','LLP':'LYS','MGN':'GLN','MHS':'HIS',
-          'TRQ':'TRP','B3Y':'TYR','PHI':'PHE','PTR':'TYR',
-          'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
-          'CSD':'CYS','SEC':'CYS'}
+MODRES = {
+  'MSE':'MET','MLY':'LYS','FME':'MET','HYP':'PRO',
+  'TPO':'THR','CSO':'CYS','SEP':'SER','M3L':'LYS',
+  'HSK':'HIS','SAC':'SER','PCA':'GLU','DAL':'ALA',
+  'CME':'CYS','CSD':'CYS','OCS':'CYS','DPR':'PRO',
+  'B3K':'LYS','ALY':'LYS','YCM':'CYS','MLZ':'LYS',
+  '4BF':'TYR','KCX':'LYS','B3E':'GLU','B3D':'ASP',
+  'HZP':'PRO','CSX':'CYS','BAL':'ALA','HIC':'HIS',
+  'DBZ':'ALA','DCY':'CYS','DVA':'VAL','NLE':'LEU',
+  'SMC':'CYS','AGM':'ARG','B3A':'ALA','DAS':'ASP',
+  'DLY':'LYS','DSN':'SER','DTH':'THR','GL3':'GLY',
+  'HY3':'PRO','LLP':'LYS','MGN':'GLN','MHS':'HIS',
+  'TRQ':'TRP','B3Y':'TYR','PHI':'PHE','PTR':'TYR',
+  'TYS':'TYR','IAS':'ASP','GPL':'LYS','KYN':'TRP',
+  'CSD':'CYS','SEC':'CYS'}
 
-def pdb_to_string(pdb_file, chains=None, models=None):
+ATOMS = {
+  "G":["N","C","O","CA"],
+  "A":["N","C","O","CA","CB"],
+  "V":["N","C","O","CA","CB","CG1","CG2"],
+  "I":["N","C","O","CA","CB","CG1","CG2","CD1"],
+  "L":["N","C","O","CA","CB","CG","CD1","CD2"],
+  "M":["N","C","O","CA","CB","CG","SD","CE"],
+  "F":["N","C","O","CA","CB","CG","CD1","CD2","CE1","CE2","CZ"],
+  "Y":["N","C","O","CA","CB","CG","CD1","CD2","CE1","CE2","CZ","OH"],
+  "W":["N","C","O","CA","CB","CG","CD1","CD2","NE1","CE2","CE3","CZ2","CZ3","CH2"],
+  "R":["N","C","O","CA","CB","CG","CD","NE","CZ","NH1","NH2"],
+  "H":["N","C","O","CA","CB","CG","ND1","CD2","CE1","NE2"],
+  "K":["N","C","O","CA","CB","CG","CD","CE","NZ"],
+  "D":["N","C","O","CA","CB","CG","OD1","OD2"],
+  "E":["N","C","O","CA","CB","CG","CD","OE1","OE2"],
+  "N":["N","C","O","CA","CB","CG","OD1","ND2"],
+  "Q":["N","C","O","CA","CB","CG","CD","OE1","NE2"],
+  "C":["N","C","O","CA","CB","SG"],
+  "S":["N","C","O","CA","CB","OG"],
+  "T":["N","C","O","CA","CB","OG1","CG2"],
+  "P":["N","C","O","CA","CB","CG","CD"],
+  "X":["N","C","O","CA"]}
+
+aa_1to3 = {
+  'G':'GLY','A':'ALA','V':'VAL','I':'ILE',
+  'L':'LEU','M':'MET','F':'PHE','Y':'TYR',
+  'W':'TRP','R':'ARG','H':'HIS','K':'LYS',
+  'D':'ASP','E':'GLU','N':'ASN','Q':'GLN',
+  'C':'CYS','S':'SER','T':'THR','P':'PRO',
+  'X':'UNK'}
+
+ATOMS = {aa_1to3[k]: v for k, v in ATOMS.items()}
+
+def nested_dict(d):
+  result = {}
+  for key, value in d.items():
+    parts = key.split(".")
+    current = result
+    for part in parts[:-1]:
+      current = current.setdefault(part, {})
+    current[parts[-1]] = value
+  return result
+
+def mmcif_to_pdb(pdb, chains=None, models=None, auth_chains=True):
+  
+  asym_key = "auth_asym_id" if auth_chains else "label_asym_id"
+  
+  # rechain if needed (for multi character chains)
+  chain_map = {}
+  if chains is not None:
+    for n,chain in enumerate(chains):
+      if len(chain) > 1:
+        chain_map[chain] = alphabet_list[n]
+      else:
+        chain_map[chain] = chain
+
+  mmcif_dict = nested_dict(MMCIF2Dict(pdb))
+  
+  # get modified residues
+  modres = {}
+  if "_pdbx_struct_mod_residue" in mmcif_dict:
+    x = mmcif_dict["_pdbx_struct_mod_residue"]
+    for (chain,resn,old,new) in zip(*[x[k] for k in [asym_key,"label_seq_id","label_comp_id","parent_comp_id"]]):
+      if chains is None or chain in chains:
+        K = chain+"_"+resn
+        modres[K] = new
+  
+  # get atoms
+  x = mmcif_dict["_atom_site"]
+  seen = []
+  model_num_seen = []
+  pdb_lines = []
+  for n,model_num in enumerate(x["pdbx_PDB_model_num"]):
+    
+    # filter by model
+    if models is None or int(model_num) in models:
+
+      # filter by chain
+      if chains is None or x[asym_key][n] in chains:
+
+        # fix modified residues
+        K = x[asym_key][n]+"_"+x["label_seq_id"][n]
+        if x["label_comp_id"][n] in MODRES:
+          modres[K] = MODRES[x["label_comp_id"][n]]
+        if K in modres:
+          x["label_comp_id"][n] = modres[K]
+          x["group_PDB"][n] = "ATOM"
+          if x["label_comp_id"][n] == "MET" and x["label_atom_id"][n] == "SE":
+            x["label_atom_id"][n] = "SD"
+            x["type_symbol"][n] = "S"
+        
+        # if atom record
+        if x["group_PDB"][n] == "ATOM":
+          
+          # if valid atom (given residue name)
+          if x["label_atom_id"][n] in ATOMS.get(x["label_comp_id"][n], ATOMS["UNK"]):
+            
+            # if hasn't already been observed (skip alternative placements)
+            key = model_num+"_"+K+"_"+x["label_atom_id"][n]
+            if key not in seen:
+              seen.append(key)
+              
+              # add model record
+              if model_num not in model_num_seen:
+                if len(model_num_seen) > 0:
+                  pdb_lines.append(f"ENDMDL")
+                model_num_seen.append(model_num)
+                pdb_lines.append(f"MODEL{len(model_num_seen):8}")
+              
+              # figure out the chain
+              chain = x[asym_key][n]
+              if chain not in chain_map:
+                if len(chain) > 1:
+                  chain_map[chain] = alphabet_list[len(chain_map)]
+                else:
+                  chain_map[chain] = chain
+              chain = chain_map[chain]
+              
+              # generate PDB string
+              pdb_str = "ATOM  {:5d}  {:<4s}{:3s} {:1s}{:4d}    {:8.3f}{:8.3f}{:8.3f}{:6.2f}{:6.2f}          {:>2s}".format(
+                len(seen),
+                x["label_atom_id"][n],
+                x["label_comp_id"][n], 
+                chain,
+                int(x["label_seq_id"][n]),
+                float(x["Cartn_x"][n]), 
+                float(x["Cartn_y"][n]), 
+                float(x["Cartn_z"][n]),
+                float(x["occupancy"][n]),
+                float(x["B_iso_or_equiv"][n]),
+                x["type_symbol"][n])
+              pdb_lines.append(pdb_str)
+
+  pdb_lines.append(f"ENDMDL")
+  return pdb_lines
+
+def pdb_to_string(pdb_file, chains=None, models=None, auth_chains=True):
   '''read pdb file and return as string'''
 
   if chains is not None:
@@ -30,44 +168,48 @@ def pdb_to_string(pdb_file, chains=None, models=None):
   if models is not None:
     if not isinstance(models,list): models = [models]
 
-  modres = {**MODRES}
-  lines = []
-  seen = []
-  model = 1
+  if pdb_file.endswith(".cif"):
+    lines = mmcif_to_pdb(pdb_file, chains, models, auth_chains=auth_chains)
   
-  if "\n" in pdb_file:
-    old_lines = pdb_file.split("\n")
   else:
-    with open(pdb_file,"rb") as f:
-      old_lines = [line.decode("utf-8","ignore").rstrip() for line in f]  
-  for line in old_lines:
-    if line[:5] == "MODEL":
-      model = int(line[5:])
-    if models is None or model in models:
-      if line[:6] == "MODRES":
-        k = line[12:15]
-        v = line[24:27]
-        if k not in modres and v in residue_constants.restype_3to1:
-          modres[k] = v
-      if line[:6] == "HETATM":
-        k = line[17:20]
-        if k in modres:
-          line = "ATOM  "+line[6:17]+modres[k]+line[20:]
-      if line[:4] == "ATOM":
-        chain = line[21:22]
-        if chains is None or chain in chains:
-          atom = line[12:12+4].strip()
-          resi = line[17:17+3]
-          resn = line[22:22+5].strip()
-          if resn[-1].isalpha(): # alternative atom
-            resn = resn[:-1]
-            line = line[:26]+" "+line[27:]
-          key = f"{model}_{chain}_{resn}_{resi}_{atom}"
-          if key not in seen: # skip alternative placements
-            lines.append(line)
-            seen.append(key)
-      if line[:5] == "MODEL" or line[:3] == "TER" or line[:6] == "ENDMDL":
-        lines.append(line)
+    modres = {**MODRES}
+    lines = []
+    seen = []
+    model = 1
+    
+    if "\n" in pdb_file:
+      old_lines = pdb_file.split("\n")
+    else:
+      with open(pdb_file,"rb") as f:
+        old_lines = [line.decode("utf-8","ignore").rstrip() for line in f]  
+    for line in old_lines:
+      if line[:5] == "MODEL":
+        model = int(line[5:])
+      if models is None or model in models:
+        if line[:6] == "MODRES":
+          k = line[12:15]
+          v = line[24:27]
+          if k not in modres and v in residue_constants.restype_3to1:
+            modres[k] = v
+        if line[:6] == "HETATM":
+          k = line[17:20]
+          if k in modres:
+            line = "ATOM  "+line[6:17]+modres[k]+line[20:]
+        if line[:4] == "ATOM":
+          chain = line[21:22]
+          if chains is None or chain in chains:
+            atom = line[12:12+4].strip()
+            resi = line[17:17+3]
+            resn = line[22:22+5].strip()
+            if resn[-1].isalpha(): # alternative atom
+              resn = resn[:-1]
+              line = line[:26]+" "+line[27:]
+            key = f"{model}_{chain}_{resn}_{resi}_{atom}"
+            if key not in seen: # skip alternative placements
+              lines.append(line)
+              seen.append(key)
+        if line[:5] == "MODEL" or line[:3] == "TER" or line[:6] == "ENDMDL":
+          lines.append(line)
   return "\n".join(lines)
 
 def renum_pdb_str(pdb_str, Ls=None, renum=True, offset=1):

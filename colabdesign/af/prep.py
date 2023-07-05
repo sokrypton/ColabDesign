@@ -388,7 +388,8 @@ def parse_chain(chain):
 
 def prep_pdb(pdb_filename, chain=None,
              offsets=None, lengths=None,
-             ignore_missing=False, offset_index=False):
+             ignore_missing=False,
+             offset_index=False, auth_chains=True):
   '''extract features from pdb'''
 
   def add_cb(batch):
@@ -410,8 +411,8 @@ def prep_pdb(pdb_filename, chain=None,
 
   # go through each defined chain  
   for n,chain in enumerate(chains):
-    pdb_str = pdb_to_string(pdb_filename, chains=chain, models=[1])
-    protein_obj = protein.from_pdb_string(pdb_str, chain_id=chain)
+    pdb_str = pdb_to_string(pdb_filename, chains=chain, models=[1], auth_chains=auth_chains)
+    protein_obj = protein.from_pdb_string(pdb_str) #, chain_id=chain)
     batch = {'aatype': protein_obj.aatype,
              'all_atom_positions': protein_obj.atom_positions,
              'all_atom_mask': protein_obj.atom_mask,

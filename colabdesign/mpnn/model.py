@@ -7,7 +7,6 @@ import random
 import os
 import joblib
 
-from .weights import __file__ as mpnn_path
 from .modules import RunModel
 
 from colabdesign.shared.prep import prep_pos
@@ -26,7 +25,14 @@ class mk_mpnn_model():
                backbone_noise=0.0, dropout=0.0,
                seed=None, verbose=False, weights="original"): # weights can be set to either original or soluble
     # load model
-    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
+    if weights == "original":
+      from .weights import __file__ as mpnn_path
+    elif weights == "soluble":
+      from .weights_soluble import __file__ as mpnn_path
+    else:
+      raise ValueError(f'Invalid value {weights} supplied for weights. Value must be either "original" or "soluble".')
+
+    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')
     checkpoint = joblib.load(path)
     config = {'num_letters': 21,
               'node_features': 128,

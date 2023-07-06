@@ -24,7 +24,7 @@ from scipy.special import softmax, log_softmax
 class mk_mpnn_model():
   def __init__(self, model_name="v_48_020",
                backbone_noise=0.0, dropout=0.0,
-               seed=None, verbose=False):
+               seed=None, verbose=False, weights="original"): # weights can be set to either original or soluble
     # load model
     path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
     checkpoint = joblib.load(path)

@@ -51,7 +51,7 @@ class _af_inputs:
       batch = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)["batch"]
       assert batch["aatype"].shape[0] == self._inputs["template_aatype"].shape[1]
 
-    if n == 0 and self._arg["use_batch_as_template"]:
+    if n == 0 and self._args["use_batch_as_template"]:
       self._inputs["batch"].update(batch)
     
     else:

@@ -142,8 +142,7 @@ def mmcif_to_pdb(pdb, chains=None, models=None, auth_chains=True):
               chain = chain_map[chain]
               
               # generate PDB string
-              pdb_str = "ATOM  {:5d}  {:<4s}{:3s} {:1s}{:4d}    {:8.3f}{:8.3f}{:8.3f}{:6.2f}{:6.2f}          {:>2s}"
-              .format(
+              pdb_str = "ATOM  {:5d}  {:<4s}{:3s} {:1s}{:4d}    {:8.3f}{:8.3f}{:8.3f}{:6.2f}{:6.2f}          {:>2s}".format(
                 len(seen),
                 x["label_atom_id"][n],
                 x["label_comp_id"][n], 

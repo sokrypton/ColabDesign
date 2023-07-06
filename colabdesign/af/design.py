@@ -170,41 +170,37 @@ class _af_design:
                 'prev_pair': np.zeros([L,L,128],dtype)}          
         
         # initialize coordinates
-        if "batch" in self._inputs:
-          ini_seq = self._inputs["batch"]["aatype"]
-          ini_pos = self._inputs["batch"]["all_atom_positions"]
-
-          # via evoformer
-          if a["use_initial_guess"]:
-            # via distogram or positions
-            if a["use_dgram"] or a["use_dgram_pred"]:
-              if "dgram" in self._inputs["batch"]:
-                ini_dgram = self._inputs["batch"]["dgram"]
-                prev["prev_dgram"] = np.concatenate([ini_dgram[...,:14],ini_dgram[...,14:].sum(-1,keepdims=True)],-1)
-              else:
-                prev["prev_dgram"] = dgram_from_positions(positions=ini_pos,
-                  seq=ini_seq, num_bins=15, min_bin=3.25, max_bin=20.75)
-            else:
-              prev["prev_pos"] = ini_pos              
-          else:
-            if a["use_dgram"] or a["use_dgram_pred"]:
-              prev["prev_dgram"] = np.zeros([L,L,15])
-            else:
-              prev["prev_pos"] = np.zeros([L,37,3])            
-
-          # via structure module
-          if a["use_initial_atom_pos"]:
-            self._inputs["initial_atom_pos"] = ini_pos
-        
+        if self._args["use_batch_as_template"]:
+          batch = self._inputs["batch"]
         else:
-          # if batch not defined, initialize with zeros
+          batch = {}
+          for k in ["aatype","all_atom_positions","all_atom_mask","dgram"]:
+            if f"template_{k}" in self._inputs:
+              batch[k] = self._inputs[f"template_{k}"][0]
+        ini_seq = batch["aatype"]
+        ini_pos = batch["all_atom_positions"]
+        # via evoformer
+        if a["use_initial_guess"]:
+          # via distogram or positions
+          if a["use_dgram"] or a["use_dgram_pred"]:
+            if "dgram" in batch:
+              ini_dgram = batch["dgram"]
+              prev["prev_dgram"] = np.concatenate([ini_dgram[...,:14],ini_dgram[...,14:].sum(-1,keepdims=True)],-1)
+            else:
+              prev["prev_dgram"] = dgram_from_positions(positions=ini_pos,
+                seq=ini_seq, num_bins=15, min_bin=3.25, max_bin=20.75)
+          else:
+            prev["prev_pos"] = ini_pos              
+        else:
           if a["use_dgram"] or a["use_dgram_pred"]:
             prev["prev_dgram"] = np.zeros([L,L,15])
           else:
             prev["prev_pos"] = np.zeros([L,37,3])            
-          if a["use_initial_atom_pos"]:
-            self._inputs["initial_atom_pos"] = np.zeros([L,37,3])              
-      
+
+        # via structure module
+        if a["use_initial_atom_pos"]:
+          self._inputs["initial_atom_pos"] = ini_pos
+              
         self._inputs["prev"] = prev
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)

@@ -392,14 +392,14 @@ def get_msa(seqs, jobname, cov=50, id=90, max_msa=4096, mode="unpaired_paired",
 
       counts = np.array([0] * len(Ls))
       label_to_counts = [[k,np.array(list(k)).astype(int)] for k in Ns.keys()]
-      label_to_counts = sorted(label_to_counts, key=lambda x:x[1].sum(), reverse=True)
       while len(final_msa) < max_msa:
         (best_k,best_v,best_sco) = (None,None,None)
         for k,v in label_to_counts:
           if len(Ns[k]) > 0:
-            if best_k is None or (counts+v).max() < best_sco:
-              (best_k,best_v,best_sco) = (k,v,(counts+v).max())
-        if best_sco is None:
+            sco = (counts+v).std() - v.sum()
+            if best_k is None or (sco < best_sco):
+              (best_k,best_v,best_sco) = (k,v,sco)
+        if best_k is None:
           break
         else:
           counts += best_v

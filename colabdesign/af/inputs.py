@@ -56,7 +56,13 @@ class _af_inputs:
     
     else:
       self._inputs["template_mask"][n] = True
-      for k in ["aatype","all_atom_mask","all_atom_positions"]:
+      template_keys = ["aatype","all_atom_mask","all_atom_positions"]
+      if "dgram" in batch:
+        template_keys.append("dgram")
+        if "template_dgram" not in self._inputs:
+          tN,tL = self._inputs["template_aatype"].shape
+          self._inputs["template_dgram"] = np.zeros((tN,tL,tL,39))
+      for k in template_keys:
         self._inputs[f"template_{k}"][n] = batch[k]
 
   def _update_seq(self, params, inputs, aux, key):

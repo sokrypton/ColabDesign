@@ -93,8 +93,9 @@ def get_template_idx(query_sequence, target_sequence, query_a3m=None, target_a3m
       if t != "-": j += 1
     return np.array(idx_i), np.array(idx_j)
 
-def get_template_feats(pdbs, chains, query_seq, query_a3m=None, copies=1, propagate_to_copies=True,
-  get_pdb_fn=None, use_seq=False, align_fn=None):
+def get_template_feats(pdbs, chains, query_seq, query_a3m=None, 
+  copies=1, propagate_to_copies=True, use_seq=False, use_dgram=True, 
+  get_pdb_fn=None, align_fn=None):
 
   if get_pdb_fn is None:
     get_pdb_fn = lambda x:x
@@ -118,14 +119,16 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None, copies=1, propag
       P.append(pdb)
       C.append(c)
   X = cat(X)
-  mask = np.ones((sum(L),sum(L)))
-  bL = np.cumsum(L)
-  aL = bL - np.array(L)
-  for i in range(len(L)):
-    for j in range(i+1,len(L)):
-      if N[i] != N[j] or (P[i] == P[j] and C[i] == C[j]) or P[i] != P[j]:
-        mask[aL[i]:bL[i],aL[j]:bL[j]] = 0
-        mask[aL[j]:bL[j],aL[i]:bL[i]] = 0
+  
+  if use_dgram:
+    mask = np.ones((sum(L),sum(L)))
+    bL = np.cumsum(L)
+    aL = bL - np.array(L)
+    for i in range(len(L)):
+      for j in range(i+1,len(L)):
+        if N[i] != N[j] or (P[i] == P[j] and C[i] == C[j]) or P[i] != P[j]:
+          mask[aL[i]:bL[i],aL[j]:bL[j]] = 0
+          mask[aL[j]:bL[j],aL[i]:bL[i]] = 0
   
   seq = X["batch"]["aatype"] if use_seq else None
   X["batch"]["dgram"] = get_dgram(X["batch"]["all_atom_positions"], seq) * mask[...,None]
@@ -133,11 +136,13 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None, copies=1, propag
   
   Q = query_seq if propagate_to_copies else query_seq * copies
   i, j = get_template_idx(Q, template_seq, query_a3m=query_a3m, align_fn=align_fn)
+  
   L = len(Q)
   batch = {"aatype":np.zeros(L,int),
            "all_atom_mask":np.zeros((L,37)),
-           "all_atom_positions":np.zeros((L,37,3)),
-           "dgram":np.zeros((L,L,39))}
+           "all_atom_positions":np.zeros((L,37,3))}
+  if use_dgram: batch["dgram"] = np.zeros((L,L,39))
+  
   for k in batch:
     if k == "dgram":
       batch[k][i[:,None,None],i[None,:,None],:] = X["batch"][k][j[:,None,None],j[None,:,None]]
@@ -148,16 +153,17 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None, copies=1, propag
     tile_shape = {
       "aatype":[copies], 
       "all_atom_mask":[copies,1], 
-      "all_atom_positions":[copies,1,1],
-      "dgram":[copies,copies,1]}
+      "all_atom_positions":[copies,1,1]}
+    if use_dgram: tile_shape["dgram"] = [copies,copies,1]
     
     for k,s in tile_shape.items():
       batch[k] = np.tile(batch[k],s)
 
-    # mask non-diagonal
-    x = batch["dgram"]
-    mask = np.eye(copies)[:,None,:,None,None]
-    batch["dgram"] = (x.reshape(copies,L,copies,L,-1) * mask).reshape(x.shape)
+    if use_dgram:
+      # mask non-diagonal
+      x = batch["dgram"]
+      mask = np.eye(copies)[:,None,:,None,None]
+      batch["dgram"] = (x.reshape(copies,L,copies,L,-1) * mask).reshape(x.shape)
 
   return batch
 

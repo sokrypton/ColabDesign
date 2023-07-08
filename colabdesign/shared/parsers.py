@@ -6,6 +6,14 @@ from colabdesign.af.alphafold.common import residue_constants
 import numpy as np
 
 aa_order = {a:n for n,a in enumerate(residue_constants.restypes + ["X","-"])}
+order_aa = {n:a for a,n in aa_order.items()}
+deletion_table = str.maketrans('', '', string.ascii_lowercase)
+
+def aa2num(seq):
+  return [aa_order.get(res,20) for res in seq.translate(deletion_table)]
+
+def num2aa(seq):
+  return "".join([order_aa.get(res,"X") for res in seq])
 
 def parse_fasta(fasta_string):
   """Parses FASTA string and returns list of strings with amino-acid sequences.
@@ -66,7 +74,5 @@ def parse_a3m(a3m_filename=None, a3m_string=None):
     deletion_matrix.append(deletion_vec)
 
   # Make the MSA matrix out of aligned (deletion-free) sequences.
-  deletion_table = str.maketrans('', '', string.ascii_lowercase)
-  msa = [[aa_order.get(res,20) for res in s.translate(deletion_table)] for s in sequences]
-
+  msa = [aa2num(s) for s in sequences]
   return np.array(msa), np.array(deletion_matrix)

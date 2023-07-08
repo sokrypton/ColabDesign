@@ -460,20 +460,24 @@ class _af_design:
     if e_tries is None: e_tries = tries
 
     # get starting sequence
+    bias = self._inputs["bias"][...,:self._len,:self._args["alphabet_size"]]
     if hasattr(self,"aux"):
-      seq = self.aux["seq"]["logits"].argmax(-1)
+      seq = self.aux["seq"][...,:self._len,:self._args["alphabet_size"]].argmax(-1)
     else:
-      seq = (self._params["seq"] + self._inputs["bias"]).argmax(-1)
+      seq = (self._params["seq"] + bias).argmax(-1)
 
     # bias sampling towards the defined bias
-    if seq_logits is None: seq_logits = 0
+    if seq_logits is None: 
+      logits = bias
+    else:
+      logits = seq_logits + bias
     
     model_flags = {k:kwargs.pop(k,None) for k in ["num_models","sample_models","models"]}
     verbose = kwargs.pop("verbose",1)
 
     # get current plddt
     aux = self.predict(seq, return_aux=True, verbose=False, **model_flags, **kwargs)
-    plddt = self.aux["plddt"]
+    plddt = self.aux["plddt"][:self._len]
 
     # optimize!
     if verbose:
@@ -484,20 +488,19 @@ class _af_design:
       model_nums = self._get_model_nums(**model_flags)
       num_tries = (tries+(e_tries-tries)*((i+1)/iters))
       for t in range(int(num_tries)):
-        mut_seq = self._mutate(seq=seq, plddt=plddt,
-                               logits=seq_logits + self._inputs["bias"])
+        mut_seq = self._mutate(seq=seq, plddt=plddt, logits=logits)
         aux = self.predict(seq=mut_seq, return_aux=True, model_nums=model_nums, verbose=False, **kwargs)
-        buff.append({"aux":aux, "seq":np.array(mut_seq)})
+        buff.append({"aux":aux, "seq":mut_seq})
 
       # accept best
       losses = [x["aux"]["loss"] for x in buff]
       best = buff[np.argmin(losses)]
-      self.aux, seq = best["aux"], jnp.array(best["seq"])
-      self.set_seq(seq=seq, bias=self._inputs["bias"])
+      self.aux, seq = best["aux"], best["seq"]
+      self.set_seq(seq=seq, bias=bias)
       self._save_results(save_best=save_best, verbose=verbose)
 
       # update plddt
-      plddt = best["aux"]["plddt"]
+      plddt = best["aux"]["plddt"][:self._len]
       self._k += 1
 
   def design_pssm_semigreedy(self, soft_iters=300, hard_iters=32, tries=10, e_tries=None,

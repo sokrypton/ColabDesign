@@ -4,7 +4,7 @@ import numpy as np
 
 from colabdesign.shared.utils import copy_dict
 from colabdesign.shared.model import soft_seq
-from colabdesign.shared.parsers import parse_a3m
+from colabdesign.shared.parsers import parse_a3m, aa2num, num2aa
 from colabdesign.af.alphafold.common import residue_constants
 from colabdesign.af.alphafold.model import model, config
 from colabdesign.af.prep import prep_pdb
@@ -42,6 +42,30 @@ class _af_inputs:
       msa[1:,:self._target_len] = 21 # gap character
     
     self._inputs["msa"] = msa
+
+  def set_wildtype(self, seq, i=None):
+    '''set wildtype sequence'''
+    if isinstance(seq,str):
+      seq = np.array(aa2num(seq))
+      seq[seq > 19] = -1
+    if i is None:
+      seq = seq[:self._len]
+      assert len(seq) == self._len
+      self._inputs["wt_aatype"][:self._len] = self._wt_aatype = seq[:self._len]
+    else:
+      assert len(seq) == self._lengths[i]
+      a = sum(self._lengths[:i+1])
+      b = a + self._lengths[i]
+      self._inputs["wt_aatype"][a:b] = self._wt_aatype[a:b] = seq
+
+  def get_wildtype(self, i=None):
+    seq = self._inputs["wt_aatype"][:self._len]
+    if i is None:
+      return num2aa(seq)
+    else:
+      a = sum(self._lengths[:i+1])
+      b = a + self._lengths[i]
+      return num2aa(seq[a:b])
 
   def set_template(self, pdb_filename=None, chain="A", batch=None, n=0, ignore_missing=True):
     '''set template'''

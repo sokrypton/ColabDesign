@@ -9,6 +9,10 @@ from colabdesign.af.alphafold.common import residue_constants
 aa_order = residue_constants.restype_order
 order_aa = {b:a for a,b in aa_order.items()}
 
+def np_one_hot(x, alphabet):
+  return np.pad(np.eye(alphabet),[[0,1],[0,0]])[x]
+
+
 class design_model:
 
   def _set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, return_values=False, **kwargs):
@@ -24,17 +28,6 @@ class design_model:
     -rm_aa="C,W" = specify which amino acids to remove (aka. add a negative-infinity bias to these aa)
     -----------------------------------
     '''
-
-    # backward compatibility
-    seq_init = kwargs.pop("seq_init",None)
-    if seq_init is not None:
-      modes = ["soft","gumbel","wildtype","wt"]
-      if isinstance(seq_init,str):
-        seq_init = seq_init.split("_")
-      if isinstance(seq_init,list) and seq_init[0] in modes:
-        mode = seq_init
-      else:
-        seq = seq_init
 
     if mode is None: mode = []
 
@@ -53,10 +46,8 @@ class design_model:
         b[...,aa_order[aa]] -= 1e6
         
     # use wildtype sequence
-    if ("wildtype" in mode or "wt" in mode) and hasattr(self,"_wt_aatype"):
-      wt_seq = np.eye(shape[-1])[self._wt_aatype]
-      wt_seq[self._wt_aatype == -1] = 0
-      seq = wt_seq
+    if "wildtype" in mode or "wt" in mode:
+      seq = np_one_hot(self._inputs["wt_aatype"][:self._len],20)    
     
     # initialize sequence
     if seq is None:
@@ -82,12 +73,7 @@ class design_model:
         seq = np.asarray(seq)
 
       if np.issubdtype(seq.dtype, np.integer):
-        seq_ = np.eye(shape[-1])[seq]
-        seq_[seq == -1] = 0
-        seq = seq_
-      
-      if kwargs.pop("add_seq",False):
-        b = b + seq * 1e7
+        seq = np_one_hot(seq,shape[-1])
       
       if seq.ndim == 2:
         x = np.pad(seq[None],[[0,shape[0]-1],[0,0],[0,0]])
@@ -95,6 +81,20 @@ class design_model:
         x = np.pad(seq,[[0,shape[0]-seq.shape[0]],[0,0],[0,0]])
       else:
         x = seq
+
+      # adjust seq/bias if there is a mismatch
+      if "fix_pos" in self._inputs:
+        pos = self._inputs["fix_pos"][:self._len] == False
+        if x.shape[-2] != self._len and pos.sum() == x.shape[-2]:
+          x_ = np.zeros(shape)
+          x_[...,pos,:] = x
+          x = x_
+        if b.shape[-2] != self._len and pos.sum() == b.shape[-2]:
+          b_shape = b.shape
+          b_shape[-2] = self._len
+          b_ = np.zeros(b_shape)
+          b_[...,pos,:] = b
+          b = b_
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)

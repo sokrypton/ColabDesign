@@ -303,7 +303,7 @@ class _af_prep:
       if fix_pos is not None:
         if isinstance(fix_pos,str):
           fix_pos = fix_pos.split(",")
-        for a in fix_pos.split(","):
+        for a in fix_pos:
           if a[0].isalpha():
             if a[0].isalpha() in binder_chains:
               fix_pos_list.append(a)

@@ -51,13 +51,12 @@ class design_model:
     
     # initialize sequence
     if seq is None:
-      if hasattr(self,"key"):
-        x = 0.01 * np.random.normal(size=shape)
-      else:
-        x = np.zeros(shape)
+      x = 0.01 * np.random.normal(size=shape)
     else:
       if isinstance(seq, str):
         seq = [seq]
+      
+      # adjust A dimension
       if isinstance(seq, list):
         if isinstance(seq[0], str):
           aa_dict = copy_dict(aa_order)
@@ -75,6 +74,7 @@ class design_model:
       if np.issubdtype(seq.dtype, np.integer):
         seq = np_one_hot(seq,shape[-1])
       
+      # adjust N dimension
       if seq.ndim == 2:
         x = np.pad(seq[None],[[0,shape[0]-1],[0,0],[0,0]])
       elif shape[0] > seq.shape[0]:
@@ -82,19 +82,20 @@ class design_model:
       else:
         x = seq
 
-      # adjust seq/bias if there is a mismatch
-      if "fix_pos" in self._inputs:
-        pos = self._inputs["fix_pos"][:self._len] == False
-        if x.shape[-2] != self._len and pos.sum() == x.shape[-2]:
-          x_ = np.zeros(shape)
-          x_[...,pos,:] = x
-          x = x_
-        if b.shape[-2] != self._len and pos.sum() == b.shape[-2]:
-          b_shape = b.shape
-          b_shape[-2] = self._len
-          b_ = np.zeros(b_shape)
-          b_[...,pos,:] = b
-          b = b_
+      # adjust L dimension
+      if shape[1] > x.shape[1]:
+        if "fix_pos" in self._inputs:
+          pos = self._inputs["fix_pos"][:self._len] == False
+          if "seq_mask" in self._inputs:
+            pos[self._inputs["seq_mask"][:self._len] == False] = False
+          if pos.sum() == x.shape[1]:
+            x_ = np.zeros(shape)
+            x_[...,pos,:] = x
+            x = x_
+          if pos.sum() == b.shape[0]:
+            b_ = np.zeros(shape[1:])
+            b_[pos,:] = b
+            b = b_
 
     if "gumbel" in mode:
       y_gumbel = jax.random.gumbel(self.key(),shape)

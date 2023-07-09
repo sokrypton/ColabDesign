@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec 
+from IPython.display import display, HTML
 
 from colabdesign.shared.protein import _np_kabsch
 from colabdesign.shared.utils import update_dict, Key
@@ -111,7 +112,8 @@ class _af_utils:
   #-------------------------------------
   # plotting functions
   #-------------------------------------
-  def animate(self, s=0, e=None, dpi=100, get_best=True, traj=None, aux=None, color_by="plddt"):
+  def animate(self, s=0, e=None, dpi=100, get_best=True, traj=None, 
+    aux=None, color_by="plddt", return_html=False):
     '''
     animate the trajectory
     - use [s]tart and [e]nd to define range to be animated
@@ -128,8 +130,10 @@ class _af_utils:
     if traj is None: traj = self._tmp["traj"]
     sub_traj = {k:v[s:e] for k,v in traj.items()}
 
-    return make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,
-                          color_by=color_by, align_xyz=align_xyz, dpi=dpi) 
+    x = make_animation(**sub_traj, pos_ref=pos_ref, length=self._lengths,
+      color_by=color_by, align_xyz=align_xyz, dpi=dpi) 
+    if return_html: return x
+    display(HTML(x))
 
   def plot_pdb(self, show_sidechains=False, show_mainchains=False,
                color="pLDDT", color_HP=False, size=(800,480), animate=False,

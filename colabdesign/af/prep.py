@@ -59,6 +59,8 @@ class _af_prep:
 
     # parse contigs
     if isinstance(contigs,str): contigs = contigs.replace(",",":").split(":")
+    if isinstance(contigs,int): contigs = [contigs]
+    
     chain_info = {}
     length, batch = [],[]
     unsupervised, fix_pos_list, hotspot_list = [],[],[]
@@ -66,6 +68,7 @@ class _af_prep:
 
     # for each contig
     for contig in contigs:
+      if isinstance(contig,int): contig = str(contig)
       contig_len = 0
       contig_batch = []
 

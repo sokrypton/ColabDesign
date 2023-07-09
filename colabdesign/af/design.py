@@ -409,7 +409,7 @@ class _af_design:
       if verbose: print("Stage 1: running (logits → soft)")
       self.design_logits(soft_iters, e_soft=1,
         ramp_recycles=ramp_recycles, **kwargs)
-      self._tmp["seq_logits"] = self.aux["seq"]["logits"]
+      self._tmp["seq_logits"] = np.array(self._params["seq"]) * self._inputs["opt"]["alpha"]
       
     # stage 2: softmax(logits/1.0) -> softmax(logits/0.01)
     if temp_iters > 0:
@@ -511,7 +511,7 @@ class _af_design:
     # stage 1: logits -> softmax(logits)
     if soft_iters > 0:
       self.design_3stage(soft_iters, 0, 0, ramp_recycles=ramp_recycles, **kwargs)
-      self._tmp["seq_logits"] = kwargs["seq_logits"] = self.aux["seq"]["logits"]
+      kwargs["seq_logits"] = self._tmp["seq_logits"]
 
     # stage 2: semi_greedy
     if hard_iters > 0:
@@ -552,7 +552,8 @@ class _af_design:
 
     # initialize
     plddt, best_loss, current_loss = None, np.inf, np.inf 
-    current_seq = (self._params["seq"] + self._inputs["bias"]).argmax(-1)
+    bias = self._inputs["bias"][:self._len]
+    current_seq = (self._params["seq"] + bias).argmax(-1)
     if seq_logits is None: seq_logits = 0
 
     # run!
@@ -567,7 +568,7 @@ class _af_design:
         mut_seq = current_seq
       else:
         mut_seq = self._mutate(seq=current_seq, plddt=plddt,
-                               logits=seq_logits + self._inputs["bias"],
+                               logits=seq_logits + bias,
                                mutation_rate=mutation_rate)
 
       # get loss
@@ -582,9 +583,9 @@ class _af_design:
         # accept
         (current_seq,current_loss) = (mut_seq,loss)
         
-        plddt = aux["all"]["plddt"].mean(0)
+        plddt = aux["all"]["plddt"].mean(0)[:self._len]
         
         if loss < best_loss:
           (best_loss, self._k) = (loss, i)
-          self.set_seq(seq=current_seq, bias=self._inputs["bias"])
+          self.set_seq(seq=current_seq, bias=bias)
           self._save_results(save_best=save_best, verbose=verbose)

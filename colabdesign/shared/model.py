@@ -15,7 +15,8 @@ def np_one_hot(x, alphabet):
 
 class design_model:
 
-  def _set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, return_values=False, **kwargs):
+  def _set_seq(self, seq=None, mode=None, bias=None, i=None, 
+    rm_aa=None, return_values=False, **kwargs):
     '''
     set sequence params and bias
     -----------------------------------
@@ -83,7 +84,13 @@ class design_model:
         x = seq
 
       # adjust L dimension
-      if shape[1] > x.shape[1]:
+      if i is not None and hasattr(self, "_lengths"):
+        s = sum(self._lengths[:i])
+        e = s + self._lengths[i]
+        x_ = np.zeros(shape)
+        x_[:,s:e,:] = x
+        x = x_
+      elif shape[1] > x.shape[1]:
         if "fix_pos" in self._inputs:
           pos = self._inputs["fix_pos"][:self._len] == False
           if "seq_mask" in self._inputs:

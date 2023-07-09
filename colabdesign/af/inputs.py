@@ -54,7 +54,7 @@ class _af_inputs:
       self._inputs["wt_aatype"][:self._len] = self._wt_aatype = seq[:self._len]
     else:
       assert len(seq) == self._lengths[i]
-      a = sum(self._lengths[:i+1])
+      a = sum(self._lengths[:i])
       b = a + self._lengths[i]
       self._inputs["wt_aatype"][a:b] = self._wt_aatype[a:b] = seq
 
@@ -63,7 +63,7 @@ class _af_inputs:
     if i is None:
       return num2aa(seq)
     else:
-      a = sum(self._lengths[:i+1])
+      a = sum(self._lengths[:i])
       b = a + self._lengths[i]
       return num2aa(seq[a:b])
 

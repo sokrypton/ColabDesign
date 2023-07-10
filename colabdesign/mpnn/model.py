@@ -27,6 +27,8 @@ class mk_mpnn_model():
                seed=None, verbose=False):
     
     # configure model
+    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
+    checkpoint = joblib.load(path)
     config = {'num_letters': 21,
               'node_features': 128,
               'edge_features': 128,
@@ -40,8 +42,7 @@ class mk_mpnn_model():
     self._model = RunModel(config)
     
     # load model params
-    path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')    
-    self._model_params = jax.tree_map(jnp.array, joblib.load(path)['model_state_dict'])
+    self._model_params = jax.tree_map(jnp.array, checkpoint['model_state_dict'])
     
     self._setup()
     self.set_seed(seed)
@@ -245,7 +246,8 @@ class mk_mpnn_model():
         key, sub_key = jax.random.split(key)
         randn = jax.random.uniform(sub_key, (I["X"].shape[0],))    
         randn = jnp.where(I["mask"], randn, randn+1)
-        if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)
+        if "fix_pos" in I: 
+          randn = jnp.where(I["fix_pos"],randn-1,randn)
         I["decoding_order"] = randn.argsort()
 
       for k in ["S","bias"]:
@@ -273,7 +275,8 @@ class mk_mpnn_model():
         key, sub_key = jax.random.split(key)
         randn = jax.random.uniform(sub_key, (I["X"].shape[0],))    
         randn = jnp.where(I["mask"], randn, randn+1)
-        if "fix_pos" in I: randn = randn.at[I["fix_pos"]].add(-1)        
+        if "fix_pos" in I:
+          randn = jnp.where(I["fix_pos"],randn-1,randn)
         if tied_lengths:
           copies = I["lengths"].shape[0]
           decoding_order_tied = randn.reshape(copies,-1).mean(0).argsort()

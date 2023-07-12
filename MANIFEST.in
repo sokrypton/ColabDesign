@@ -1,3 +1,4 @@
 include colabdesign/mpnn/weights/*.pkl
+include colabdesign/mpnn/weights_soluble/*.pkl
 include colabdesign/tr/weights/*.npy
 include colabdesign/af/weights/*.npy

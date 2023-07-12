@@ -39,13 +39,15 @@ def main(argv):
   ag.txt("-------------------------------------------------------------------------------------")
   ag.txt("OPTIONAL")
   ag.txt("-------------------------------------------------------------------------------------")
-  ag.add(["copies="       ],     1,   int, ["number of repeating copies"])
-  ag.add(["num_seqs="     ],     8,   int, ["number of mpnn designs to evaluate"])
-  ag.add(["initial_guess" ], False,  None, ["initialize previous coordinates"])
-  ag.add(["use_multimer"  ], False,  None, ["use alphafold_multimer_v3"])
-  ag.add(["num_recycles=" ],     3,   int, ["number of recycles"])
-  ag.add(["rm_aa="],            "C",  str, ["disable specific amino acids from being sampled"])
-  ag.add(["num_designs="  ],      1,  int, ["number of designs to evaluate"])
+  ag.add(["copies="       ],         1,    int, ["number of repeating copies"])
+  ag.add(["num_seqs="     ],         8,    int, ["number of mpnn designs to evaluate"])
+  ag.add(["initial_guess" ],     False,   None, ["initialize previous coordinates"])
+  ag.add(["use_multimer"  ],     False,   None, ["use alphafold_multimer_v3"])
+  ag.add(["use_soluble"   ],     False,   None, ["use solubleMPNN"])
+  ag.add(["num_recycles=" ],         3,    int, ["number of recycles"])
+  ag.add(["rm_aa="],               "C",    str, ["disable specific amino acids from being sampled"])
+  ag.add(["num_designs="  ],         1,    int, ["number of designs to evaluate"])
+  ag.add(["mpnn_sampling_temp=" ], 0.1,  float, ["sampling temperature used by proteinMPNN"])
   ag.txt("-------------------------------------------------------------------------------------")
   o = ag.parse(argv)
 
@@ -123,7 +125,7 @@ def main(argv):
   
   print("running proteinMPNN...")
   sampling_temp = 0.1
-  mpnn_model = mk_mpnn_model()
+  mpnn_model = mk_mpnn_model(weights="soluble" if o.use_soluble else "original")
   outs = []
   pdbs = []
   for m in range(o.num_designs):

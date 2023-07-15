@@ -109,9 +109,9 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None,
   # load and concatenate pdb(s) and chain(s)
   N,X,L,P,C = [],[],[],[],[]
   for n,(pdb,chain) in enumerate(zip(pdbs,chains)):
+    pdb_filename = get_pdb_fn(pdb)
     if isinstance(chain,str): chain = chain.split(",")
     for c in chain:
-      pdb_filename = get_pdb_fn(pdb)
       info = prep_pdb(pdb_filename, c, ignore_missing=True)
       N.append(n)
       X.append(info)

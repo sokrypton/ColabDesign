@@ -42,6 +42,7 @@ class _af_inputs:
       msa[1:,:self._target_len] = 21 # gap character
     
     self._inputs["msa"] = msa
+    self._inputs["deletion_matrix"] = deletion_matrix
 
   def set_wildtype(self, seq, i=None):
     '''set wildtype sequence'''

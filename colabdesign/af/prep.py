@@ -509,6 +509,8 @@ def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=True):
   sub_L = L//C
   inputs = {'msa': np.zeros((N,sub_L),int) if one_hot_msa else np.zeros((N,sub_L,22)),
             'deletion_matrix': np.zeros((N,sub_L),int),
+            'msa_mask': np.full((N,sub_L),True),
+
             'bias': np.zeros((L,20)),
             'seq_mask': np.full(L,True),
             'residue_index': np.arange(L),

@@ -294,10 +294,8 @@ def make_msa_feats(batch, key,
 
   # set num_msa/num_extra_msa
   num = batch["msa"].shape[0]
-  if num < num_msa:
-    (num_msa,num_extra_msa) = (num,1)
-  elif num < (num_msa + num_extra_msa):
-    num_extra_msa = num - num_msa
+  num_msa = min(num, num_msa)
+  num_extra_msa = max(min(num - num_msa, num_extra_msa),1)
 
   pad_msa_N(batch, num_msa, num_extra_msa)
   # (msa, msa_mask, deletion_matrix) → (msa, msa_mask, deletion_matrix) 

@@ -18,7 +18,7 @@ class _af_inputs:
     assert self._args["optimize_seq"] == True
     self._set_seq(seq=seq, mode=mode, **kwargs)
 
-  def set_msa(self, msa=None, deletion_matrix=None, msa_mask=None, a3m_filename=None):
+  def set_msa(self, msa=None, deletion_matrix=None, a3m_filename=None):
     ''' set msa '''
     assert self._args["optimize_seq"] == False
 
@@ -30,9 +30,6 @@ class _af_inputs:
 
     if msa.ndim == 1:
       msa = msa[None]
-
-    if msa_mask is None:
-      msa_mask = np.full(msa.shape,True)
 
     if deletion_matrix is None:
       deletion_matrix = np.zeros(msa.shape)
@@ -46,7 +43,6 @@ class _af_inputs:
     
     self._inputs["msa"] = msa
     self._inputs["deletion_matrix"] = deletion_matrix
-    self._inputs["msa_mask"] = msa_mask
 
   def set_wildtype(self, seq, i=None):
     '''set wildtype sequence'''
@@ -114,7 +110,6 @@ class _af_inputs:
       # expand copies for homooligomers
       if self._args["copies"] > 1:
         f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
-        msa_mask = expand_copies(msa.shape[:2], False, **f)
         msa = expand_copies(msa, jnp.eye(22)[-1], **f)
 
       # define features
@@ -123,25 +118,20 @@ class _af_inputs:
         "target_feat":msa[0,:,:20],
         "aatype":msa[0].argmax(-1),
         "deletion_matrix":jnp.zeros(msa.shape[:2]),
-        "msa_mask":msa_mask
+        "msa_mask":jnp.ones(msa.shape[:2])
       }) 
     
     else:
-      msa = inputs["msa"]
-      msa_mask = inputs["msa_mask"]
-      deletion_matrix = inputs["deletion_matrix"]
+      msa, deletion_matrix = inputs["msa"], inputs["deletion_matrix"]
       if self._args["copies"] > 1:
         f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
-        msa = expand_copies(msa, 21, **f)
-        msa_mask = expand_copies(msa_mask, False, **f)
-        deletion_matrix = expand_copies(deletion_matrix, **f)
-      
+        msa, deletion_matrix = expand_copies(msa, 21, **f), expand_copies(deletion_matrix, **f)
       inputs.update({
         "msa":msa,
         "target_feat":jax.nn.one_hot(msa[0],20),
         "aatype":msa[0],
         "deletion_matrix":deletion_matrix,
-        "msa_mask":msa_mask,
+        "msa_mask":jnp.ones(msa.shape[:2])
       })
 
   def _update_template(self, inputs):

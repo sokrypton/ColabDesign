@@ -167,13 +167,6 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None,
 
   return batch
 
-def get_bert_mask(msa, Ls):
-  N,L = msa.shape
-  Ls = u_lengths
-  Ln = np.cumsum([0] + Ls)
-  gap = msa != 21
-  return np.concatenate([np.full((l,N),gap[:,Ln[i]:Ln[i+1]].any(-1)) for i,l in enumerate(Ls)],0).T
-
 def plot_msa(msa, Ls, sort_lines=True, dpi=100):
   seq = msa[0]
   Ln = np.cumsum([0] + Ls)

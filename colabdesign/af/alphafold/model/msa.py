@@ -131,7 +131,7 @@ def make_masked_msa(key, batch, opt=None, epsilon=1e-6):
   bert_msa *= batch['msa_mask'][:,:,None]
 
   # Mix real and masked MSA.
-  batch['bert_mask'] = batch["bert_mask"] * mask_position
+  batch['bert_mask'] = mask_position
   batch['true_msa'] = msa
   batch['msa'] = bert_msa
 
@@ -255,7 +255,7 @@ def sample_msa(key, batch, max_seq):
   sel_idx = index_order[:max_seq]
   extra_idx = index_order[max_seq:]
 
-  for k in ['msa', 'deletion_matrix', 'msa_mask', 'bert_mask']:
+  for k in ['msa', 'deletion_matrix', 'msa_mask']:
     batch['extra_' + k] = batch[k][extra_idx]
     batch[k] = batch[k][sel_idx]
 
@@ -274,7 +274,6 @@ def pad_msa_N(batch, num_msa, num_extra_msa):
     N = num_msa + num_extra_msa - num
     batch["msa"] = jnp.pad(batch["msa"],[[0,N],[0,0],[0,0]])
     batch["msa_mask"] = jnp.pad(batch["msa_mask"],[[0,N],[0,0]])
-    batch["bert_mask"] = jnp.pad(batch["bert_mask"],[[0,N],[0,0]])
     batch["deletion_matrix"] = jnp.pad(batch["deletion_matrix"],[[0,N],[0,0]])
 
 def pad_msa_A(batch, alphabet=23):
@@ -291,8 +290,7 @@ def make_msa_feats(batch, key,
   key, sample_key, mask_key = jax.random.split(key,3)
 
   # mask msa based on seq_mask
-  batch["msa_mask"] = jnp.where(batch["seq_mask"], batch["msa_mask"], False)
-  batch["bert_mask"] = jnp.where(batch["seq_mask"], batch["bert_mask"], False)
+  batch["msa_mask"] = jnp.where(batch["seq_mask"],batch["msa_mask"], 0)
 
   # set num_msa/num_extra_msa
   num = batch["msa"].shape[0]

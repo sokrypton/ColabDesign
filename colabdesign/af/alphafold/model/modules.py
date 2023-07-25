@@ -1266,6 +1266,19 @@ class EvoformerIteration(hk.Module):
     safe_key, *sub_keys = safe_key.split(10)
     sub_keys = iter(sub_keys)
 
+    outer_module = OuterProductMean(
+        config=c.outer_product_mean,
+        global_config=self.global_config,
+        num_output_channel=int(pair_act.shape[-1]),
+        name='outer_product_mean')
+    if c.outer_product_mean.first:
+      pair_act = dropout_wrapper_fn(
+          outer_module,
+          msa_act,
+          msa_mask,
+          safe_key=next(sub_keys),
+          output_act=pair_act)
+
     msa_act = dropout_wrapper_fn(
         MSARowAttentionWithPairBias(
             c.msa_row_attention_with_pair_bias, gc,
@@ -1293,16 +1306,13 @@ class EvoformerIteration(hk.Module):
         msa_mask,
         safe_key=next(sub_keys))
 
-    pair_act = dropout_wrapper_fn(
-        OuterProductMean(
-            config=c.outer_product_mean,
-            global_config=self.global_config,
-            num_output_channel=int(pair_act.shape[-1]),
-            name='outer_product_mean'),
-        msa_act,
-        msa_mask,
-        safe_key=next(sub_keys),
-        output_act=pair_act)
+    if not c.outer_product_mean.first:
+      pair_act = dropout_wrapper_fn(
+          outer_module,
+          msa_act,
+          msa_mask,
+          safe_key=next(sub_keys),
+          output_act=pair_act)
 
     pair_act = dropout_wrapper_fn(
         TriangleMultiplication(c.triangle_multiplication_outgoing, gc,

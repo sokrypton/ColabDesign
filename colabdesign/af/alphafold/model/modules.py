@@ -1429,7 +1429,8 @@ class EmbeddingsAndEvoformer(hk.Module):
             offset = pos[:, None] - pos[None, :]
           if "asym_id" in batch:
             o = batch['asym_id'][:,None] - batch['asym_id'][None,:]
-            offset = jnp.where(o == 0, offset, jnp.where(o > 0, 2*c.max_relative_feature, 0))
+            offset_asym_id = jnp.where(o > 0, c.max_relative_feature, -c.max_relative_feature)
+            offset = jnp.where(o == 0, offset, offset_asym_id)
           rel_pos = jax.nn.one_hot(
               jnp.clip(
                   offset + c.max_relative_feature,

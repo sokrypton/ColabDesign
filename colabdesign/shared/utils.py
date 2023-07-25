@@ -5,12 +5,12 @@ import jax.numpy as jnp
 import sys, gc
 
 def clear_mem():
+  
   # clear vram (GPU)
-  backend = jax.lib.xla_bridge.get_backend()
-  if hasattr(backend,'live_buffers'):
-    for buf in backend.live_buffers():
-      buf.delete()
-
+  #backend = jax.lib.xla_bridge.get_backend()
+  #if hasattr(backend,'live_buffers'):
+  #  for buf in backend.live_buffers():
+  #    buf.delete()
   # TODO: clear ram (CPU)
   gc.collect()
   

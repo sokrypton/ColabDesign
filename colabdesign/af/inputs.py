@@ -92,35 +92,35 @@ class _af_inputs:
 
   def _update_seq(self, params, inputs, aux, key):
     '''get sequence features'''
-
     opt = inputs["opt"]
     if self._args["optimize_seq"]:
       L = params["seq"].shape[1]      
       seq = soft_seq(params["seq"], inputs["bias"][:L], opt, key, num_seq=self._num,
                      shuffle_first=self._args["shuffle_first"])
-      msa = seq["pseudo"]
-
+      
       # pad msa to 22 amino acids (20, unk, gap)
-      msa = jnp.pad(msa,[[0,0],[0,0],[0,22-msa.shape[-1]]])
+      seq = jax.tree_map(lambda x: jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]]), seq)
       
       # fix positions
       wt_seq = jax.nn.one_hot(inputs["wt_aatype"][:L],22)
-      msa = jnp.where(inputs["fix_pos"][:L,None],wt_seq,msa)
+      seq = jax.tree_map(lambda x: jnp.where(inputs["fix_pos"][:L,None],wt_seq,x), seq)
       
       # expand copies for homooligomers
       if self._args["copies"] > 1:
         f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
-        msa = expand_copies(msa, jnp.eye(22)[-1], **f)
+        seq = jax.tree_map(lambda x: expand_copies(x, jnp.eye(22)[-1], **f), seq)
 
       # define features
+      msa = seq["pseudo"]
+      prf = jnp.where(opt["pssm_hard"], seq["hard"], seq["pseudo"])
       inputs.update({
         "msa":msa,
+        "cluster_profile":prf,
         "target_feat":msa[0,:,:20],
         "aatype":msa[0].argmax(-1),
         "deletion_matrix":jnp.zeros(msa.shape[:2]),
         "msa_mask":jnp.ones(msa.shape[:2])
-      }) 
-    
+      })    
     else:
       msa, deletion_matrix = inputs["msa"], inputs["deletion_matrix"]
       if self._args["copies"] > 1:

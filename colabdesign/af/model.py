@@ -105,7 +105,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     # configure AlphaFold
     #############################
     if self._args["use_multimer"]:
-      self._cfg = config.model_config("model_1_multimer")      
+      self._cfg = config.model_config("model_1_multimer")   
+      self.opt["pssm_hard"] = True   
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
 
@@ -161,11 +162,12 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # INPUTS
       #######################################################################
       # get sequence
+      use_cluster_profile = (not self._args["optimize_seq"] and self._args["use_cluster_profile"])
       self._update_seq(params, inputs, aux, key())
       inputs = make_msa_feats(inputs, key(),
         num_msa=self._args["num_msa"], num_extra_msa=self._args["num_extra_msa"],
         use_mlm=self._args["use_mlm"], mlm_opt=opt["mlm"],
-        use_cluster_profile=self._args["use_cluster_profile"])
+        use_cluster_profile=use_cluster_profile)
       seq = aux["seq"] = inputs["msa"]
 
       # update template features

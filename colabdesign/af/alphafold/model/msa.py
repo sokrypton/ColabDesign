@@ -258,6 +258,8 @@ def sample_msa(key, batch, max_seq):
   for k in ['msa', 'deletion_matrix', 'msa_mask']:
     batch['extra_' + k] = batch[k][extra_idx]
     batch[k] = batch[k][sel_idx]
+  if "cluster_profile" in batch:
+    batch["cluster_profile"] = batch["cluster_profile"][sel_idx]
 
 def make_msa_profile(batch):
   """Compute the MSA profile."""
@@ -275,11 +277,14 @@ def pad_msa_N(batch, num_msa, num_extra_msa):
     batch["msa"] = jnp.pad(batch["msa"],[[0,N],[0,0],[0,0]])
     batch["msa_mask"] = jnp.pad(batch["msa_mask"],[[0,N],[0,0]])
     batch["deletion_matrix"] = jnp.pad(batch["deletion_matrix"],[[0,N],[0,0]])
+    if "cluster_profile" in batch:
+      batch["cluster_profile"] = jnp.pad(batch["cluster_profile"],[[0,N],[0,0],[0,0]])
 
 def pad_msa_A(batch, alphabet=23):
-  for k in ["msa","extra_msa"]:
-    A = alphabet - batch[k].shape[-1]
-    batch[k] = jnp.pad(batch[k],[[0,0],[0,0],[0,A]])
+  for k in ["msa","extra_msa","cluster_profile"]:
+    if k in batch:
+      A = alphabet - batch[k].shape[-1]
+      batch[k] = jnp.pad(batch[k],[[0,0],[0,0],[0,A]])
 
 def make_msa_feats(batch, key, 
                    num_msa=512, 

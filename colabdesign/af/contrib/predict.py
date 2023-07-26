@@ -266,7 +266,7 @@ def plot_confidence(plddt, pae=None, Ls=None, dpi=100):
     plt.ylabel('Aligned residue')
   return plt
 
-def get_msa(seqs, jobname, cov=50, id=90, max_msa=4096, mode="unpaired_paired", 
+def get_msa(seqs, jobname, cov=50, id=90, qid=10, max_msa=4096, mode="unpaired_paired", 
   mmseqs2_fn=None, hhfilter_fn=None, verbose=True, output_a3m=None,
   do_not_filter=False, do_not_return=False):
 
@@ -374,7 +374,7 @@ def get_msa(seqs, jobname, cov=50, id=90, max_msa=4096, mode="unpaired_paired",
         for n in sub_Ns:
           handle.write(f">{n}\n{msa_a3m[n]}\n")
       
-      hhfilter_fn(f"{path}/{label}.a3m", f"{path}/{label}.out.a3m", id=id)
+      hhfilter_fn(f"{path}/{label}.a3m", f"{path}/{label}.out.a3m", id=id, qid=qid)
       Ns[label] = []
       with open(f"{path}/{label}.out.a3m","r") as handle:
         for line in handle:

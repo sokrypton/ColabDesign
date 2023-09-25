@@ -202,16 +202,6 @@ class EmbeddingsAndEvoformer(hk.Module):
 
     For position (i, j), the value is (i-j) clipped to [-k, k] and one-hotted.
 
-    When not using 'use_chain_relative' the residue indices are used as is, e.g.
-    for heteromers relative positions will be computed using the positions in
-    the corresponding chains.
-
-    When using 'use_chain_relative' we add an extra bin that denotes
-    'different chain'. Furthermore we also provide the relative chain index
-    (i.e. sym_id) clipped and one-hotted to the network. And an extra feature
-    which denotes whether they belong to the same chain type, i.e. it's 0 if
-    they are in different heteromer chains and 1 otherwise.
-
     Args:
       batch: batch.
     Returns:
@@ -229,46 +219,43 @@ class EmbeddingsAndEvoformer(hk.Module):
       pos = batch['residue_index']
       offset = pos[:, None] - pos[None, :]
 
-    clipped_offset = jnp.clip(
-        offset + c.max_relative_idx, a_min=0, a_max=2 * c.max_relative_idx)
 
     dtype = jnp.bfloat16 if gc.bfloat16 else jnp.float32
 
-    if c.use_chain_relative:
-
+    # add residue index
+    if c.pseudo_multimer:
+      o = asym_id[:,None] - asym_id[None,:]
+      offset_asym_id = jnp.where(o > 0, c.max_relative_idx, -c.max_relative_idx)
+      offset = jnp.where(o == 0, offset, offset_asym_id)
+      clipped_offset = jnp.clip(offset + c.max_relative_idx, a_min=0, a_max=2 * c.max_relative_idx)
+      rel_pos = jax.nn.one_hot(clipped_offset, 2 * c.max_relative_idx + 2)
+    else:
+      clipped_offset = jnp.clip(offset + c.max_relative_idx, a_min=0, a_max=2 * c.max_relative_idx)
       final_offset = jnp.where(asym_id_same, clipped_offset,
                                (2 * c.max_relative_idx + 1) *
                                jnp.ones_like(clipped_offset))
-
       rel_pos = jax.nn.one_hot(final_offset, 2 * c.max_relative_idx + 2)
+    
+    rel_feats.append(rel_pos)
 
-      rel_feats.append(rel_pos)
+    # add entity info
+    entity_id = jnp.zeros_like(batch['entity_id']) if c.pseudo_multimer else batch['entity_id']
+    entity_id_same = jnp.equal(entity_id[:, None], entity_id[None, :])
+    rel_feats.append(entity_id_same.astype(rel_pos.dtype)[..., None])
 
-      entity_id = batch['entity_id']
-      entity_id_same = jnp.equal(entity_id[:, None], entity_id[None, :])
-      rel_feats.append(entity_id_same.astype(rel_pos.dtype)[..., None])
+    # add symmetry info
+    sym_id = jnp.zeros_like(batch['sym_id']) if c.pseudo_multimer else batch['sym_id']
+    rel_sym_id = sym_id[:, None] - sym_id[None, :]
+    max_rel_chain = c.max_relative_chain
+    clipped_rel_chain = jnp.clip(rel_sym_id + max_rel_chain, a_min=0, a_max=2 * max_rel_chain)
+    final_rel_chain = jnp.where(entity_id_same, clipped_rel_chain,
+                                (2 * max_rel_chain + 1) *
+                                jnp.ones_like(clipped_rel_chain))
+    rel_chain = jax.nn.one_hot(final_rel_chain, 2 * c.max_relative_chain + 2)
+    rel_feats.append(rel_chain)
 
-      sym_id = batch['sym_id']
-      rel_sym_id = sym_id[:, None] - sym_id[None, :]
-
-      max_rel_chain = c.max_relative_chain
-
-      clipped_rel_chain = jnp.clip(
-          rel_sym_id + max_rel_chain, a_min=0, a_max=2 * max_rel_chain)
-
-      final_rel_chain = jnp.where(entity_id_same, clipped_rel_chain,
-                                  (2 * max_rel_chain + 1) *
-                                  jnp.ones_like(clipped_rel_chain))
-      rel_chain = jax.nn.one_hot(final_rel_chain, 2 * c.max_relative_chain + 2)
-
-      rel_feats.append(rel_chain)
-
-    else:
-      rel_pos = jax.nn.one_hot(clipped_offset, 2 * c.max_relative_idx + 1)
-      rel_feats.append(rel_pos)
-
+    # combine features
     rel_feat = jnp.concatenate(rel_feats, axis=-1)
-
     rel_feat = rel_feat.astype(dtype)
     return common_modules.Linear(
         c.pair_channel,

@@ -49,8 +49,11 @@ class _af_prep:
       v = kwargs.pop(k, None)
       if v is not None:
         if isinstance(v,str):
+          # to be parsed later with contigs
           pos_cst[k] = [v,[]]
+
         elif isinstance(v,bool):
+          # set all positions to True/False
           if "template" in k:
             k_ = {"rm_template":"rm","rm_template_seq":"rm_seq","rm_template_sc":"rm_sc"}[k]
             self._opt["template"][k_] = v

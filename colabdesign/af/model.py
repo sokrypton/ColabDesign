@@ -44,7 +44,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       "num_msa":512, "num_extra_msa":1024, "use_mlm": False, "use_cluster_profile": False,
 
       # model options
-      "use_multimer":use_multimer, "block_diag":not use_multimer,
+      "use_multimer":use_multimer,
+      "block_diag":not use_multimer,
+      "pseudo_multimer":False, 
 
       # optimizer options
       "optimizer":"sgd", "best_metric":"loss", 
@@ -106,7 +108,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     if self._args["use_multimer"]:
       self._cfg = config.model_config("model_1_multimer")   
-      self.opt["pssm_hard"] = True   
+      self._cfg.model.embeddings_and_evoformer.pseudo_multimer = self._args["pseudo_multimer"]
+      self.opt["pssm_hard"] = True
     else:
       self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
 

@@ -160,7 +160,7 @@ class _af_prep:
         
     # configure input features
     self._inputs = prep_input_features(L=num_res, N=self._num, C=self._args["copies"],
-      T=self._args["num_templates"], one_hot_msa=not self._args["optimize_seq"])
+      T=self._args["num_templates"], one_hot_msa=self._args["optimize_seq"])
     self._inputs.update(chain_enc)
     self._inputs["wt_aatype"] = batch["aatype"]
     self._inputs["batch"] = batch
@@ -504,13 +504,13 @@ def make_fixed_size(feat, num_res, num_seq=1, num_templates=1, skip_batch=False)
       feat[k] = pad_fn(v, padding)
   return feat
 
-def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=True):
+def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=False):
   '''
   given [L]ength, [N]umber of sequences and number of [T]emplates
   return dictionary of blank features
   '''
   sub_L = L//C
-  inputs = {'msa': np.zeros((N,sub_L),int) if one_hot_msa else np.zeros((N,sub_L,22)),
+  inputs = {'msa': np.zeros((N,sub_L,22) if one_hot_msa else np.zeros((N,sub_L),int)),
             'deletion_matrix': np.zeros((N,sub_L),int),
             'bias': np.zeros((L,20)),
             'seq_mask': np.full(L,True),

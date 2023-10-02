@@ -510,7 +510,7 @@ def prep_input_features(L, N=1, T=1, C=1, one_hot_msa=False):
   return dictionary of blank features
   '''
   sub_L = L//C
-  inputs = {'msa': np.zeros((N,sub_L,22) if one_hot_msa else np.zeros((N,sub_L),int)),
+  inputs = {'msa': np.zeros((N,sub_L,22)) if one_hot_msa else np.zeros((N,sub_L),int),
             'deletion_matrix': np.zeros((N,sub_L),int),
             'bias': np.zeros((L,20)),
             'seq_mask': np.full(L,True),

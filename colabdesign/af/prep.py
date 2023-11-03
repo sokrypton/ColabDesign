@@ -134,7 +134,7 @@ class _af_prep:
         units = len(length) // copies
         length = length[:units]
         L = sum(length)
-        interchain_mask = np.ones((copies*L,copies*L))
+        interchain_mask = np.full((copies*L,copies*L),True)
         pos_cst = jax.tree_map(lambda x:x[x<L], pos_cst)
 
       else:

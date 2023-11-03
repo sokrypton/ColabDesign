@@ -286,6 +286,11 @@ class EmbeddingsAndEvoformer(hk.Module):
       right_single = common_modules.Linear(c.pair_channel, name='right_single')(target_feat)
       pair_activations = left_single[:, None] + right_single[None]
       mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
+
+      # allow for custom mask_2d
+      if "mask_2d" in batch:
+        mask_2d = jnp.where(batch["mask_2d"], mask_2d, 0)
+
       mask_2d = mask_2d.astype(dtype)
 
       if c.recycle_pos:
@@ -326,12 +331,18 @@ class EmbeddingsAndEvoformer(hk.Module):
         if "template_dgram" in batch:
           template_batch["template_dgram"] = batch["template_dgram"]
 
-        # Construct a mask such that only intra-chain template features are
-        # computed, since all templates are for each chain individually.
-        multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
-        multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, True)
+        
         if "interchain_mask" in batch:
-          multichain_mask = jnp.where(batch["interchain_mask"],multichain_mask,False)
+          multichain_mask = batch["interchain_mask"]
+        
+        else:
+          # Construct a mask such that only intra-chain template features are
+          # computed, since all templates are for each chain individually.
+          multichain_mask = batch['asym_id'][:, None] == batch['asym_id'][None, :]
+
+        if "mask_template_interchain" in batch:
+          multichain_mask = jnp.where(batch["mask_template_interchain"], multichain_mask, True)
+        
 
         safe_key, safe_subkey = safe_key.split()
         template_act = template_module(

@@ -65,8 +65,8 @@ class _af_prep:
     if isinstance(contigs,int): contigs = [contigs]
     
     chain_info = {}
-    length, batch = [],[]
-    unsupervised, fix_pos_list, hotspot_list = [],[],[]
+    length, batch, idx = [],[],[]
+    unsupervised = []
     total_len = 0
 
     # for each contig
@@ -74,6 +74,7 @@ class _af_prep:
       if isinstance(contig,int): contig = str(contig)
       contig_len = 0
       contig_batch = []
+      contig_idx = []
 
       # for each segment in contig
       for seg in contig.split("/"):
@@ -86,6 +87,7 @@ class _af_prep:
           pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]
           seg_len = len(pos)
           contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
+          contig_idx.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["idx"]))
           unsup = (contig_batch[-1]["aatype"] == -1).tolist()
           unsupervised += unsup
           
@@ -102,10 +104,16 @@ class _af_prep:
           # unsupervised
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
           seg_len = int(seg)
-          contig_batch.append({'aatype': np.full(seg_len,-1),
-                               'all_atom_positions': np.zeros((seg_len,37,3)),
-                               'all_atom_mask': np.zeros((seg_len,37)),
-                               'residue_index': np.arange(seg_len)})
+          contig_batch.append({
+            'aatype': np.full(seg_len,-1),
+            'all_atom_positions': np.zeros((seg_len,37,3)),
+            'all_atom_mask': np.zeros((seg_len,37)),
+            'residue_index': np.arange(seg_len)
+          })
+          contig_idx.append({
+            "residue":np.full(seg_len,-1),
+            "chain":np.full(seg_len,"?")
+          })
           unsupervised += [True] * seg_len
         contig_len += seg_len
         total_len += seg_len
@@ -119,12 +127,15 @@ class _af_prep:
       
       length.append(contig_len)
       batch.append(contig_batch)
+      idx.append(contig_idx)
 
     # cst
     pos_cst = {k:np.array(v) for k,(x,v) in pos_cst.items() if len(v) > 0}
 
-    # concatenate batch
+    # concatenate features
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
+    idx   = jax.tree_map(lambda *x:np.concatenate(x),*sum(idx,[]))
+    self._pdb = {"batch":batch, "idx":idx, "length":length}
     
     # propagate batch over copies
     self._args["copies"] = copies
@@ -291,7 +302,7 @@ class _af_prep:
     **kwargs):
 
     # parsing inputs
-    target_chains, target_contigs = parse_chain(target_chain)
+    target_chains, target_contigs = parse_chain(kwargs.pop("chain",target_chain))
     binder_chains, binder_contigs = parse_chain(binder_chain)
     assert len(binder_contigs) > 0 or isinstance(binder_len,int)
     if len(binder_contigs) == 0:

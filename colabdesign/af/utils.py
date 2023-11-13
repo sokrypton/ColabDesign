@@ -123,7 +123,10 @@ class _af_utils:
     if aux is None:
       aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
-    align_xyz = self._inputs["supervised"].sum() < 3
+    if self._args["use_rmsd"]:
+      align_xyz = True
+    else:
+      align_xyz = self._inputs["supervised"].sum() < 3
     pos_ref = aux["atom_positions"][0,:,1,:].copy()
     pos_ref[self._inputs["seq_mask"] == 0] = np.nan
 

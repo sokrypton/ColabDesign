@@ -33,15 +33,20 @@ class _af_loss:
     mask_2d = jnp.where(opt["partial_loss"],jnp.where(fix_mask_2d,False,mask_2d),mask_2d)
 
     # RMSD
-    rmsd_flags = dict(include_L=False, L=self._target_len) if self.protocol == "binder" else {}
-    aln = get_rmsd_loss(inputs, outputs, copies=a["copies"], mask_1d=mask_1d, **rmsd_flags)
-    if a["realign"]: aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]    
+    if a["use_drmsd"]:
+      rmsd = get_drmsd_loss(inputs, outputs, copies=a["copies"], mask_2d=mask_2d)
+
+    else:
+      rmsd_flags = dict(include_L=False, L=self._target_len) if self.protocol == "binder" else {}
+      aln = get_rmsd_loss(inputs, outputs, copies=a["copies"], mask_1d=mask_1d, **rmsd_flags)
+      if a["realign"]: aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]    
+      rmsd = aln["rmsd"]
 
     # add other losses
     aux["losses"].update({
       "fape":      get_fape_loss(inputs, outputs, copies=a["copies"], clamp=opt["fape_cutoff"], mask_2d=mask_2d),
       "dgram_cce": get_dgram_loss(inputs, outputs, copies=a["copies"], aatype=inputs["aatype"], mask_2d=mask_2d),
-      "rmsd":      aln["rmsd"],
+      "rmsd":      rmsd,
     })
 
     if a["use_sidechains"] and "fix_pos" in inputs:
@@ -260,6 +265,22 @@ def get_dgram_loss(inputs, outputs, copies=1, aatype=None, mask_1d=None, mask_2d
   if mask_1d is not None: weights *= mask_1d
   weights_2d = weights[:,None] * weights[None,:]
   if mask_2d is not None: weights_2d *= mask_2d
+  return _get_pw_loss(true, pred, loss_fn, weights_2d, copies=copies)
+
+def get_drmsd_loss(inputs, outputs, copies=1, mask_1d=None, mask_2d=None, eps=1e-8):
+
+  true = _np_len_pw(inputs["batch"]["all_atom_positions"][:,1])
+  pred = _np_len_pw(outputs["structure_module"]["final_atom_positions"][:,1])
+
+  def loss_fn(t,p,m):
+    loss = jnp.sqrt(jnp.square(t-p)+eps)
+    return loss, (loss*m).sum((-1,-2))/(m.sum((-1,-2)) + eps)
+  
+  weights = inputs["batch"]["all_atom_mask"][:,1]
+  if mask_1d is not None: weights *= mask_1d
+  weights_2d = weights[:,None] * weights[None,:]
+  if mask_2d is not None: weights_2d *= mask_2d
+
   return _get_pw_loss(true, pred, loss_fn, weights_2d, copies=copies)
 
 def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, mask_1d=None, mask_2d=None):

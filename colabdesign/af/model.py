@@ -36,7 +36,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     self._args = {
       # structure options
       "use_templates":use_templates, "num_templates":1, "use_batch_as_template":True,
-      "use_initial_guess":False, "use_initial_atom_pos":False,
+      "use_initial_guess":False, "use_initial_atom_pos":False,"use_drmsd":False,
       "use_dgram":False, "use_dgram_pred":False, "realign": True, "use_sidechains": False, 
       
       # sequence options

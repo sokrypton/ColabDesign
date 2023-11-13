@@ -123,7 +123,7 @@ class _af_utils:
     if aux is None:
       aux = self._tmp["best"]["aux"] if (get_best and "aux" in self._tmp["best"]) else self.aux
     aux = aux["all"]
-    if self._args["use_rmsd"]:
+    if self._args["use_drmsd"]:
       align_xyz = True
     else:
       align_xyz = self._inputs["supervised"].sum() < 3

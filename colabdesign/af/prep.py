@@ -108,9 +108,9 @@ class _af_prep:
     pos_cst = {}
     for k in ["hotspot", "fix_pos", "rm_template", "rm_template_seq", "rm_template_sc"]:
       if k in kwargs:
-        x = kwargs.pop(k)
+        v = kwargs.pop(k)
         if isinstance(v,str):
-          p = prep_pos(x, **idx, error_chk=False)["pos"]
+          p = prep_pos(v, **idx, error_chk=False)["pos"]
           if len(p) > 0:
             pos_cst[k] = np.full(sum(length),False)
             pos_cst[k][p] = True
@@ -175,11 +175,13 @@ class _af_prep:
     })
     
     # set positional constraints
+    if "fix_pos" in pos_cst:
+      self._inputs["fix_pos"] = np.where(unsupervised,False,pos_cst.pop("fix_pos"))
+    else:
+      self._inputs["fix_pos"] = np.full(num_res,False)
     for k,p in pos_cst.items():
       self._inputs[k] = np.full(num_res,False)
       self._inputs[k][p] = True
-    if "fix_pos" not in pos_cst:
-      self._inputs["fix_pos"] = np.full(num_res,False)
 
     # decide on weights
     self.set_opt(weights=0, partial_loss=partial_loss, set_defaults=True)

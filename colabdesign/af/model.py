@@ -49,7 +49,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # model options
       "model_type":model_type,
       "block_diag":not "multimer" in model_type,
-      "use_ptm": "ptm" in model_type or "multimer" in model_type:
+      "use_ptm": "ptm" in model_type or "multimer" in model_type,
       "pseudo_multimer":False, 
 
       # optimizer options
@@ -167,7 +167,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def _get_model(self, cfg, callback=None):
 
     a = self._args
-    runner = model.RunModel(cfg, use_multimer="multimer" in model_type)
+    runner = model.RunModel(cfg, use_multimer="multimer" in a["model_type"])
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key):

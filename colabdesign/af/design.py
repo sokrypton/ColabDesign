@@ -50,9 +50,9 @@ class _af_design:
     
     if not keep_history:
       # initialize trajectory
-      self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
-                   "log":[],"best":{}}
-  
+      self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[]},"log":[],"best":{}}
+      if self._args["use_ptm"]: self._tmp["traj"]["pae"] = []
+
     # initialize sequence
     self.set_seed(seed)
     if self._args["optimize_seq"]:
@@ -117,7 +117,10 @@ class _af_design:
     # update log
     self.aux["log"] = {**self.aux["losses"]}
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
-    for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
+    if self._args["use_ptm"]:
+      for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
+    else:
+      self.aux["log"]["loss"] = self.aux["loss"]
 
     if self._args["optimize_seq"]:
       # keep track of sequence mode
@@ -257,15 +260,20 @@ class _af_design:
 
   def _print_log(self, print_str=None, aux=None):
     if aux is None: aux = self.aux
-    keys = ["models","recycles","hard","soft","temp","seqid","loss",
-            "seq_ent","mlm","helix","pae","i_pae","exp_res","con","i_con",
-            "sc_fape","sc_chi","sc_chi_norm","dgram_cce","fape","plddt","ptm"]
-    
-    if "i_ptm" in aux["log"]:
-      if len(self._lengths) > 1:
-        keys.append("i_ptm")
-      else:
-        aux["log"].pop("i_ptm")
+    if self._args["use_ptm"]:
+      keys = ["models","recycles","hard","soft","temp","seqid","loss",
+              "seq_ent","mlm","helix","pae","i_pae","exp_res","con","i_con",
+              "sc_fape","sc_chi","sc_chi_norm","dgram_cce","fape","plddt","ptm"]
+      
+      if "i_ptm" in aux["log"]:
+        if len(self._lengths) > 1:
+          keys.append("i_ptm")
+        else:
+          aux["log"].pop("i_ptm")
+    else:
+      keys = ["models","recycles","hard","soft","temp","seqid","loss",
+              "seq_ent","mlm","helix","exp_res","con","i_con",
+              "sc_fape","sc_chi","sc_chi_norm","dgram_cce","fape","plddt"]
 
     print(dict_to_str(aux["log"], filt=self._inputs["opt"]["weights"],
                       print_str=print_str, keys=keys+["rmsd"], ok=["plddt","rmsd"]))
@@ -287,8 +295,9 @@ class _af_design:
       
       traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
-              "pae":   aux["pae"],
               "seq":   seq}
+      if self._args["use_ptm"]: traj["pae"] = aux["pae"]
+
       for k,v in traj.items():
         # rm traj (if max number reached)
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:

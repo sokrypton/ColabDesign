@@ -112,7 +112,8 @@ class AlphaFoldIteration(hk.Module):
           representations.update(ret[name].pop('representations'))
 
     for name in ('predicted_lddt', 'predicted_aligned_error'):
-      ret[name] = heads[name](representations, batch)
+      if name in heads:
+        ret[name] = heads[name](representations, batch)
     return ret
 
 class AlphaFold(hk.Module):

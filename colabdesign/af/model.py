@@ -48,8 +48,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       # model options
       "model_type":model_type,
-      "block_diag":not "multimer" in model_type,
-      "use_ptm": "ptm" in model_type or "multimer" in model_type,
+      "use_ptm":True, 
+      "block_diag":False,
       "pseudo_multimer":False, 
 
       # optimizer options
@@ -59,7 +59,8 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       # technical options
       "use_remat":True, "use_bfloat16":True, "debug":debug
     }
-
+    if model_type in ["alphafold2"]: self._args["use_ptm"] = False
+    if model_type in ["alphafold2","alphafold2_ptm"]: self._args["block_diag"] = True
     if self.protocol == "binder": self._args["use_templates"] = True
 
     self._opt = {"dropout":True, "pssm_hard":False, "learning_rate":0.1, "norm_seq_grad":True,
@@ -112,46 +113,41 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     # configure AlphaFold
     #############################
-    if "multimer" in model_type:
-      self._cfg = config.model_config("model_1_multimer")   
-      self._cfg.model.embeddings_and_evoformer.pseudo_multimer = self._args["pseudo_multimer"]
-      self.opt["pssm_hard"] = True
+    suffix = model_type.replace("alphafold2","")
+    if model_type in ["alphafold2_multimer_v3"]:
+      model_nums = [1,2,3,4,5]
+      model_base = 1
+      rm_templates = False
+    elif self._args["use_templates"]:
+      model_nums = [1,2]
+      model_base = 1
+      rm_templates = False
     else:
-      if "ptm" in model_type:
-        self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
-      else:
-        self._cfg = config.model_config("model_1" if self._args["use_templates"] else "model_3")
-
+      model_nums = [1,2,3,4,5]
+      model_base = 3
+      rm_templates = True
+    
+    self._cfg = config.model_config(f"model_{model_base}{suffix}")   
     self._cfg.model.num_recycle = 0
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
     self._cfg.model.global_config.use_dgram_pred = self._args["use_dgram_pred"]
     self._cfg.model.global_config.bfloat16  = self._args["use_bfloat16"]
     self._cfg.model.global_config.bfloat16_output  = self._args["use_bfloat16"]
 
+    if model_type in ["alphafold2_multimer_v3"]:
+      self._cfg.model.embeddings_and_evoformer.pseudo_multimer = self._args["pseudo_multimer"]
+      self.opt["pssm_hard"] = True
+
     # load model_params
     if model_names is None:
-      model_names = []
-      if "multimer" in model_type:
-        model_names += [f"model_{k}_multimer_v3" for k in [1,2,3,4,5]]
-      elif "ptm" in model_type:
-        if self._args["use_templates"]:
-          model_names += [f"model_{k}_ptm" for k in [1,2]]
-        else:
-          model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
-      else:
-        if self._args["use_templates"]:
-          model_names += [f"model_{k}" for k in [1,2]]
-        else:
-          model_names += [f"model_{k}" for k in [1,2,3,4,5]]
-
-
+      model_names = [f"model_{k}{suffix}" for k in model_nums]
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
       if model_name in old_params:
         params = old_params[model_name]
       else:
-        params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir,
-          fuse=True, rm_templates=(not self._args["use_templates"] and not "multimer" in model_type))
+        params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir, 
+          fuse=True, rm_templates=rm_templates)
       if params is not None:
         self._model_params.append(params)
         self._model_names.append(model_name)

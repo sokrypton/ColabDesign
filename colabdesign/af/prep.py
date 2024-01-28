@@ -39,47 +39,27 @@ class _af_prep:
     parse_as_homooligomer=False,
     partial_loss=True,
     **kwargs):
-    '''prep inputs for partial hallucination protocol'''
+    '''prep inputs for generalized protocol'''
   
-    # position constraints
-    self._opt["template"]["rm_ic"] = kwargs.pop("rm_template_ic",False)
-    pos_cst = {}
-    keys = ["hotspot", "fix_pos", "rm_template", "rm_template_seq", "rm_template_sc"]
-    for k in keys:
-      v = kwargs.pop(k, None)
-      if v is not None:
-        if isinstance(v,str):
-          # to be parsed later with contigs
-          pos_cst[k] = [v,[]]
-
-        elif isinstance(v,bool):
-          # set all positions to True/False
-          if "template" in k:
-            k_ = {"rm_template":"rm","rm_template_seq":"rm_seq","rm_template_sc":"rm_sc"}[k]
-            self._opt["template"][k_] = v
-          elif k == "fix_pos":
-            kwargs["fix_all_pos"] = True
-
-    # parse contigs
-    if isinstance(contigs,str): contigs = contigs.replace(",",":").split(":")
-    if isinstance(contigs,int): contigs = [contigs]
-    
+    # parse contigs    
     chain_info = {}
     length, batch, idx = [],[],[]
     unsupervised = []
     total_len = 0
 
     # for each contig
+    if isinstance(contigs,str): contigs = contigs.replace(","," ").replace(":"," ").split()
+    if isinstance(contigs,int): contigs = [contigs]
     for contig in contigs:
-      if isinstance(contig,int): contig = str(contig)
+      contig = f"{contig}"
       contig_len = 0
-      contig_batch = []
-      contig_idx = []
-
+      contig_batch, contig_idx = [],[]
       # for each segment in contig
       for seg in contig.split("/"):
         if seg[0].isalpha():
-          # supervised
+          ################
+          #  supervised  #
+          ################
           chain = seg[0]
           if chain not in chain_info:
             chain_info[chain] = prep_pdb(pdb_filename, chain=chain, ignore_missing=ignore_missing)
@@ -88,20 +68,12 @@ class _af_prep:
           seg_len = len(pos)
           contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
           contig_idx.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["idx"]))
-          unsup = (contig_batch[-1]["aatype"] == -1).tolist()
-          unsupervised += unsup
+          unsupervised += (contig_batch[-1]["aatype"] == -1).tolist()
           
-          # parse position constraints
-          pos_list = pos.tolist()
-          for k,(x,_) in pos_cst.items():
-            x_pos_list = prep_pos(x, **chain_info[chain]["idx"], error_chk=False)["pos"].tolist()
-            for p in x_pos_list:
-              if p in pos_list:
-                i = pos_list.index(p)
-                if k != "fix_pos" or not unsup[i]:
-                  pos_cst[k][1].append(i + total_len)
         else:
-          # unsupervised
+          ################
+          # unsupervised #
+          ################
           if "-" in seg: seg = np.random.randint(*(int(x) for x in seg.split("-")))
           seg_len = int(seg)
           contig_batch.append({
@@ -110,10 +82,7 @@ class _af_prep:
             'all_atom_mask': np.zeros((seg_len,37)),
             'residue_index': np.arange(seg_len)
           })
-          contig_idx.append({
-            "residue":np.full(seg_len,-1),
-            "chain":np.full(seg_len,"?")
-          })
+          contig_idx.append({"residue":np.full(seg_len,-1),"chain":np.full(seg_len,"?")})
           unsupervised += [True] * seg_len
         contig_len += seg_len
         total_len += seg_len
@@ -129,13 +98,30 @@ class _af_prep:
       batch.append(contig_batch)
       idx.append(contig_idx)
 
-    # cst
-    pos_cst = {k:np.array(v) for k,(x,v) in pos_cst.items() if len(v) > 0}
-
     # concatenate features
     batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
     idx   = jax.tree_map(lambda *x:np.concatenate(x),*sum(idx,[]))
     self._pdb = {"batch":batch, "idx":idx, "length":length}
+
+    # position constraints
+    self._opt["template"]["rm_ic"] = kwargs.pop("rm_template_ic",False)
+    pos_cst = {}
+    for k in ["hotspot", "fix_pos", "rm_template", "rm_template_seq", "rm_template_sc"]:
+      if k in kwargs:
+        v = kwargs.pop(k)
+        if isinstance(v,str):
+          p = prep_pos(v, **idx, error_chk=False)["pos"]
+          if len(p) > 0:
+            pos_cst[k] = np.full(sum(length),False)
+            pos_cst[k][p] = True
+        
+        elif isinstance(v,bool):
+          # set all positions to True/False
+          if "template" in k:
+            k_ = {"rm_template":"rm","rm_template_seq":"rm_seq","rm_template_sc":"rm_sc"}[k]
+            self._opt["template"][k_] = v
+          else:
+            pos_cst[k] = np.full(sum(length),v)
     
     # propagate batch over copies
     self._args["copies"] = copies
@@ -180,24 +166,22 @@ class _af_prep:
     unsupervised = np.array(unsupervised)
     unsupervised_2d = np.logical_or(unsupervised[:,None], unsupervised[None,:])
 
-    fix_pos = np.full(num_res,kwargs.pop("fix_all_pos",False))
-    if "fix_pos" in pos_cst:
-      fix_pos[pos_cst.pop("fix_pos")] = True
-
     self._inputs.update({
       "unsupervised":    unsupervised,
       "unsupervised_2d": unsupervised_2d,
       "supervised":      unsupervised == False,
       "supervised_2d":   unsupervised_2d == False,
-      "interchain_mask": interchain_mask,
-      "fix_pos":         fix_pos
+      "interchain_mask": interchain_mask
     })
     
     # set positional constraints
+    if "fix_pos" in pos_cst:
+      self._inputs["fix_pos"] = np.where(unsupervised,False,pos_cst.pop("fix_pos"))
+    else:
+      self._inputs["fix_pos"] = np.full(num_res,False)
     for k,p in pos_cst.items():
-      m = np.full(num_res,False)
-      m[p] = True
-      self._inputs[k] = m
+      self._inputs[k] = np.full(num_res,False)
+      self._inputs[k][p] = True
 
     # decide on weights
     self.set_opt(weights=0, partial_loss=partial_loss, set_defaults=True)
@@ -216,7 +200,7 @@ class _af_prep:
     if isinstance(length,int): length = [length]
     self._prep_contigs([str(L) for L in length], copies=copies, **kwargs)
 
-  def _prep_fixbb(self, 
+  def _prep_fixbb(self,
     pdb_filename, 
     chain="A",
     copies=1,

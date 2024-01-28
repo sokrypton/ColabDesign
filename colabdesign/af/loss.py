@@ -79,12 +79,16 @@ class _af_loss:
     losses = {
       "exp_res": get_exp_res_loss(outputs, mask_1d=masks["mask_1d"]),
       "plddt":   get_plddt_loss(outputs, mask_1d=masks["mask_1d"]),
-      "pae":     get_pae_loss(outputs, mask_2d=masks["intra_masks"]["mask_2d"]),
       "con":     get_con_loss(inputs, outputs, opt["con"], **masks["intra_masks"]),
       "helix":   get_helix_loss(inputs, outputs, mask_2d=masks["mask_2d"]),
-      "i_pae":   get_pae_loss(outputs, mask_2d=masks["inter_masks"]["mask_2d"]),
       "i_con":   get_con_loss(inputs, outputs, opt["i_con"], **masks["inter_masks"]),
     }
+    if self._args["use_ptm"]:
+      losses.update({
+        "pae":     get_pae_loss(outputs, mask_2d=masks["intra_masks"]["mask_2d"]),
+        "i_pae":   get_pae_loss(outputs, mask_2d=masks["inter_masks"]["mask_2d"])
+      })
+
     aux["losses"].update(losses)
 
 #####################################################################################

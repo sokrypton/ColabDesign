@@ -11,7 +11,7 @@ from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_ptm, get_ifptm
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_ptm
 from colabdesign.af.loss   import get_contact_map, get_dgram_bins
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design
@@ -201,8 +201,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       outputs = runner.apply(model_params, key(), inputs)
 
       # add aux outputs
-      print('lengths', self._lengths)
-      print('here')
       aux.update({"atom_positions": outputs["structure_module"]["final_atom_positions"],
                   "atom_mask":      outputs["structure_module"]["final_atom_mask"],                  
                   "residue_index":  inputs["residue_index"],
@@ -211,11 +209,10 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "pae":            get_pae(outputs), 
                   "ptm":            get_ptm(inputs, outputs),
                   "i_ptm":          get_ptm(inputs, outputs, interface=True), 
-                  #"if_ptm":         get_ifptm(self._lengths, outputs),
                   "cmap":           get_contact_map(outputs, opt["con"]["cutoff"]),
-                  #"i_cmap":         get_contact_map(outputs, opt["i_con"]["cutoff"]),
+                  "i_cmap":        get_contact_map(outputs, opt["i_con"]["cutoff"]),
                   "prev":           outputs["prev"]})      
-      print(type(self.model.aux['cmap']))
+
       #######################################################################
       # LOSS
       #######################################################################

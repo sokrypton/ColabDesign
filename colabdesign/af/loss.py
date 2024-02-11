@@ -456,14 +456,20 @@ def or_masks(*m):
     mask = jnp.logical_or(mask,m[n])
   return mask
 
-
 def get_chain_indices(chain_boundaries):
-    """Returns a list of tuples indicating the start and end indices for each chain."""
+    """Returns a list of tuples indicating the start and end indices for each chain, compatible with JAX."""
     chain_starts_ends = []
-    unique_chains = np.unique(chain_boundaries)
-    for chain in unique_chains:
-        positions = np.where(chain_boundaries == chain)[0]
-        chain_starts_ends.append((positions[0], positions[-1]))
+    
+    # Assuming chain_boundaries is sorted and consecutive
+    unique_chains, first_indices = jnp.unique(chain_boundaries, return_index=True)
+    for i, chain in enumerate(unique_chains):
+        if i + 1 < len(first_indices):
+            end_index = first_indices[i + 1] - 1
+        else:
+            end_index = len(chain_boundaries) - 1
+        start_index = first_indices[i]
+        chain_starts_ends.append((start_index, end_index))
+    
     return chain_starts_ends
 
 def get_ifptm(inputs, outputs):

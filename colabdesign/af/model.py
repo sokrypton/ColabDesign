@@ -11,7 +11,7 @@ from colabdesign.shared.model import design_model
 from colabdesign.shared.utils import Key
 
 from colabdesign.af.prep   import _af_prep
-from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_ptm
+from colabdesign.af.loss   import _af_loss, get_plddt, get_pae, get_ptm, get_ifptm
 from colabdesign.af.loss   import get_contact_map, get_dgram_bins
 from colabdesign.af.utils  import _af_utils
 from colabdesign.af.design import _af_design

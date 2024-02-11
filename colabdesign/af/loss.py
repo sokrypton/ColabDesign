@@ -456,35 +456,38 @@ def or_masks(*m):
     mask = jnp.logical_or(mask,m[n])
   return mask
 
-def get_chain_indices(chain_boundaries):
-    """Returns a list of tuples indicating the start and end indices for each chain, compatible with JAX."""
+def numpy_callback(x):
+  # Need to forward-declare the shape & dtype of the expected output.
+  result_shape = jax.core.ShapedArray(x.shape, x.dtype)
+  return jax.pure_callback(np.sin, result_shape, x)
+
+
+def get_chain_indices(lengths):
+    """Calculate start and end indices for each chain from their lengths."""
     chain_starts_ends = []
-    
-    # Assuming chain_boundaries is sorted and consecutive
-    unique_chains, first_indices = jnp.unique(chain_boundaries, return_index=True)
-    for i, chain in enumerate(unique_chains):
-        if i + 1 < len(first_indices):
-            end_index = first_indices[i + 1] - 1
-        else:
-            end_index = len(chain_boundaries) - 1
-        start_index = first_indices[i]
+    start_index = 0  # Starting index of the first chain
+
+    for length in lengths:
+        end_index = start_index + length - 1  # Calculate the end index for the current chain
         chain_starts_ends.append((start_index, end_index))
-    
+        start_index += length  # Update the start index for the next chain
+
     return chain_starts_ends
 
-def get_ifptm(inputs, outputs):
+
+
+def get_ifptm(lengths, outputs):
+    import string
     cmap = get_contact_map(outputs, 8)  # Define interface with 8A between Cb-s
 
-    # Convert to JAX array if original seq_mask is not already a JAX array
-    original_seq_mask = jnp.array(inputs['seq_mask'], copy=True)
-
     # Initialize seq_mask to all False using JAX
-    inputs['seq_mask'] = jnp.zeros_like(inputs['seq_mask'], dtype=bool)
+    inputs_ifptm = {}
+    #print(lengths.keys())
+    inputs_ifptm['seq_mask'] = jnp.zeros(sum(lengths), dtype=bool)
 
     # Prepare a dictionary to collect results
     if_ptm_results = {}
-
-    chain_starts_ends = get_chain_indices(inputs['asym_id'])
+    chain_starts_ends = get_chain_indices(lengths)
 
     # Generate chain labels (A, B, C, ...)
     chain_labels = list(string.ascii_uppercase)
@@ -502,14 +505,11 @@ def get_ifptm(inputs, outputs):
                     global_j_positions = contacts[1] + start_j
 
                     # Update seq_mask for these positions to True within inputs using JAX
-                    inputs['seq_mask'] = inputs['seq_mask'].at[global_i_positions].set(True)
-                    inputs['seq_mask'] = inputs['seq_mask'].at[global_j_positions].set(True)
+                    inputs_ifptm['seq_mask'] = inputs_ifptm['seq_mask'].at[global_i_positions].set(True)
+                    inputs_ifptm['seq_mask'] = inputs_ifptm['seq_mask'].at[global_j_positions].set(True)
 
                     # Call get_ptm with updated inputs and outputs, assuming get_ptm is JAX-compatible
                     if_ptm_key = f"{chain_label_i}-{chain_label_j}"
-                    if_ptm_results[if_ptm_key] = get_ptm(inputs, outputs, interface=True)
-
-    # Restore original seq_mask values to inputs using JAX
-    inputs['seq_mask'] = original_seq_mask
+                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True)
 
     return if_ptm_results

@@ -461,33 +461,27 @@ def numpy_callback(x):
   result_shape = jax.core.ShapedArray(x.shape, x.dtype)
   return jax.pure_callback(np.sin, result_shape, x)
 
-
-def get_chain_indices(lengths):
-    """Calculate start and end indices for each chain from their lengths."""
+def get_chain_indices(chain_boundaries):
+    """Returns a list of tuples indicating the start and end indices for each chain."""
     chain_starts_ends = []
-    start_index = 0  # Starting index of the first chain
-
-    for length in lengths:
-        end_index = start_index + length - 1  # Calculate the end index for the current chain
-        chain_starts_ends.append((start_index, end_index))
-        start_index += length  # Update the start index for the next chain
-
+    unique_chains = np.unique(chain_boundaries)
+    for chain in unique_chains:
+        positions = np.where(chain_boundaries == chain)[0]
+        chain_starts_ends.append((positions[0], positions[-1]))
     return chain_starts_ends
 
 
-
-def get_ifptm(lengths, outputs):
+def get_ifptm(af):
     import string
-    cmap = get_contact_map(outputs, 8)  # Define interface with 8A between Cb-s
+    cmap = get_contact_map(af.aux['debug']['outputs'], 8)  # Define interface with 8A between Cb-s
 
-    # Initialize seq_mask to all False using JAX
+    # Initialize seq_mask to all False
     inputs_ifptm = {}
-    #print(lengths.keys())
-    inputs_ifptm['seq_mask'] = jnp.zeros(sum(lengths), dtype=bool)
+    inputs_ifptm['seq_mask'] = np.zeros(len(af._inputs['asym_id']), dtype=int)
 
     # Prepare a dictionary to collect results
     if_ptm_results = {}
-    chain_starts_ends = get_chain_indices(lengths)
+    chain_starts_ends = get_chain_indices(af._inputs['asym_id'])
 
     # Generate chain labels (A, B, C, ...)
     chain_labels = list(string.ascii_uppercase)
@@ -497,19 +491,23 @@ def get_ifptm(lengths, outputs):
         for j, (start_j, end_j) in enumerate(chain_starts_ends):
             chain_label_j = chain_labels[j % len(chain_labels)]  # Wrap around if more than 26 chains
             if i < j:  # Avoid self-comparison and duplicate comparisons
-                contacts = jnp.where(cmap[start_i:end_i+1, start_j:end_j+1] > 0.6)
+                contacts = np.where(cmap[start_i:end_i+1, start_j:end_j+1] >= 0.6)
                 
                 if contacts[0].size > 0:  # If there are contacts
                     # Convert local chain positions back to global positions using JAX
                     global_i_positions = contacts[0] + start_i
                     global_j_positions = contacts[1] + start_j
+                    global_positions = np.concatenate((global_i_positions, global_j_positions))
 
-                    # Update seq_mask for these positions to True within inputs using JAX
-                    inputs_ifptm['seq_mask'] = inputs_ifptm['seq_mask'].at[global_i_positions].set(True)
-                    inputs_ifptm['seq_mask'] = inputs_ifptm['seq_mask'].at[global_j_positions].set(True)
-
-                    # Call get_ptm with updated inputs and outputs, assuming get_ptm is JAX-compatible
+                    # Update seq_mask for these positions to True within inputs
+                    inputs_ifptm['seq_mask'][global_positions] = 1
+                    #inputs_ifptm['seq_mask'][range(0,57)] = 1
+                    
+                    print('+'.join(sorted(set(map(lambda x: str(x + 1), global_positions)))))
+                    print(inputs_ifptm['seq_mask'])
+                    #inputs_ifptm['seq_mask'] = np.ones(len(af._inputs['asym_id']), dtype=int)
+                    # Call get_ptm with updated inputs and outputs
                     if_ptm_key = f"{chain_label_i}-{chain_label_j}"
-                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True)
+                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, af.aux['debug']['outputs'], interface=True)
 
     return if_ptm_results

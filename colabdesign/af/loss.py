@@ -467,20 +467,19 @@ def get_chain_indices(chain_boundaries):
     return chain_starts_ends
 
 def get_ifptm(inputs, outputs):
-    import string  # For generating chain labels
-    cmap = get_contact_map(outputs, 8) # we define interface with 8A between Cb-s
+    cmap = get_contact_map(outputs, 8)  # Define interface with 8A between Cb-s
 
-    # Extract necessary data from af object
-    original_seq_mask = np.array(inputs['seq_mask'], copy=True)  # Copy original seq_mask
-    
-    # Initialize seq_mask to all False
-    inputs['seq_mask'][:] = False
+    # Convert to JAX array if original seq_mask is not already a JAX array
+    original_seq_mask = jnp.array(inputs['seq_mask'], copy=True)
+
+    # Initialize seq_mask to all False using JAX
+    inputs['seq_mask'] = jnp.zeros_like(inputs['seq_mask'], dtype=bool)
 
     # Prepare a dictionary to collect results
     if_ptm_results = {}
 
     chain_starts_ends = get_chain_indices(inputs['asym_id'])
-    
+
     # Generate chain labels (A, B, C, ...)
     chain_labels = list(string.ascii_uppercase)
 
@@ -489,22 +488,22 @@ def get_ifptm(inputs, outputs):
         for j, (start_j, end_j) in enumerate(chain_starts_ends):
             chain_label_j = chain_labels[j % len(chain_labels)]  # Wrap around if more than 26 chains
             if i < j:  # Avoid self-comparison and duplicate comparisons
-                contacts = np.where(cmap[start_i:end_i+1, start_j:end_j+1] > 0.6)
+                contacts = jnp.where(cmap[start_i:end_i+1, start_j:end_j+1] > 0.6)
                 
                 if contacts[0].size > 0:  # If there are contacts
-                    # Convert local chain positions back to global positions
+                    # Convert local chain positions back to global positions using JAX
                     global_i_positions = contacts[0] + start_i
                     global_j_positions = contacts[1] + start_j
-                    
-                    # Update seq_mask for these positions to True within af
-                    inputs['seq_mask'][global_i_positions] = True
-                    inputs['seq_mask'][global_j_positions] = True
-                    
-                    # Call get_ptm with updated af._inputs and provided outputs
+
+                    # Update seq_mask for these positions to True within inputs using JAX
+                    inputs['seq_mask'] = inputs['seq_mask'].at[global_i_positions].set(True)
+                    inputs['seq_mask'] = inputs['seq_mask'].at[global_j_positions].set(True)
+
+                    # Call get_ptm with updated inputs and outputs, assuming get_ptm is JAX-compatible
                     if_ptm_key = f"{chain_label_i}-{chain_label_j}"
                     if_ptm_results[if_ptm_key] = get_ptm(inputs, outputs, interface=True)
-    
-    # Restore original seq_mask values to af
-    af._inputs['seq_mask'] = original_seq_mask
-    
+
+    # Restore original seq_mask values to inputs using JAX
+    inputs['seq_mask'] = original_seq_mask
+
     return if_ptm_results

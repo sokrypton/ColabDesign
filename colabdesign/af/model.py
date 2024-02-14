@@ -31,8 +31,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                **kwargs):  
     assert protocol in ["fixbb","hallucination","binder","contigs","partial"]
     assert model_type in ["alphafold2","alphafold2_ptm","alphafold2_multimer_v3"]
-    if kwargs.pop("use_multimer",False):
-      model_type = "alphafold2_multimer_v3"
+    if kwargs.pop("use_multimer",False): model_type = "alphafold2_multimer_v3"
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
@@ -223,9 +222,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
 
       if a["use_ptm"]:
         aux.update({
-          "pae":          get_pae(outputs),
-          "ptm":          get_ptm(inputs, outputs),
-          "i_ptm":        get_ptm(inputs, outputs, interface=True)
+          "pae":   get_pae(outputs),
+          "ptm":   get_ptm(inputs, outputs),
+          "i_ptm": get_ptm(inputs, outputs, interface=True)
         })
 
       #######################################################################

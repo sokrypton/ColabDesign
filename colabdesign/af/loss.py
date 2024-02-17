@@ -105,11 +105,11 @@ def get_pae(outputs):
   bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
   return (prob*bin_centers).sum(-1)
 
-def get_ptm(inputs, outputs, interface=False):
+def get_ptm(inputs, outputs, interface=False, trim=False):
   pae = {"residue_weights":inputs["seq_mask"],
          **outputs["predicted_aligned_error"]}
   if interface:
-    if "asym_id" not in pae:
+    if "asym_id" not in pae or trim:
       pae["asym_id"] = inputs["asym_id"]
   else:
     if "asym_id" in pae:
@@ -471,13 +471,13 @@ def get_chain_indices(chain_boundaries):
     return chain_starts_ends
 
 
-def get_ifptm(af):
+def get_ifptm(af, trim=False):
     import string
+    from copy import deepcopy
     cmap = get_contact_map(af.aux['debug']['outputs'], 8)  # Define interface with 8A between Cb-s
 
     # Initialize seq_mask to all False
     inputs_ifptm = {}
-    inputs_ifptm['seq_mask'] = np.zeros(len(af._inputs['asym_id']), dtype=int)
 
     # Prepare a dictionary to collect results
     if_ptm_results = {}
@@ -497,17 +497,26 @@ def get_ifptm(af):
                     # Convert local chain positions back to global positions using JAX
                     global_i_positions = contacts[0] + start_i
                     global_j_positions = contacts[1] + start_j
-                    global_positions = np.concatenate((global_i_positions, global_j_positions))
-
-                    # Update seq_mask for these positions to True within inputs
-                    inputs_ifptm['seq_mask'][global_positions] = 1
-                    #inputs_ifptm['seq_mask'][range(0,57)] = 1
+                    global_positions = list(set(np.concatenate((global_i_positions, global_j_positions))))
+                    global_positions = np.array(global_positions, dtype=int)
+                    global_positions.sort()
                     
-                    print('+'.join(sorted(set(map(lambda x: str(x + 1), global_positions)))))
-                    print(inputs_ifptm['seq_mask'])
-                    #inputs_ifptm['seq_mask'] = np.ones(len(af._inputs['asym_id']), dtype=int)
+                    outputs = deepcopy(af.aux['debug']['outputs'])
+                    if trim:
+                      inputs_ifptm['seq_mask'] = np.ones(len(set(global_positions)), dtype=int)
+                      inputs_ifptm['seq_mask'] = np.full(len(set(global_positions)), 2, dtype=int)
+                      outputs['predicted_aligned_error']['logits'] = outputs['predicted_aligned_error']['logits'][np.ix_(global_positions, global_positions)]
+                      inputs_ifptm['asym_id'] = af._inputs['asym_id'][global_positions]
+                    else:
+                      # Initialize new input dictionary
+                      inputs_ifptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
+                      inputs_ifptm['asym_id'] = af._inputs['asym_id']
+                      # Update seq_mask for these positions to True within inputs
+                      inputs_ifptm['seq_mask'][global_positions] = 2
+                      #inputs_ifptm['seq_mask'][range(0,57)] = 1 # for debugging
+                    print(inputs_ifptm['seq_mask'])                                    
                     # Call get_ptm with updated inputs and outputs
                     if_ptm_key = f"{chain_label_i}-{chain_label_j}"
-                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, af.aux['debug']['outputs'], interface=True)
+                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True, trim=trim)
 
     return if_ptm_results

@@ -141,6 +141,9 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
 
   # Clip num_res to avoid negative/undefined d0.
   clipped_num_res = _np.maximum(residue_weights.sum(), 19)
+  clipped_num_res = sum(residue_weights>0)
+  clipped_num_res = 15
+  print(clipped_num_res)
 
   # Compute d_0(num_res) as defined by TM-score, eqn. (5) in Yang & Skolnick
   # "Scoring function for automated assessment of protein structure template
@@ -152,15 +155,18 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
 
   # TM-Score term for every bin.
   tm_per_bin = 1. / (1 + _np.square(bin_centers) / _np.square(d0))
+  
   # E_distances tm(distance).
   predicted_tm_term = (probs * tm_per_bin).sum(-1)
-
+  
   if asym_id is None:
     pair_mask = _np.full((num_res,num_res),True)
   else:
     pair_mask = asym_id[:, None] != asym_id[None, :]
 
   predicted_tm_term *= pair_mask
+  import seaborn as sns
+  sns.heatmap(predicted_tm_term)
 
   pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
   normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))

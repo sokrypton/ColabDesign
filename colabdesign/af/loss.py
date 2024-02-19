@@ -492,6 +492,7 @@ def get_ifptm(af, trim=False):
             chain_label_j = chain_labels[j % len(chain_labels)]  # Wrap around if more than 26 chains
             if i < j:  # Avoid self-comparison and duplicate comparisons
                 contacts = np.where(cmap[start_i:end_i+1, start_j:end_j+1] >= 0.6)
+                if_ptm_key = f"{chain_label_i}-{chain_label_j}"
                 
                 if contacts[0].size > 0:  # If there are contacts
                     # Convert local chain positions back to global positions using JAX
@@ -516,7 +517,8 @@ def get_ifptm(af, trim=False):
                       #inputs_ifptm['seq_mask'][range(0,57)] = 1 # for debugging
                     print(inputs_ifptm['seq_mask'])                                    
                     # Call get_ptm with updated inputs and outputs
-                    if_ptm_key = f"{chain_label_i}-{chain_label_j}"
                     if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True, trim=trim)
+               else:
+                    if_ptm_results[if_ptm_key] = None
 
     return if_ptm_results

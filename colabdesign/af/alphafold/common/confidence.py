@@ -141,6 +141,8 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
 
   # Clip num_res to avoid negative/undefined d0.
   clipped_num_res = _np.maximum(residue_weights.sum(), 19)
+
+  # These lines are by Julia, for trying different number of residues
   clipped_num_res = sum(residue_weights>0)
   clipped_num_res = 15
   print(clipped_num_res)

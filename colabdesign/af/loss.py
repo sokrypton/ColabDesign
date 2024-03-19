@@ -36,6 +36,7 @@ class _af_loss:
     '''get losses'''
     opt = inputs["opt"]
     mask = inputs["seq_mask"]
+    mask_2d = mask[:,None] * mask[None,:]
     zeros = jnp.zeros_like(mask)
     tL,bL = self._target_len, self._binder_len
     binder_id = zeros.at[-bL:].set(mask[-bL:])
@@ -72,8 +73,8 @@ class _af_loss:
 
       aux["losses"].update({
         "rmsd":      aln["rmsd"],
-        "dgram_cce": cce[-bL:].sum()  / (mask[-bL:].sum() + 1e-8),
-        "fape":      fape[-bL:].sum() / (mask[-bL:].sum() + 1e-8)
+        "dgram_cce": cce[-bL:].sum()  / (mask_2d[-bL:].sum() + 1e-8),
+        "fape":      fape[-bL:].sum() / (mask_2d[-bL:].sum() + 1e-8)
       })
 
     else:
@@ -158,7 +159,7 @@ class _af_loss:
     else:
       mask_1d = inputs["seq_mask"]
     
-    seq_mask_2d = inputs["seq_mask"][:,None] * inputs["seq_mask"][None,:]
+    seq_mask_2d = mask_1d[:,None] * mask_1d[None,:]
     mask_2d = inputs["asym_id"][:,None] == inputs["asym_id"][None,:]
     masks = {"mask_1d":mask_1d,
              "mask_2d":jnp.where(seq_mask_2d,mask_2d,0)}
@@ -173,8 +174,8 @@ class _af_loss:
     }
 
     # define losses at interface
-    if self._args["copies"] > 1 and not self._args["repeat"]:
-      masks = {"mask_1d": mask_1d if self._args["homooligomer"] else inputs["seq_mask"],
+    if len(self._lengths) > 1: 
+      masks = {"mask_1d": mask_1d,
                "mask_2d": jnp.where(seq_mask_2d,mask_2d == False,0)}
       losses.update({
         "i_pae": get_pae_loss(outputs, **masks),
@@ -540,8 +541,11 @@ def get_seq_ent_loss(inputs):
   ent = (ent * mask).sum() / (mask.sum() + 1e-8)
   return {"seq_ent":ent.mean()}
 
-def get_mlm_loss(outputs, mask, truth=None):
+def get_mlm_loss(outputs, mask, truth=None, unbias=False):
   x = outputs["masked_msa"]["logits"][...,:20]
+  if unbias:
+    x_mean = (x * mask[...,None]).sum((0,1)) / (mask.sum() + 1e-8)
+    x = x - x_mean
   if truth is None: truth = jax.nn.softmax(x)
   ent = -(truth[...,:20] * jax.nn.log_softmax(x)).sum(-1)
   ent = (ent * mask).sum(-1) / (mask.sum() + 1e-8)

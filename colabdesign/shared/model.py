@@ -24,7 +24,7 @@ class design_model:
       update_dict(self._opt["weights"], *args, **kwargs)
     update_dict(self.opt["weights"], *args, **kwargs)
 
-  def set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, set_state=True, **kwargs):
+  def _set_seq(self, seq=None, mode=None, bias=None, rm_aa=None, return_values=False, **kwargs):
     '''
     set sequence params and bias
     -----------------------------------
@@ -88,8 +88,11 @@ class design_model:
         if isinstance(seq[0], str):
           aa_dict = copy_dict(aa_order)
           if shape[-1] > 21:
+            aa_dict["X"] = 20 # add unk character
             aa_dict["-"] = 21 # add gap character
-          seq = np.asarray([[aa_dict.get(aa,-1) for aa in s] for s in seq])
+            seq = np.asarray([[aa_dict.get(aa,20) for aa in s] for s in seq])
+          else:
+            seq = np.asarray([[aa_dict.get(aa,-1) for aa in s] for s in seq])
         else:
           seq = np.asarray(seq)
       else:
@@ -121,9 +124,12 @@ class design_model:
       
       x = np.where(x.sum(-1,keepdims=True) == 1, x, y)
 
-    # set seq/bias/state
-    self._params["seq"] = x
-    self._inputs["bias"] = b 
+    # set seq/bias
+    if return_values:
+      return (x,b)
+    else:
+      self._params["seq"] = x
+      self._inputs["bias"] = b 
 
   def _norm_seq_grad(self):
     g = self.aux["grad"]["seq"]

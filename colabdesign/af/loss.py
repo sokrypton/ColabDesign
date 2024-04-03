@@ -518,7 +518,7 @@ def get_ifptm(af, trim=False):
                     print(inputs_ifptm['seq_mask'])                                    
                     # Call get_ptm with updated inputs and outputs
                     if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True, trim=trim)
-               else:
+                else:
                     if_ptm_results[if_ptm_key] = None
 
     return if_ptm_results

@@ -140,11 +140,8 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
   num_res = residue_weights.shape[0]
 
   # Clip num_res to avoid negative/undefined d0.
-  clipped_num_res = _np.maximum(residue_weights.sum(), 19)
-
-  # These lines are by Julia, for trying different number of residues
-  clipped_num_res = sum(residue_weights>0)
-  clipped_num_res = 15
+  print(residue_weights)
+  clipped_num_res = _np.maximum(len(residue_weights), 19)
   print(clipped_num_res)
 
   # Compute d_0(num_res) as defined by TM-score, eqn. (5) in Yang & Skolnick
@@ -152,6 +149,8 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
   # quality", 2004: http://zhanglab.ccmb.med.umich.edu/papers/2004_3.pdf
   d0 = 1.24 * (clipped_num_res - 15) ** (1./3) - 1.8
 
+  if d0 < 0.5:
+    d0 = 0.5
   # Convert logits to probs.
   probs = _softmax(logits, axis=-1)
 
@@ -167,8 +166,6 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
     pair_mask = asym_id[:, None] != asym_id[None, :]
 
   predicted_tm_term *= pair_mask
-  import seaborn as sns
-  sns.heatmap(predicted_tm_term)
 
   pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
   normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))

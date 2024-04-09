@@ -513,7 +513,7 @@ def get_ifptm(af, trim=False):
                       inputs_ifptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
                       inputs_ifptm['asym_id'] = af._inputs['asym_id']
                       # Update seq_mask for these positions to True within inputs
-                      inputs_ifptm['seq_mask'][global_positions] = 1
+                      inputs_ifptm['seq_mask'][global_positions] = 2
                       #inputs_ifptm['seq_mask'][range(0,57)] = 1 # for debugging
                     print(inputs_ifptm['seq_mask'])                                    
                     # Call get_ptm with updated inputs and outputs

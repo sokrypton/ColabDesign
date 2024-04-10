@@ -167,8 +167,6 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
     pair_mask = asym_id[:, None] != asym_id[None, :]
 
   predicted_tm_term *= pair_mask
-  import seaborn as sns
-  sns.heatmap(predicted_tm_term)
 
   pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
   normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))

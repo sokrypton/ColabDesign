@@ -164,5 +164,4 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
   pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
   normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
   per_alignment = (predicted_tm_term * normed_residue_mask).sum(-1)
-
-        return (per_alignment * residue_weights).max()
+  return (per_alignment * residue_weights).max()

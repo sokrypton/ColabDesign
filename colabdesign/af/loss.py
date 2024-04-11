@@ -105,16 +105,16 @@ def get_pae(outputs):
   bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
   return (prob*bin_centers).sum(-1)
 
-def get_ptm(inputs, outputs, interface=False, trim=False):
+def get_ptm(inputs, outputs, interface=False, invert=False):
   pae = {"residue_weights":inputs["seq_mask"],
          **outputs["predicted_aligned_error"]}
   if interface:
-    if "asym_id" not in pae or trim:
+    if "asym_id" not in pae:
       pae["asym_id"] = inputs["asym_id"]
   else:
     if "asym_id" in pae:
       pae.pop("asym_id")
-  return confidence.predicted_tm_score(**pae, use_jnp=True)
+  return confidence.predicted_tm_score(**pae, use_jnp=True, invert=invert)
   
 def get_dgram_bins(outputs):
   dgram = outputs["distogram"]["logits"]
@@ -470,8 +470,7 @@ def get_chain_indices(chain_boundaries):
         chain_starts_ends.append((positions[0], positions[-1]))
     return chain_starts_ends
 
-
-def get_ifptm(af, trim=False):
+def get_ifptm(af):
     import string
     from copy import deepcopy
     cmap = get_contact_map(af.aux['debug']['outputs'], 8)  # Define interface with 8A between Cb-s
@@ -503,22 +502,14 @@ def get_ifptm(af, trim=False):
                     global_positions.sort()
                     
                     outputs = deepcopy(af.aux['debug']['outputs'])
-                    if trim:
-                      inputs_ifptm['seq_mask'] = np.ones(len(set(global_positions)), dtype=int)
-                      inputs_ifptm['seq_mask'] = np.full(len(set(global_positions)), 2, dtype=int)
-                      outputs['predicted_aligned_error']['logits'] = outputs['predicted_aligned_error']['logits'][np.ix_(global_positions, global_positions)]
-                      inputs_ifptm['asym_id'] = af._inputs['asym_id'][global_positions]
-                    else:
-                      # Initialize new input dictionary
-                      inputs_ifptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
-                      inputs_ifptm['asym_id'] = af._inputs['asym_id']
-                      # Update seq_mask for these positions to True within inputs
-                      inputs_ifptm['seq_mask'][global_positions] = 2
-                      #inputs_ifptm['seq_mask'][range(0,57)] = 1 # for debugging
-                    print(inputs_ifptm['seq_mask'])                                    
+                    # Initialize new input dictionary
+                    inputs_ifptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
+                    inputs_ifptm['asym_id'] = af._inputs['asym_id']
+                    # Update seq_mask for these positions to True within inputs
+                    inputs_ifptm['seq_mask'][global_positions] = 1                
                     # Call get_ptm with updated inputs and outputs
-                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True, trim=trim)
+                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True)
                 else:
-                    if_ptm_results[if_ptm_key] = None
+                    if_ptm_results[if_ptm_key] = 35
 
     return if_ptm_results

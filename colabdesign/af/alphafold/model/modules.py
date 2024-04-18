@@ -499,7 +499,8 @@ class MSARowAttentionWithPairBias(hk.Module):
   def __call__(self,
                msa_act,
                msa_mask,
-               pair_act):
+               pair_act,
+               pair_mask):
     """Builds MSARowAttentionWithPairBias module.
 
     Arguments:
@@ -537,7 +538,8 @@ class MSARowAttentionWithPairBias(hk.Module):
         dtype=msa_act.dtype,
         init=hk.initializers.RandomNormal(stddev=init_factor))
     nonbatched_bias = jnp.einsum('qkc,ch->hqk', pair_act, weights)
-
+    nonbatched_bias = nonbatched_bias + (1e9 * (pair_mask - 1.0))
+    
     attn_mod = Attention(
         c, self.global_config, msa_act.shape[-1])
     msa_act = mapping.inference_subbatch(
@@ -1286,7 +1288,8 @@ class EvoformerIteration(hk.Module):
         msa_act,
         msa_mask,
         safe_key=next(sub_keys),
-        pair_act=pair_act)
+        pair_act=pair_act,
+        pair_mask=pair_mask)
 
     if not self.is_extra_msa:
       attn_mod = MSAColumnAttention(

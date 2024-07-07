@@ -105,7 +105,7 @@ def get_pae(outputs):
   bin_centers = jnp.append(bin_centers,bin_centers[-1]+step)
   return (prob*bin_centers).sum(-1)
 
-def get_ptm(inputs, outputs, interface=False, invert=False):
+def get_ptm(inputs, outputs, interface=False):
   pae = {"residue_weights":inputs["seq_mask"],
          **outputs["predicted_aligned_error"]}
   if interface:
@@ -114,7 +114,7 @@ def get_ptm(inputs, outputs, interface=False, invert=False):
   else:
     if "asym_id" in pae:
       pae.pop("asym_id")
-  return confidence.predicted_tm_score(**pae, use_jnp=True, invert=invert)
+  return confidence.predicted_tm_score(**pae, use_jnp=True)
   
 def get_dgram_bins(outputs):
   dgram = outputs["distogram"]["logits"]
@@ -477,9 +477,11 @@ def get_ifptm(af):
 
     # Initialize seq_mask to all False
     inputs_ifptm = {}
+    input_pairwise_iptm = {}
+    pairwise_iptm = {}
 
     # Prepare a dictionary to collect results
-    if_ptm_results = {}
+    pairwise_if_ptm = {}
     chain_starts_ends = get_chain_indices(af._inputs['asym_id'])
 
     # Generate chain labels (A, B, C, ...)
@@ -490,8 +492,9 @@ def get_ifptm(af):
         for j, (start_j, end_j) in enumerate(chain_starts_ends):
             chain_label_j = chain_labels[j % len(chain_labels)]  # Wrap around if more than 26 chains
             if i < j:  # Avoid self-comparison and duplicate comparisons
+                outputs = deepcopy(af.aux['debug']['outputs'])
                 contacts = np.where(cmap[start_i:end_i+1, start_j:end_j+1] >= 0.6)
-                if_ptm_key = f"{chain_label_i}-{chain_label_j}"
+                key = f"{chain_label_i}-{chain_label_j}"
                 
                 if contacts[0].size > 0:  # If there are contacts
                     # Convert local chain positions back to global positions using JAX
@@ -501,15 +504,22 @@ def get_ifptm(af):
                     global_positions = np.array(global_positions, dtype=int)
                     global_positions.sort()
                     
-                    outputs = deepcopy(af.aux['debug']['outputs'])
                     # Initialize new input dictionary
                     inputs_ifptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
                     inputs_ifptm['asym_id'] = af._inputs['asym_id']
                     # Update seq_mask for these positions to True within inputs
                     inputs_ifptm['seq_mask'][global_positions] = 1                
                     # Call get_ptm with updated inputs and outputs
-                    if_ptm_results[if_ptm_key] = get_ptm(inputs_ifptm, outputs, interface=True)
+                    pairwise_if_ptm[key] = get_ptm(inputs_ifptm, outputs, interface=True)
                 else:
-                    if_ptm_results[if_ptm_key] = 35
+                    pairwise_if_ptm[key] = 0
+                
+                # Also adding regular i_ptm, pairwise
+                outputs = deepcopy(af.aux['debug']['outputs'])
+                input_pairwise_iptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
+                input_pairwise_iptm['asym_id'] = af._inputs['asym_id']
+                input_pairwise_iptm['seq_mask'][np.concatenate((np.arange(start_i,end_i+1), 
+                                                               np.arange(start_j,end_j+1)))] = 1  
+                pairwise_iptm[key] = get_ptm(input_pairwise_iptm, outputs, interface=True)
 
-    return if_ptm_results
+    return pairwise_if_ptm, pairwise_iptm

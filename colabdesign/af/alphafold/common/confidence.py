@@ -111,7 +111,7 @@ def compute_predicted_aligned_error(logits, breaks, use_jnp=False):
   }
 
 def predicted_tm_score(logits, breaks, residue_weights = None,
-    asym_id = None, use_jnp=False, invert=True):
+    asym_id = None, use_jnp=False, pair_mask=None):
   """Computes predicted TM alignment or predicted interface TM alignment score.
 
   Args:
@@ -122,6 +122,7 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
       expectation.
     asym_id: [num_res] the asymmetric unit ID - the chain ID. Only needed for
       ipTM calculation.
+    pair_mask: [num_res, num_res] as custom mask for ptm calculation, e.g. for if_ptm
 
   Returns:
     ptm_score: The predicted TM alignment or the predicted iTM score.
@@ -155,10 +156,12 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
   # E_distances tm(distance).
   predicted_tm_term = (probs * tm_per_bin).sum(-1)
 
-  if asym_id is None:
-    pair_mask = _np.full((num_res,num_res),True)
-  else:
-    pair_mask = asym_id[:, None] != asym_id[None, :]
+  # If pair_mask is provided (e.g. for if_ptm), it should not be overwritten
+  if pair_mask is None:
+    if asym_id is None:
+      pair_mask = _np.full((num_res,num_res),True)
+    else:
+      pair_mask = asym_id[:, None] != asym_id[None, :]
 
   predicted_tm_term *= pair_mask
   pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])

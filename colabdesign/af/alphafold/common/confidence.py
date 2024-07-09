@@ -111,7 +111,7 @@ def compute_predicted_aligned_error(logits, breaks, use_jnp=False):
   }
 
 def predicted_tm_score(logits, breaks, residue_weights = None,
-    asym_id = None, use_jnp=False, normed_residue_mask=None):
+    asym_id = None, use_jnp=False, pair_residue_weights=None):
   """Computes predicted TM alignment or predicted interface TM alignment score.
 
   Args:

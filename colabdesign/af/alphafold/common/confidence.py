@@ -111,7 +111,7 @@ def compute_predicted_aligned_error(logits, breaks, use_jnp=False):
   }
 
 def predicted_tm_score(logits, breaks, residue_weights = None,
-    asym_id = None, use_jnp=False, pair_mask=None):
+    asym_id = None, use_jnp=False, pair_residue_weights=None):
   """Computes predicted TM alignment or predicted interface TM alignment score.
 
   Args:
@@ -156,15 +156,18 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
   # E_distances tm(distance).
   predicted_tm_term = (probs * tm_per_bin).sum(-1)
 
-  # If pair_mask is provided (e.g. for if_ptm), it should not be overwritten
-  if pair_mask is None:
-    if asym_id is None:
-      pair_mask = _np.full((num_res,num_res),True)
-    else:
-      pair_mask = asym_id[:, None] != asym_id[None, :]
+
+  if asym_id is None:
+    pair_mask = _np.full((num_res,num_res),True)
+  else:
+    pair_mask = asym_id[:, None] != asym_id[None, :]
 
   predicted_tm_term *= pair_mask
-  pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
+
+  # If pair_residue_weights is provided (e.g. for if_ptm with contact probabilities), 
+  # it should not be overwritten
+  if pair_residue_weights is None:
+    pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
   normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
   per_alignment = (predicted_tm_term * normed_residue_mask).sum(-1)
   return (per_alignment * residue_weights).max()

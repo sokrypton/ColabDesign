@@ -532,7 +532,7 @@ def get_pairwise_iptm(af, calculate_interface=False):
                     pae = {"residue_weights":inputs_ifptm["seq_mask"],
                     **outputs["predicted_aligned_error"]}
                     pae["asym_id"] = inputs_ifptm["asym_id"]
-                    pairwise_if_ptm[key] = confidence.predicted_tm_score(**pae, use_jnp=True, pair_mask=cmap_copy)
+                    pairwise_if_ptm[key] = confidence.predicted_tm_score(**pae, use_jnp=True, pair_residue_weights=cmap_copy)
                 
                 # Also adding regular i_ptm (interchain), pairwise
                 outputs = deepcopy(af.aux['debug']['outputs'])

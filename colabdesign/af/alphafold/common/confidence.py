@@ -122,7 +122,7 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
       expectation.
     asym_id: [num_res] the asymmetric unit ID - the chain ID. Only needed for
       ipTM calculation.
-    normed_residue_mask: [num_res, num_res] a custom, normalized mask for ptm calculation, e.g. for if_ptm
+    pair_residue_weights: [num_res, num_res] unnormalized weights for ifptm calculation
 
   Returns:
     ptm_score: The predicted TM alignment or the predicted iTM score.
@@ -165,8 +165,8 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
 
   # If normed_residue_mask is provided (e.g. for if_ptm with contact probabilities), 
   # it should not be overwritten
-  if normed_residue_mask is None:
+  if pair_residue_weights is None:
     pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
-    normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
+  normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
   per_alignment = (predicted_tm_term * normed_residue_mask).sum(-1)
   return (per_alignment * residue_weights).max()

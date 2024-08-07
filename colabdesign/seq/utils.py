@@ -24,7 +24,7 @@ def parse_fasta(filename, a3m=False, stop=100000):
         else:
           header.append(line[1:])
           sequence.append([])
-      else:
+      elif len(sequence) > 0:
         if a3m: line = line.translate(rm_lc)
         else: line = line.upper()
         sequence[-1].append(line)

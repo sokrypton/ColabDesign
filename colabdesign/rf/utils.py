@@ -203,16 +203,32 @@ def get_Ls(contigs):
     Ls.append(L)
   return Ls
 
-def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0, dpi=100):
+def nankabsch(a,b,**kwargs):
+  ok = np.isfinite(a).all(axis=1) & np.isfinite(b).all(axis=1)
+  a,b = a[ok],b[ok]
+  return _np_kabsch(a,b,**kwargs)
+
+def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0,
+                   align_to_ref=False, verbose=False, dpi=100):
   if plddt is None:
     plddt = [None] * len(pos)
 
   # center inputs
-  pos = pos - pos[ref,None].mean(1,keepdims=True)
+  pos = pos - pos[ref].mean(0)
 
   # align to best view
   best_view = _np_kabsch(pos[ref], pos[ref], return_v=True, use_jax=False)
-  pos = np.asarray([p @ best_view for p in pos])
+  if align_to_ref:
+    pos[ref] = pos[ref] @ best_view
+    # align to reference position
+    new_pos = []
+    for p in pos:
+      p_mu = p.mean(0)
+      aln = _np_kabsch(p-p_mu, pos[ref], use_jax=False)
+      new_pos.append((p-p_mu) @ aln)
+    pos = np.asarray(new_pos)
+  else:
+    pos = np.asarray([p @ best_view for p in pos])
 
   fig, (ax1) = plt.subplots(1)
   fig.set_figwidth(5)
@@ -230,7 +246,8 @@ def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0, dpi=100):
     ax.axis(False)
 
   ims=[]
-  for pos_,plddt_ in zip(pos,plddt):
+  for k,(pos_,plddt_) in enumerate(zip(pos,plddt)):
+    text = f"{k}"
     if plddt_ is None:
       if Ls is None:
         img = plot_pseudo_3D(pos_, ax=ax1, line_w=line_w, zmin=z_min, zmax=z_max)
@@ -239,7 +256,13 @@ def make_animation(pos, plddt=None, Ls=None, ref=0, line_w=2.0, dpi=100):
         img = plot_pseudo_3D(pos_, c=c, cmap=pymol_cmap, cmin=0, cmax=39, line_w=line_w, ax=ax1, zmin=z_min, zmax=z_max)
     else:
       img = plot_pseudo_3D(pos_, c=plddt_, cmin=50, cmax=90, line_w=line_w, ax=ax1, zmin=z_min, zmax=z_max)    
-    ims.append([img])
+      text += f" pLDDT={plddt_.mean():.1f}"
+    if verbose:
+      txt = plt.text(0.5, 1.01, text, horizontalalignment='center',
+        verticalalignment='bottom', transform=ax.transAxes)
+      ims.append([img,txt])
+    else:
+      ims.append([img])
     
   ani = animation.ArtistAnimation(fig, ims, blit=True, interval=120)
   plt.close()

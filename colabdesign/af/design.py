@@ -3,7 +3,9 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from colabdesign.af.alphafold.common import residue_constants
+from colabdesign.af.utils import dgram_from_positions
 from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, to_float, softmax, categorical, to_list, copy_missing
+
 
 ####################################################
 # AF_DESIGN - design functions
@@ -22,7 +24,6 @@ from colabdesign.shared.utils import copy_dict, update_dict, Key, dict_to_str, t
 ####################################################
 
 class _af_design:
-
   def restart(self, seed=None, opt=None, weights=None,
               seq=None, mode=None, keep_history=False, reset_opt=True, **kwargs):   
     '''
@@ -52,6 +53,8 @@ class _af_design:
     self.set_weights(weights)
   
     # initialize sequence
+    if mode is None and not self._args["optimize_seq"]:
+      mode = "wildtype"
     self.set_seed(seed)
     self.set_seq(seq=seq, mode=mode, **kwargs)
 
@@ -112,19 +115,22 @@ class _af_design:
     self.aux["log"] = {**self.aux["losses"]}
     self.aux["log"]["plddt"] = 1 - self.aux["log"]["plddt"]
     for k in ["loss","i_ptm","ptm"]: self.aux["log"][k] = self.aux[k]
-    for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
-    # compute sequence recovery
-    if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
-      if self.protocol == "partial":
-        aatype = self.aux["aatype"][...,self.opt["pos"]]
-      else:
-        aatype = self.aux["seq"]["pseudo"].argmax(-1)
+    if self._args["optimize_seq"]:
+      # keep track of sequence mode
+      for k in ["hard","soft","temp"]: self.aux["log"][k] = self.opt[k]
 
-      mask = self._wt_aatype != -1
-      true = self._wt_aatype[mask]
-      pred = aatype[...,mask]
-      self.aux["log"]["seqid"] = (true == pred).mean()
+      # compute sequence recovery
+      if self.protocol in ["fixbb","partial"] or (self.protocol == "binder" and self._args["redesign"]):
+        if self.protocol == "partial":
+          aatype = self.aux["aatype"][...,self.opt["pos"]]
+        else:
+          aatype = self.aux["seq"]["pseudo"].argmax(-1)
+
+        mask = self._wt_aatype != -1
+        true = self._wt_aatype[mask]
+        pred = aatype[...,mask]
+        self.aux["log"]["seqid"] = (true == pred).mean()
 
     self.aux["log"] = to_float(self.aux["log"])
     self.aux["log"].update({"recycles":int(self.aux["num_recycles"]),
@@ -158,27 +164,45 @@ class _af_design:
     else:
       L = self._inputs["residue_index"].shape[0]
       
-      # intialize previous
+      # intialize previous inputs
       if "prev" not in self._inputs or a["clear_prev"]:
         prev = {'prev_msa_first_row': np.zeros([L,256]),
-                'prev_pair': np.zeros([L,L,128])}
+                'prev_pair': np.zeros([L,L,128])}          
+        
+        # initialize coordinates
+        # TODO: add support for the 'partial' protocol
+        if "batch" in self._inputs:
+          ini_seq = self._inputs["batch"]["aatype"]
+          ini_pos = self._inputs["batch"]["all_atom_positions"]
 
-        if a["use_initial_guess"] and "batch" in self._inputs:
-          prev["prev_pos"] = self._inputs["batch"]["all_atom_positions"] 
-        else:
-          prev["prev_pos"] = np.zeros([L,37,3])
-
-        if a["use_dgram"]:
-          # TODO: add support for initial_guess + use_dgram
-          prev["prev_dgram"] = np.zeros([L,L,64])
-
-        if a["use_initial_atom_pos"]:
-          if "batch" in self._inputs:
-            self._inputs["initial_atom_pos"] = self._inputs["batch"]["all_atom_positions"] 
+          # via evoformer
+          if a["use_initial_guess"]:
+            # via distogram or positions
+            if a["use_dgram"] or a["use_dgram_pred"]:
+              prev["prev_dgram"] = dgram_from_positions(positions=ini_pos,
+                seq=ini_seq, num_bins=15, min_bin=3.25, max_bin=20.75)
+            else:
+              prev["prev_pos"] = ini_pos              
           else:
+            if a["use_dgram"] or a["use_dgram_pred"]:
+              prev["prev_dgram"] = np.zeros([L,L,15])
+            else:
+              prev["prev_pos"] = np.zeros([L,37,3])            
+
+          # via structure module
+          if a["use_initial_atom_pos"]:
+            self._inputs["initial_atom_pos"] = ini_pos
+        
+        else:
+          # if batch not defined, initialize with zeros
+          if a["use_dgram"] or a["use_dgram_pred"]:
+            prev["prev_dgram"] = np.zeros([L,L,15])
+          else:
+            prev["prev_pos"] = np.zeros([L,37,3])            
+          if a["use_initial_atom_pos"]:
             self._inputs["initial_atom_pos"] = np.zeros([L,37,3])              
       
-      self._inputs["prev"] = prev
+        self._inputs["prev"] = prev
       # decide which layers to compute gradients for
       cycles = (num_recycles + 1)
       mask = [0] * cycles
@@ -196,9 +220,11 @@ class _af_design:
         else:
           aux = self._single(model_params, backprop)
           grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
+        
+        # update previous inputs
         self._inputs["prev"] = aux["prev"]
         if a["use_initial_atom_pos"]:
-          self._inputs["initial_atom_pos"] = aux["prev"]["prev_pos"]                
+          self._inputs["initial_atom_pos"] = aux["atom_positions"]
 
       aux["grad"] = jax.tree_map(lambda *x: np.stack(x).sum(0), *grad)
     
@@ -214,8 +240,9 @@ class _af_design:
     self.run(num_recycles=num_recycles, num_models=num_models, sample_models=sample_models,
              models=models, backprop=backprop, callback=callback)
 
-    # modify gradients    
-    if self.opt["norm_seq_grad"]: self._norm_seq_grad()
+    # modify gradients
+    if self._args["optimize_seq"] and self.opt["norm_seq_grad"]:
+      self._norm_seq_grad()
     self._state, self.aux["grad"] = self._optimizer(self._state, self.aux["grad"], self._params)
   
     # apply gradients
@@ -248,15 +275,22 @@ class _af_design:
                     verbose=True):
     if aux is None: aux = self.aux    
     self._tmp["log"].append(aux["log"])    
+
+    # update traj
     if (self._k % self._args["traj_iter"]) == 0:
-      # update traj
-      traj = {"seq":   aux["seq"]["pseudo"],
-              "xyz":   aux["atom_positions"][:,1,:],
+      traj = {"xyz":   aux["atom_positions"][:,1,:],
               "plddt": aux["plddt"],
               "pae":   aux["pae"]}
+      if self._args["optimize_seq"]:
+        traj["seq"] = aux["seq"]["pseudo"]
+      else:
+        traj["seq"] = self._inputs["msa_feat"][...,:20]
+              
       for k,v in traj.items():
+        # rm traj (if max number reached)
         if len(self._tmp["traj"][k]) == self._args["traj_max"]:
           self._tmp["traj"][k].pop(0)
+        # add traj
         self._tmp["traj"][k].append(v)
 
     # save best
@@ -279,15 +313,10 @@ class _af_design:
               return_aux=False, verbose=True,  seed=None, **kwargs):
     '''predict structure for input sequence (if provided)'''
 
-    def load_settings():    
-      if "save" in self._tmp:
-        [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
-
-    def save_settings():
-      load_settings()
-      self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
-
-    save_settings()
+    # save current settings
+    if "save" in self._tmp:
+      [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
+    self._tmp["save"] = [copy_dict(x) for x in [self.opt, self._args, self._params, self._inputs]]
 
     # set seed if defined
     if seed is not None: self.set_seed(seed)
@@ -295,14 +324,14 @@ class _af_design:
     # set [seq]uence/[opt]ions
     if seq is not None: self.set_seq(seq=seq, bias=bias)    
     self.set_opt(hard=hard, soft=soft, temp=temp, dropout=dropout, pssm_hard=True)
-    self.set_args(shuffle_first=False)
     
     # run
     self.run(num_recycles=num_recycles, num_models=num_models,
              sample_models=sample_models, models=models, backprop=False, **kwargs)
     if verbose: self._print_log("predict")
 
-    load_settings()
+    # load previous settings
+    [self.opt, self._args, self._params, self._inputs] = self._tmp.pop("save")
 
     # return (or save) results
     if return_aux: return self.aux

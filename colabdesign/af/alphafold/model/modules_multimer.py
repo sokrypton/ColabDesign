@@ -111,10 +111,8 @@ class AlphaFoldIteration(hk.Module):
       self.heads[head_name] = (head_config,
                                head_factory(head_config, self.global_config))
 
-    structure_module_output = None
-    if 'entity_id' in batch and 'all_atom_positions' in batch:
-      _, fold_module = self.heads['structure_module']
-      structure_module_output = fold_module(representations, batch)
+    _, fold_module = self.heads['structure_module']
+    structure_module_output = fold_module(representations, batch)
 
 
     ret = {}
@@ -178,12 +176,23 @@ class AlphaFold(hk.Module):
     assert isinstance(batch, dict)
     num_res = batch['aatype'].shape[0]
     
-    def get_prev(ret):
+    def get_prev(ret, use_dgram=False):
       new_prev = {
-          'prev_pos': ret['structure_module']['final_atom_positions'],
           'prev_msa_first_row': ret['representations']['msa_first_row'],
           'prev_pair': ret['representations']['pair'],
       }
+      if use_dgram:
+        if self.global_config.use_dgram_pred:
+          dgram = jax.nn.softmax(ret["distogram"]["logits"])
+          dgram_map = jax.nn.one_hot(jnp.repeat(jnp.append(0,jnp.arange(15)),4),15).at[:,0].set(0)
+          new_prev['prev_dgram'] = dgram @ dgram_map
+        else:
+          pos = ret['structure_module']['final_atom_positions']
+          prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], pos, None)
+          new_prev['prev_dgram'] = modules.dgram_from_positions(prev_pseudo_beta, min_bin=3.25, max_bin=20.75, num_bins=15)
+      else:
+        new_prev['prev_pos'] = ret['structure_module']['final_atom_positions']
+
       return new_prev
 
     def apply_network(prev, safe_key):
@@ -191,9 +200,10 @@ class AlphaFold(hk.Module):
       return impl(
           batch=recycled_batch,
           safe_key=safe_key)
-        
-    ret = apply_network(prev=batch.pop("prev"), safe_key=safe_key)
-    ret["prev"] = get_prev(ret)
+    
+    prev = batch.pop("prev")
+    ret = apply_network(prev=prev, safe_key=safe_key)
+    ret["prev"] = get_prev(ret, use_dgram="prev_dgram" in prev)
     
     if not return_representations:
       del ret['representations']
@@ -315,8 +325,12 @@ class EmbeddingsAndEvoformer(hk.Module):
       mask_2d = mask_2d.astype(dtype)
 
       if c.recycle_pos:
-        prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
-        dgram = modules.dgram_from_positions(prev_pseudo_beta, **self.config.prev_pos)
+        if "prev_dgram" in batch:
+          dgram = batch["prev_dgram"]
+        else:        
+          prev_pseudo_beta = modules.pseudo_beta_fn(batch['aatype'], batch['prev_pos'], None)
+          dgram = modules.dgram_from_positions(prev_pseudo_beta, **self.config.prev_pos)
+        
         dgram = dgram.astype(dtype)
         pair_activations += common_modules.Linear(c.pair_channel, name='prev_pos_linear')(dgram)
 

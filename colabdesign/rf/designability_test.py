@@ -124,7 +124,7 @@ def main(argv):
     batch_size = o.num_seqs
   
   print("running proteinMPNN...")
-  sampling_temp = 0.1
+  sampling_temp = o.mpnn_sampling_temp
   mpnn_model = mk_mpnn_model(weights="soluble" if o.use_soluble else "original")
   outs = []
   pdbs = []

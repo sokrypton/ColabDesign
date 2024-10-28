@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import jax
 import scipy
 
-
 """ Functions to calculate interface metrics on actual interfaces"""
+
 
 def get_chain_indices(chain_boundaries):
     """Returns a list of tuples indicating the start and end indices for each chain."""
@@ -21,7 +21,7 @@ def get_chain_indices(chain_boundaries):
 
 
 def predicted_tm_score_modified(logits, breaks, residue_weights=None,
-                       asym_id=None, use_jnp=False, pair_residue_weights=None):
+                                asym_id=None, use_jnp=False, pair_residue_weights=None):
     """Computes predicted TM alignment or predicted interface TM alignment score.
 
     Args:
@@ -62,30 +62,46 @@ def predicted_tm_score_modified(logits, breaks, residue_weights=None,
 
     # TM-Score term for every bin.
     tm_per_bin = 1. / (1 + _np.square(bin_centers) / _np.square(d0))
-
+    import seaborn as sns
+    import matplotlib.pyplot as plt
     # E_distances tm(distance).
     predicted_tm_term = (probs * tm_per_bin).sum(-1)
+    sns.heatmap(predicted_tm_term)
+    plt.title('predicted_tm_term')
+    plt.show()
 
+    print(asym_id)
     if asym_id is None:
         pair_mask = _np.full((num_res, num_res), True)
     else:
         pair_mask = asym_id[:, None] != asym_id[None, :]
-
+    sns.heatmap(pair_mask)
+    plt.title('pair_mask')
+    plt.show()
     predicted_tm_term *= pair_mask
+    sns.heatmap(predicted_tm_term)
+    plt.title('predicted_tm_term2')
+    plt.show()
 
     # If pair_residue_weights is provided (e.g. for if_ptm with contact probabilities),
     # it should not be overwritten
     if pair_residue_weights is None:
         pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
     normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
+
+    sns.heatmap(normed_residue_mask)
+    plt.show()
+    sns.heatmap(pair_mask)
+    plt.show()
     per_alignment = (predicted_tm_term * normed_residue_mask).sum(-1)
 
     return (per_alignment * residue_weights).max()
 
+
 def get_ptm_modified(inputs, outputs, interface=False):
     """ This function is the same as in the original AF2, just calls a modified TM-score calculation function."""
 
-    pae = {"residue_weights":inputs["seq_mask"], **outputs["predicted_aligned_error"]}
+    pae = {"residue_weights": inputs["seq_mask"], **outputs["predicted_aligned_error"]}
 
     if interface:
         if "asym_id" not in pae:
@@ -133,7 +149,7 @@ def get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j):
            **outputs["predicted_aligned_error"],
            "asym_id": inputs_ifptm["asym_id"]}
     ifptm_probs = round(float(predicted_tm_score_modified(**pae, use_jnp=True,
-                                                    pair_residue_weights=cmap_copy)), 3)
+                                                          pair_residue_weights=cmap_copy)), 3)
 
     return ifptm_probs
 
@@ -193,7 +209,37 @@ def get_pairwise_iptm(af, start_i, end_i, start_j, end_j):
     input_pairwise_iptm['seq_mask'][np.concatenate((np.arange(start_i, end_i + 1),
                                                     np.arange(start_j, end_j + 1)))] = 1
 
-    return get_ptm_modified(input_pairwise_iptm, outputs, interface=True)
+    return round(float(get_ptm_modified(input_pairwise_iptm, outputs, interface=True)), 3)
+
+
+def get_per_chain_ptm(af, cmap, start, end):
+    """
+    Calculates the chain PTM score for a specified interface region, using contact probabilities.
+
+    Args:
+        af: AlphaFold object
+        cmap: Contact map
+        start: Start index of the interface region
+        end: End index of the interface region
+
+    Returns:
+        cpTM: Chain pTM score
+    """
+    # Extract only the relevant subset of the contact map
+    cmap_subset = cmap[start:end + 1, start:end + 1]
+
+    # Extract only the relevant subset of the logits map
+    pae_copy = deepcopy(af.aux['debug']['outputs'])["predicted_aligned_error"]
+    pae_copy['logits'] = pae_copy['logits'][start:end + 1, start:end + 1, :]
+
+    # Prepare inputs for the modified predicted_tm_score function
+    pae_copy['residue_weights'] = np.zeros(end - start + 1, dtype=float)
+    del (pae_copy['asym_id'])
+
+    # Calculate and return chain PTM score
+    cptm_probs = round(float(predicted_tm_score_modified(**pae_copy, use_jnp=True)), 3)
+
+    return cptm_probs
 
 
 def get_pairwise_interface_metrics(af, calculate_interface=False):
@@ -212,6 +258,7 @@ def get_pairwise_interface_metrics(af, calculate_interface=False):
     # Prepare a dictionary to collect results
     pairwise_ifptm = {}
     pairwise_iptm = {}
+    per_chain_ptm = {}
     chain_starts_ends = get_chain_indices(af._inputs['asym_id'])
 
     # Generate chain labels (A, B, C, ...)
@@ -226,11 +273,14 @@ def get_pairwise_interface_metrics(af, calculate_interface=False):
                 key = f"{chain_label_i}-{chain_label_j}"
 
                 if calculate_interface:
-                    pairwise_ifptm[key] = round(float(get_ifptm_contacts(af, cmap, start_i, end_i, start_j, end_j)), 3)
+                    pairwise_ifptm[key] = get_ifptm_contacts(af, cmap, start_i, end_i, start_j, end_j)
                 else:
-                    pairwise_ifptm[key] = round(float(get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j)), 3)
+                    pairwise_ifptm[key] = get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j)
 
                 # Also add regular i_ptm (interchain), pairwise
-                pairwise_iptm[key] = round(float(get_pairwise_iptm(af, start_i, end_i, start_j, end_j)), 3)
+                pairwise_iptm[key] = get_pairwise_iptm(af, start_i, end_i, start_j, end_j)
 
-    return pairwise_ifptm, pairwise_iptm
+        # Also calculate pTM score for single chain
+        per_chain_ptm[chain_label_i] = get_per_chain_ptm(af, cmap, start_i, end_i)
+
+    return pairwise_ifptm, pairwise_iptm, per_chain_ptm

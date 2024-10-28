@@ -66,22 +66,13 @@ def predicted_tm_score_modified(logits, breaks, residue_weights=None,
     import matplotlib.pyplot as plt
     # E_distances tm(distance).
     predicted_tm_term = (probs * tm_per_bin).sum(-1)
-    sns.heatmap(predicted_tm_term)
-    plt.title('predicted_tm_term')
-    plt.show()
 
-    print(asym_id)
     if asym_id is None:
         pair_mask = _np.full((num_res, num_res), True)
     else:
         pair_mask = asym_id[:, None] != asym_id[None, :]
-    sns.heatmap(pair_mask)
-    plt.title('pair_mask')
-    plt.show()
+
     predicted_tm_term *= pair_mask
-    sns.heatmap(predicted_tm_term)
-    plt.title('predicted_tm_term2')
-    plt.show()
 
     # If pair_residue_weights is provided (e.g. for if_ptm with contact probabilities),
     # it should not be overwritten
@@ -89,10 +80,6 @@ def predicted_tm_score_modified(logits, breaks, residue_weights=None,
         pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
     normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
 
-    sns.heatmap(normed_residue_mask)
-    plt.show()
-    sns.heatmap(pair_mask)
-    plt.show()
     per_alignment = (predicted_tm_term * normed_residue_mask).sum(-1)
 
     return (per_alignment * residue_weights).max()
@@ -233,7 +220,7 @@ def get_per_chain_ptm(af, cmap, start, end):
     pae_copy['logits'] = pae_copy['logits'][start:end + 1, start:end + 1, :]
 
     # Prepare inputs for the modified predicted_tm_score function
-    pae_copy['residue_weights'] = np.zeros(end - start + 1, dtype=float)
+    pae_copy['residue_weights'] = np.ones(end - start + 1, dtype=float)
     del (pae_copy['asym_id'])
 
     # Calculate and return chain PTM score

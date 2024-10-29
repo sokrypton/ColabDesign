@@ -32,7 +32,7 @@ def predicted_tm_score_modified(logits, breaks, residue_weights=None,
         expectation.
       asym_id: [num_res] the asymmetric unit ID - the chain ID. Only needed for
         ipTM calculation.
-      pair_residue_weights: [num_res, num_res] unnormalized weights for ifptm calculation
+      pair_residue_weights: [num_res, num_res] unnormalized weights for actifptm calculation
 
     Returns:
       ptm_score: The predicted TM alignment or the predicted iTM score.
@@ -100,7 +100,7 @@ def get_ptm_modified(inputs, outputs, interface=False):
     return predicted_tm_score_modified(**pae, use_jnp=True)
 
 
-def get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j):
+def get_actifptm_probs(af, cmap, start_i, end_i, start_j, end_j):
     """
     This function calculates the interface PTM score for a given interface, taking into account the contact probabilities, not binary contacts.
 
@@ -111,13 +111,13 @@ def get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j):
         start_j, end_j: Start and end indices of the second chain
 
     Returns:
-        ifptm: Interface pTM score
+        actifptm: Interface pTM score
         ipTM: Interchain pTM score
     """
 
     total_length = len(af._inputs['asym_id'])
     outputs = deepcopy(af.aux['debug']['outputs'])
-    inputs_ifptm = {}
+    inputs_actifptm = {}
 
     # Create a new matrix, which contains only the contacts between the two chains
     cmap_copy = np.zeros((total_length, total_length))
@@ -125,23 +125,23 @@ def get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j):
     cmap_copy[start_j:end_j + 1, start_i:end_i + 1] = cmap[start_j:end_j + 1, start_i:end_i + 1]
 
     # Initialize new input dictionary
-    inputs_ifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
-    inputs_ifptm['asym_id'] = af._inputs['asym_id']
+    inputs_actifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
+    inputs_actifptm['asym_id'] = af._inputs['asym_id']
     # Update seq_mask for these positions to True within inputs
-    inputs_ifptm['seq_mask'][np.concatenate((np.arange(start_i, end_i + 1),
+    inputs_actifptm['seq_mask'][np.concatenate((np.arange(start_i, end_i + 1),
                                              np.arange(start_j, end_j + 1)))] = 1
 
     # Call get_ptm with updated inputs and outputs
-    pae = {"residue_weights": inputs_ifptm["seq_mask"],
+    pae = {"residue_weights": inputs_actifptm["seq_mask"],
            **outputs["predicted_aligned_error"],
-           "asym_id": inputs_ifptm["asym_id"]}
-    ifptm_probs = round(float(predicted_tm_score_modified(**pae, use_jnp=True,
+           "asym_id": inputs_actifptm["asym_id"]}
+    actifptm_probs = round(float(predicted_tm_score_modified(**pae, use_jnp=True,
                                                           pair_residue_weights=cmap_copy)), 3)
 
-    return ifptm_probs
+    return actifptm_probs
 
 
-def get_ifptm_contacts(af, cmap, start_i, end_i, start_j, end_j):
+def get_actifptm_contacts(af, cmap, start_i, end_i, start_j, end_j):
     """
     This function calculates the interface PTM score for a given interface, taking into account binary contacts.
     In case of no confident contacts, the interface PTM score is set to 0.
@@ -153,12 +153,12 @@ def get_ifptm_contacts(af, cmap, start_i, end_i, start_j, end_j):
         start_j, end_j: Start and end indices of the second chain
 
     Returns:
-        ifptm: Interface pTM score
+        actifptm: Interface pTM score
         ipTM: Interchain pTM score
     """
 
     # Prepare a dictionary to collect the inputs for calculation
-    inputs_ifptm = {}
+    inputs_actifptm = {}
     contacts = np.where(cmap[start_i:end_i + 1, start_j:end_j + 1] >= 0.6)
     total_length = len(af._inputs['asym_id'])
     outputs = deepcopy(af.aux['debug']['outputs'])
@@ -172,16 +172,16 @@ def get_ifptm_contacts(af, cmap, start_i, end_i, start_j, end_j):
         global_positions.sort()
 
         # Initialize new input dictionary
-        inputs_ifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
-        inputs_ifptm['asym_id'] = af._inputs['asym_id']
+        inputs_actifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
+        inputs_actifptm['asym_id'] = af._inputs['asym_id']
         # Update seq_mask for these positions to True within inputs
-        inputs_ifptm['seq_mask'][global_positions] = 1
+        inputs_actifptm['seq_mask'][global_positions] = 1
         # Call get_ptm with updated inputs and outputs
-        ifptm = round(float(get_ptm_modified(inputs_ifptm, outputs, interface=True)), 3)
+        actifptm = round(float(get_ptm_modified(inputs_actifptm, outputs, interface=True)), 3)
     else:
-        ifptm = 0
+        actifptm = 0
 
-    return ifptm
+    return actifptm
 
 
 def get_pairwise_iptm(af, start_i, end_i, start_j, end_j):
@@ -238,12 +238,12 @@ def get_pairwise_interface_metrics(af, calculate_interface=False):
         calculate_interface: If True, calculate interface pTM score based on contact probabilities. If False, calculate interface pTM score based on binary contacts.
 
     Returns:
-        pairwise_ifptm: Dictionary containing pairwise interface pTM scores
+        pairwise_actifptm: Dictionary containing pairwise interface pTM scores
         pairwise_iptm: Dictionary containing pairwise interchain pTM scores
     """
 
     # Prepare a dictionary to collect results
-    pairwise_ifptm = {}
+    pairwise_actifptm = {}
     pairwise_iptm = {}
     per_chain_ptm = {}
     chain_starts_ends = get_chain_indices(af._inputs['asym_id'])
@@ -260,9 +260,9 @@ def get_pairwise_interface_metrics(af, calculate_interface=False):
                 key = f"{chain_label_i}-{chain_label_j}"
 
                 if calculate_interface:
-                    pairwise_ifptm[key] = get_ifptm_contacts(af, cmap, start_i, end_i, start_j, end_j)
+                    pairwise_actifptm[key] = get_actifptm_contacts(af, cmap, start_i, end_i, start_j, end_j)
                 else:
-                    pairwise_ifptm[key] = get_ifptm_probs(af, cmap, start_i, end_i, start_j, end_j)
+                    pairwise_actifptm[key] = get_actifptm_probs(af, cmap, start_i, end_i, start_j, end_j)
 
                 # Also add regular i_ptm (interchain), pairwise
                 pairwise_iptm[key] = get_pairwise_iptm(af, start_i, end_i, start_j, end_j)
@@ -270,4 +270,4 @@ def get_pairwise_interface_metrics(af, calculate_interface=False):
         # Also calculate pTM score for single chain
         per_chain_ptm[chain_label_i] = get_per_chain_ptm(af, cmap, start_i, end_i)
 
-    return pairwise_ifptm, pairwise_iptm, per_chain_ptm
+    return pairwise_actifptm, pairwise_iptm, per_chain_ptm

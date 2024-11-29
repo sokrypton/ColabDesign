@@ -53,7 +53,6 @@ class AlphaFoldIteration(hk.Module):
 
   def __call__(self,
                batch,
-               return_representations=False,
                safe_key=None):
 
 
@@ -139,7 +138,6 @@ class AlphaFold(hk.Module):
   def __call__(
       self,
       batch,
-      return_representations=False,
       safe_key=None):
 
     c = self.config
@@ -182,8 +180,6 @@ class AlphaFold(hk.Module):
     ret = apply_network(prev=prev, safe_key=safe_key)
     ret["prev"] = get_prev(ret, use_dgram="prev_dgram" in prev)
     
-    if not return_representations:
-      del ret['representations']
     return ret
 
 class EmbeddingsAndEvoformer(hk.Module):

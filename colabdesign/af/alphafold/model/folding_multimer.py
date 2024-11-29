@@ -222,7 +222,7 @@ class InvariantPointAttention(hk.Module):
       self,
       inputs_1d: jnp.ndarray,
       inputs_2d: jnp.ndarray,
-      mask: jnp.ndarray,
+      mask_2d: jnp.ndarray,
       rigid: geometry.Rigid3Array,
       ) -> jnp.ndarray:
     """Compute geometric aware attention.
@@ -309,7 +309,6 @@ class InvariantPointAttention(hk.Module):
         num_head, name='attention_2d')(inputs_2d)
     attn_logits += attention_2d
 
-    mask_2d = mask * jnp.swapaxes(mask, -1, -2)
     attn_logits -= 1e5 * (1. - mask_2d[..., None])
 
     attn_logits *= np.sqrt(1. / 3)     # Normalize by number of logit terms (3)
@@ -392,7 +391,7 @@ class FoldIteration(hk.Module):
       self,
       activations: Mapping[str, Any],
       aatype: jnp.ndarray,
-      sequence_mask: jnp.ndarray,
+      mask_2d: jnp.ndarray,
       update_rigid: bool,
       initial_act: jnp.ndarray,
       use_dropout: bool,
@@ -420,7 +419,7 @@ class FoldIteration(hk.Module):
     act += attention_module(
         inputs_1d=act,
         inputs_2d=static_feat_2d,
-        mask=sequence_mask,
+        mask_2d=mask_2d,
         rigid=rigid)
 
     safe_key, *sub_keys = safe_key.split(3)
@@ -497,6 +496,11 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
   """
   c = config
   sequence_mask = batch['seq_mask'][:, None]
+
+  mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
+  if "mask_2d" in batch:
+    mask_2d = jnp.where(batch["mask_2d"],mask_2d,0)
+
   act = common_modules.LayerNorm(
       axis=-1, create_scale=True, create_offset=True, name='single_layer_norm')(
           representations['single'])
@@ -545,7 +549,7 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
           static_feat_2d=act_2d,
           aatype=batch['aatype'],
           safe_key=prng.SafeKey(key),
-          sequence_mask=sequence_mask,
+          mask_2d=mask_2d,
           update_rigid=True,
           use_dropout=batch["use_dropout"])
       return act, out

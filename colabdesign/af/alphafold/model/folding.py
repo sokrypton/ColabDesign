@@ -70,7 +70,11 @@ class InvariantPointAttention(hk.Module):
 
     self.global_config = global_config
 
-  def __call__(self, inputs_1d, inputs_2d, mask, affine):
+  def __call__(self,
+    inputs_1d,
+    inputs_2d,
+    mask_2d,
+    affine):
     """Compute geometry-aware attention.
 
     Given a set of query residues (defined by affines and associated scalar
@@ -215,7 +219,6 @@ class InvariantPointAttention(hk.Module):
     attention_2d = attention_2d_weights * attention_2d
     attn_logits += attention_2d
 
-    mask_2d = mask * jnp.swapaxes(mask, -1, -2)
     attn_logits -= 1e5 * (1. - mask_2d)
 
     # [num_head, num_query_residues, num_target_residues]
@@ -298,7 +301,7 @@ class FoldIteration(hk.Module):
 
   def __call__(self,
                activations,
-               sequence_mask,
+               mask_2d,
                update_affine,
                initial_act,
                use_dropout,
@@ -324,7 +327,7 @@ class FoldIteration(hk.Module):
     attn = attention_module(
         inputs_1d=act,
         inputs_2d=static_feat_2d,
-        mask=sequence_mask,
+        mask_2d=mask_2d,
         affine=affine)
     act += attn
     safe_key, *sub_keys = safe_key.split(3)
@@ -407,6 +410,10 @@ def generate_affines(representations, batch, config, global_config, safe_key):
   c = config
   sequence_mask = batch['seq_mask'][:, None]
 
+  mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
+  if "mask_2d" in batch:
+    mask_2d = jnp.where(batch["mask_2d"],mask_2d,0)
+
   act = common_modules.LayerNorm(
       axis=[-1],
       create_scale=True,
@@ -459,7 +466,7 @@ def generate_affines(representations, batch, config, global_config, safe_key):
         initial_act=initial_act,
         static_feat_2d=act_2d,
         safe_key=prng.SafeKey(key),
-        sequence_mask=sequence_mask,
+        mask_2d=mask_2d,
         update_affine=True,
         aatype=batch['aatype'],
         use_dropout=batch["use_dropout"])

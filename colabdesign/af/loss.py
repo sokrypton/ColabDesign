@@ -455,3 +455,91 @@ def or_masks(*m):
   for n in range(1,len(m)):
     mask = jnp.logical_or(mask,m[n])
   return mask
+
+def numpy_callback(x):
+  # Need to forward-declare the shape & dtype of the expected output.
+  result_shape = jax.core.ShapedArray(x.shape, x.dtype)
+  return jax.pure_callback(np.sin, result_shape, x)
+
+def get_chain_indices(chain_boundaries):
+    """Returns a list of tuples indicating the start and end indices for each chain."""
+    chain_starts_ends = []
+    unique_chains = np.unique(chain_boundaries)
+    for chain in unique_chains:
+        positions = np.where(chain_boundaries == chain)[0]
+        chain_starts_ends.append((positions[0], positions[-1]))
+    return chain_starts_ends
+
+def get_pairwise_iptm(af, calculate_interface=False):
+    import string
+    from copy import deepcopy
+    cmap = get_contact_map(af.aux['debug']['outputs'], 8)  # Define interface with 8A between Cb-s
+
+    # Initialize seq_mask to all False
+    inputs_ifptm = {}
+    input_pairwise_iptm = {}
+    pairwise_iptm = {}
+
+    # Prepare a dictionary to collect results
+    pairwise_if_ptm = {}
+    chain_starts_ends = get_chain_indices(af._inputs['asym_id'])
+
+    # Generate chain labels (A, B, C, ...)
+    chain_labels = list(string.ascii_uppercase)
+
+    total_length = len(af._inputs['asym_id'])
+    for i, (start_i, end_i) in enumerate(chain_starts_ends):
+        chain_label_i = chain_labels[i % len(chain_labels)]  # Wrap around if more than 26 chains
+        for j, (start_j, end_j) in enumerate(chain_starts_ends):
+            chain_label_j = chain_labels[j % len(chain_labels)]  # Wrap around if more than 26 chains
+            if i < j:  # Avoid self-comparison and duplicate comparisons
+                outputs = deepcopy(af.aux['debug']['outputs'])
+                key = f"{chain_label_i}-{chain_label_j}"
+
+                if calculate_interface:
+                  contacts = np.where(cmap[start_i:end_i+1, start_j:end_j+1] >= 0.6)
+                  
+                  if contacts[0].size > 0:  # If there are contacts
+                      # Convert local chain positions back to global positions using JAX
+                      global_i_positions = contacts[0] + start_i
+                      global_j_positions = contacts[1] + start_j
+                      global_positions = list(set(np.concatenate((global_i_positions, global_j_positions))))
+                      global_positions = np.array(global_positions, dtype=int)
+                      global_positions.sort()
+                      
+                      # Initialize new input dictionary
+                      inputs_ifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
+                      inputs_ifptm['asym_id'] = af._inputs['asym_id']
+                      # Update seq_mask for these positions to True within inputs
+                      inputs_ifptm['seq_mask'][global_positions] = 1                
+                      # Call get_ptm with updated inputs and outputs
+                      pairwise_if_ptm[key] = get_ptm(inputs_ifptm, outputs, interface=True)
+                  else:
+                      pairwise_if_ptm[key] = 0
+                else:
+                    cmap_copy = np.zeros((total_length, total_length))
+                    cmap_copy[start_i:end_i+1, start_j:end_j+1] = cmap[start_i:end_i+1, start_j:end_j+1]
+                    cmap_copy[start_j:end_j+1, start_i:end_i+1] = cmap[start_j:end_j+1, start_i:end_i+1]
+                
+                    # Initialize new input dictionary
+                    inputs_ifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
+                    inputs_ifptm['asym_id'] = af._inputs['asym_id']
+                    # Update seq_mask for these positions to True within inputs
+                    inputs_ifptm['seq_mask'][np.concatenate((np.arange(start_i,end_i+1), 
+                                                                    np.arange(start_j,end_j+1)))] = 1
+
+                    # Call get_ptm with updated inputs and outputs
+                    pae = {"residue_weights":inputs_ifptm["seq_mask"],
+                    **outputs["predicted_aligned_error"]}
+                    pae["asym_id"] = inputs_ifptm["asym_id"]
+                    pairwise_if_ptm[key] = confidence.predicted_tm_score(**pae, use_jnp=True, pair_residue_weights=cmap_copy)
+                
+                # Also adding regular i_ptm (interchain), pairwise
+                outputs = deepcopy(af.aux['debug']['outputs'])
+                input_pairwise_iptm['seq_mask'] = np.full(len(af._inputs['asym_id']), 0, dtype=float)
+                input_pairwise_iptm['asym_id'] = af._inputs['asym_id']
+                input_pairwise_iptm['seq_mask'][np.concatenate((np.arange(start_i,end_i+1), 
+                                                               np.arange(start_j,end_j+1)))] = 1  
+                pairwise_iptm[key] = get_ptm(input_pairwise_iptm, outputs, interface=True)
+
+    return pairwise_if_ptm, pairwise_iptm

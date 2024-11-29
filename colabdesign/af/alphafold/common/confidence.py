@@ -111,7 +111,7 @@ def compute_predicted_aligned_error(logits, breaks, use_jnp=False):
   }
 
 def predicted_tm_score(logits, breaks, residue_weights = None,
-    asym_id = None, use_jnp=False):
+    asym_id = None, use_jnp=False, pair_residue_weights=None):
   """Computes predicted TM alignment or predicted interface TM alignment score.
 
   Args:
@@ -122,6 +122,7 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
       expectation.
     asym_id: [num_res] the asymmetric unit ID - the chain ID. Only needed for
       ipTM calculation.
+    pair_residue_weights: [num_res, num_res] unnormalized weights for ifptm calculation
 
   Returns:
     ptm_score: The predicted TM alignment or the predicted iTM score.
@@ -135,23 +136,23 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
   # exp. resolved head's probability.
   if residue_weights is None:
     residue_weights = _np.ones(logits.shape[0])
-
   bin_centers = _calculate_bin_centers(breaks, use_jnp=use_jnp)
   num_res = residue_weights.shape[0]
 
   # Clip num_res to avoid negative/undefined d0.
-  clipped_num_res = _np.maximum(residue_weights.sum(), 19)
+  clipped_num_res = _np.maximum(num_res, 19)
 
   # Compute d_0(num_res) as defined by TM-score, eqn. (5) in Yang & Skolnick
   # "Scoring function for automated assessment of protein structure template
   # quality", 2004: http://zhanglab.ccmb.med.umich.edu/papers/2004_3.pdf
   d0 = 1.24 * (clipped_num_res - 15) ** (1./3) - 1.8
-
+  
   # Convert logits to probs.
   probs = _softmax(logits, axis=-1)
 
   # TM-Score term for every bin.
   tm_per_bin = 1. / (1 + _np.square(bin_centers) / _np.square(d0))
+    
   # E_distances tm(distance).
   predicted_tm_term = (probs * tm_per_bin).sum(-1)
 
@@ -162,8 +163,10 @@ def predicted_tm_score(logits, breaks, residue_weights = None,
 
   predicted_tm_term *= pair_mask
 
-  pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
+  # If normed_residue_mask is provided (e.g. for if_ptm with contact probabilities), 
+  # it should not be overwritten
+  if pair_residue_weights is None:
+    pair_residue_weights = pair_mask * (residue_weights[None, :] * residue_weights[:, None])
   normed_residue_mask = pair_residue_weights / (1e-8 + pair_residue_weights.sum(-1, keepdims=True))
   per_alignment = (predicted_tm_term * normed_residue_mask).sum(-1)
-
   return (per_alignment * residue_weights).max()

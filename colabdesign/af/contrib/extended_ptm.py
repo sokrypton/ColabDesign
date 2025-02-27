@@ -6,6 +6,7 @@ import jax
 import scipy
 import pandas as pd
 import matplotlib.pyplot as plt
+
 import os
 from colabdesign.af.alphafold.common import confidence
 
@@ -41,7 +42,7 @@ def get_chain_indices(asym_id, use_jnp=True):
 
 
 def predicted_tm_score_modified(logits, breaks, residue_weights=None,
-                                asym_id=None, use_jnp=False, pair_residue_weights=None):
+                                asym_id=None, pair_residue_weights=None, use_jnp=False, ):
     """Computes predicted TM alignment or predicted interface TM alignment score.
 
     Args:
@@ -136,26 +137,27 @@ def get_actifptm_probs(result, asym_id, cmap, start_i, end_i, start_j, end_j):
 
     total_length = len(asym_id)
     outputs = deepcopy(result)
-    inputs_actifptm = {}
 
     # Create a new matrix, which contains only the contacts between the two chains
     cmap_copy = np.zeros((total_length, total_length))
     cmap_copy[start_i:end_i + 1, start_j:end_j + 1] = cmap[start_i:end_i + 1, start_j:end_j + 1]
     cmap_copy[start_j:end_j + 1, start_i:end_i + 1] = cmap[start_j:end_j + 1, start_i:end_i + 1]
 
-    # Initialize new input dictionary
-    inputs_actifptm['asym_id'] = asym_id
+    # this is for the full-length actifptm
+    if end_i == end_j == total_length - 1 and start_i == start_j == 0:
+        pair_mask = asym_id[:, None] != asym_id[None, :]
+        cmap_copy *= pair_mask
+
     # Update seq_mask for these positions to True within inputs
-    inputs_actifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
-    inputs_actifptm['seq_mask'][np.concatenate((np.arange(start_i, end_i + 1),
-                                             np.arange(start_j, end_j + 1)))] = 1
-    
+    seq_mask = np.full(total_length, 0, dtype=float)
+    seq_mask[np.concatenate((np.arange(start_i, end_i + 1),
+                             np.arange(start_j, end_j + 1)))] = 1
+
     # Call get_ptm with updated inputs and outputs
-    pae = {"residue_weights": inputs_actifptm["seq_mask"],
+    pae = {"residue_weights": seq_mask,
            **outputs["predicted_aligned_error"],
-           "asym_id": inputs_actifptm["asym_id"]}
-    residuewise_actifptm = predicted_tm_score_modified(**pae, use_jnp=True,
-                                                          pair_residue_weights=cmap_copy)
+           "asym_id": asym_id}
+    residuewise_actifptm = predicted_tm_score_modified(**pae, use_jnp=True, pair_residue_weights=cmap_copy)
 
     return residuewise_actifptm
 
@@ -190,16 +192,17 @@ def get_actifptm_contacts(result, asym_id, cmap, start_i, end_i, start_j, end_j)
         global_positions.sort()
 
         # Initialize new input dictionary
-        inputs_actifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
         inputs_actifptm['asym_id'] = asym_id
-        # Update seq_mask for these positions to True within inputs
+        inputs_actifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
         inputs_actifptm['seq_mask'][global_positions] = 1
+
         # Call get_ptm with updated inputs and outputs
         residuewise_actifptm = get_ptm_modified(inputs_actifptm, outputs, interface=True)
     else:
-        residuewise_actifptm = []
+        residuewise_actifptm = np.array([0.0])
+        inputs_actifptm['seq_mask'] = np.full(total_length, 0, dtype=float)
 
-    return residuewise_actifptm
+    return residuewise_actifptm, inputs_actifptm['seq_mask']
 
 
 def get_pairwise_iptm(result, asym_id, start_i, end_i, start_j, end_j):
@@ -247,24 +250,29 @@ def get_per_chain_ptm(result, cmap, start, end):
     return cptm
 
 
-def get_chain_and_interface_metrics(result, asym_id, use_probs_extended=False, use_jnp=True):
+def get_chain_and_interface_metrics(result, asym_id, use_probs_extra=False, use_jnp=True):
     """
     This function iterates over all pairs of chains and calculates the interface and interchain PTM score for each pair.
 
     Args:
         result: The result from AlphaFold.
         asym_id: Array indicating chain boundaries.
-        use_probs_extended: If True, calculate interface pTM score based on contact probabilities. Default is False.
+        use_probs_extra: If True, calculate interface pTM score based on contact probabilities. Default is False.
         use_jnp: If True, use JAX numpy. Default is True.
     Returns:
         a dictionary with the pairwise interface pTM-s, and the chain-wise pTM.
         returns None for each, if there was an error finding the logits for the pae matrix
     """
+    # this is to deal with the ptm models (af2 monomer)
+    if len(asym_id.shape) > 1:
+      asym_id = asym_id[0]
 
+    full_length = len(asym_id)
     # Prepare dictionaries to collect results
     output = {'pairwise_actifptm': {}, 'pairwise_iptm': {}, 'per_chain_ptm': {}}
     #residuewise_output = {'residuewise_actifptm': {}, 'residuewise_iptm': {}}
     chain_starts_ends = get_chain_indices(asym_id, use_jnp=use_jnp)
+    pair_residue_weights_no_probs = np.zeros((full_length, full_length), dtype=float)
 
     # Generate chain labels (A, B, C, ...)
     chain_labels = list(string.ascii_uppercase)
@@ -279,7 +287,7 @@ def get_chain_and_interface_metrics(result, asym_id, use_probs_extended=False, u
             results['predicted_aligned_error'] = deepcopy(result['pae_matrix_with_logits'])
         else:
             print('There was an error retrieving the predicted aligned error matrix.')
-            return {"pairwise_actifptm": None, "pairwise_iptm": None, "per_chain_ptm": None}
+            return {"pairwise_actifptm": None, "pairwise_iptm": None, "per_chain_ptm": None, 'actifptm': None}
     else:
         results['predicted_aligned_error'] = deepcopy(result['predicted_aligned_error'])
 
@@ -289,15 +297,16 @@ def get_chain_and_interface_metrics(result, asym_id, use_probs_extended=False, u
             chain_label_j = chain_labels[j % len(chain_labels)]  # Wrap around if more than 26 chains
             if i < j:  # Avoid self-comparison and duplicate comparisons
                 key = f"{chain_label_i}-{chain_label_j}"
-
-                if not use_probs_extended:
-                    residuewise_actifptm = get_actifptm_contacts(results, asym_id, cmap, start_i, end_i, start_j, end_j)
+                if not use_probs_extra:
+                    residuewise_actifptm, seq_mask = get_actifptm_contacts(results, asym_id, cmap, start_i, end_i, start_j, end_j)
+                    pair_residue_weights_no_probs += seq_mask[None, :] * seq_mask[:, None]
                     output['pairwise_actifptm'][key] = round(float(residuewise_actifptm.max()), 3)
                     #residuewise_output['residuewise_actifptm'][key] = residuewise_actifptm
                 else:
                     residuewise_actifptm = get_actifptm_probs(results, asym_id, cmap, start_i, end_i, start_j, end_j)
                     output['pairwise_actifptm'][key] = round(float(residuewise_actifptm.max()), 3)
                     #residuewise_output['residuewise_actifptm'][key] = residuewise_actifptm
+
 
                 # Also add regular i_ptm (interchain), pairwise
                 residuewise_iptm = get_pairwise_iptm(results, asym_id, start_i, end_i, start_j, end_j)
@@ -307,7 +316,16 @@ def get_chain_and_interface_metrics(result, asym_id, use_probs_extended=False, u
         # Also calculate pTM score for single chain
         output['per_chain_ptm'][chain_label_i] = get_per_chain_ptm(results, cmap, start_i, end_i)
 
-    # save
+    if not use_probs_extra:
+        # we need to recreate the full matrix from the previously calculated contacts
+        pair_mask = asym_id[:, None] != asym_id[None, :]
+        pair_residue_weights_no_probs *= pair_mask
+        pae = {"residue_weights": np.full(full_length, 1, dtype=float),
+               **results["predicted_aligned_error"],
+               "asym_id": asym_id}
+        output['actifptm'] = round(float(predicted_tm_score_modified(**pae, pair_residue_weights=pair_residue_weights_no_probs).max()), 3)
+    else:
+        output['actifptm'] = round(float(get_actifptm_probs(results, asym_id, cmap, 0, full_length - 1, 0, full_length - 1).max()), 3)
 
     return output
 
@@ -340,8 +358,7 @@ def plot_matrix(actifptm_dict, iptm_dict, cptm_dict, prefix='rank', ax_in=None, 
     mask_lower = np.tril(np.ones(data.shape), k=-1)
     mask_diagonal = np.eye(data.shape[0])
 
-    dyn_size = 11 + (max(5, len(letters)) / 2)  # resize the font with differently sized figures
-
+    dyn_size_ch = max(- 1.5 * len(letters) + 18, 3)   # resize the font with differently sized figures
     # Plot lower triangle (actifpTM)
     ax_in.imshow(np.ma.masked_where(mask_upper + mask_diagonal, data), cmap='Blues', vmax=1, vmin=0)
 
@@ -354,7 +371,7 @@ def plot_matrix(actifptm_dict, iptm_dict, cptm_dict, prefix='rank', ax_in=None, 
 
     # Add colorbar for cpTM (diagonal)
     cbar = plt.colorbar(im, ax=ax_in, fraction=0.046, pad=0.04)
-    cbar.ax.tick_params(labelsize=dyn_size)  # Set fontsize for colorbar labels
+    cbar.ax.tick_params(labelsize=dyn_size_ch)  # Set fontsize for colorbar labels
     cbar.outline.set_edgecolor('grey')
     cbar.outline.set_linewidth(0.5)
 
@@ -364,29 +381,30 @@ def plot_matrix(actifptm_dict, iptm_dict, cptm_dict, prefix='rank', ax_in=None, 
             value = data.iloc[i, j]
             if not mask_upper[i, j] and not mask_diagonal[i, j]:
                 text_color = 'white' if value > 0.8 else 'black'
-                ax_in.text(j, i, f"{value:.2f}", ha='center', va='center', color=text_color, fontsize=dyn_size*1.5)
+                ax_in.text(j, i, f"{value:.2f}", ha='center', va='center', color=text_color, fontsize=dyn_size_ch*1.2)
             elif not mask_lower[i, j] and not mask_diagonal[i, j]:
                 text_color = 'white' if value > 0.8 else 'black'
-                ax_in.text(j, i, f"{value:.2f}", ha='center', va='center', color=text_color, fontsize=dyn_size*1.5)
+                ax_in.text(j, i, f"{value:.2f}", ha='center', va='center', color=text_color, fontsize=dyn_size_ch*1.2)
             elif mask_diagonal[i, j]:
                 text_color = 'white' if value > 0.5 else 'black'
-                ax_in.text(j, i, f"{value:.2f}", ha='center', va='center', color=text_color, fontsize=dyn_size*1.5)
+                ax_in.text(j, i, f"{value:.2f}", ha='center', va='center', color=text_color, fontsize=dyn_size_ch*1.2)
 
     # Custom colored legend (ifpTM, cpTM, ipTM)
     x_start = 0.35
     x_offset = 0.125
-    ax_in.text(0.1, 1.05, prefix, fontsize=dyn_size*1.2, fontweight='bold', color='black', ha='center', transform=ax_in.transAxes)
-    ax_in.text(x_start + x_offset - 0.06, 1.05, 'actifpTM', fontsize=dyn_size*1.2, fontweight='bold', color='darkblue', ha='center', transform=ax_in.transAxes)
-    ax_in.text(x_start + 2 * x_offset, 1.05, ' - ', fontsize=dyn_size*1.2, fontweight='bold', color='black', ha='center', transform=ax_in.transAxes)
-    ax_in.text(x_start + 3 * x_offset, 1.05, 'cpTM', fontsize=dyn_size*1.2, fontweight='bold', color='dimgrey', ha='center', transform=ax_in.transAxes)
-    ax_in.text(x_start + 4 * x_offset, 1.05, ' - ', fontsize=dyn_size*1.2, fontweight='bold', color='black', ha='center', transform=ax_in.transAxes)
-    ax_in.text(x_start + 5 * x_offset, 1.05, 'ipTM', fontsize=dyn_size*1.2, fontweight='bold', color='firebrick', ha='center', transform=ax_in.transAxes)
+    dyn_size = 16
+    ax_in.text(0.1, 1.05, prefix, fontsize=dyn_size, fontweight='bold', color='black', ha='center', transform=ax_in.transAxes)
+    ax_in.text(x_start + x_offset - 0.06, 1.05, 'actifpTM', fontsize=dyn_size, fontweight='bold', color='darkblue', ha='center', transform=ax_in.transAxes)
+    ax_in.text(x_start + 2 * x_offset, 1.05, ' - ', fontsize=dyn_size, fontweight='bold', color='black', ha='center', transform=ax_in.transAxes)
+    ax_in.text(x_start + 3 * x_offset, 1.05, 'cpTM', fontsize=dyn_size, fontweight='bold', color='dimgrey', ha='center', transform=ax_in.transAxes)
+    ax_in.text(x_start + 4 * x_offset, 1.05, ' - ', fontsize=dyn_size, fontweight='bold', color='black', ha='center', transform=ax_in.transAxes)
+    ax_in.text(x_start + 5 * x_offset, 1.05, 'ipTM', fontsize=dyn_size, fontweight='bold', color='firebrick', ha='center', transform=ax_in.transAxes)
 
     # Format labels
     ax_in.set_yticks(np.arange(len(letters)))
-    ax_in.set_yticklabels(letters, rotation=0, fontsize=dyn_size*1.5)
+    ax_in.set_yticklabels(letters, rotation=0, fontsize=dyn_size_ch*1.5)
     ax_in.set_xticks(np.arange(len(letters)))
-    ax_in.set_xticklabels(letters, fontsize=dyn_size*1.5)
+    ax_in.set_xticklabels(letters, fontsize=dyn_size_ch*1.5)
 
     # If this was only one plot, display and save it.
     # If multiple plots have been appended, this needs to be done from the calling function
@@ -414,3 +432,4 @@ def plot_chain_pairwise_analysis(info, prefix='rank_', fig_path="chain_pairwise_
 
     plt.tight_layout()
     plt.savefig(fig_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)

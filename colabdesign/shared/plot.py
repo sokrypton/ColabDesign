@@ -150,6 +150,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
 
   colors[:,:3] = colors[:,:3] + (1 - colors[:,:3]) * (0.50 * z + 0.50 * tint_mask) / 3
   colors[:,:3] = colors[:,:3] * (0.20 + 0.25 * z + 0.55 * shadow_mask)
+  colors = np.clip(colors,0,1)
 
   set_lim = False
   if ax is None:

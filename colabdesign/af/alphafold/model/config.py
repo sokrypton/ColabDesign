@@ -307,7 +307,13 @@ CONFIG = ml_collections.ConfigDict({
             'multimer_mode': False,
             'subbatch_size': 4,
             'use_remat': False,
-            'zero_init': True
+            'zero_init': True,
+            'use_flash_attention': False,
+            'flash': {
+              'num_warps': 2,
+              'block_q': 64,
+              'block_k': 32
+            },
         },
         'heads': {
             'distogram': {
@@ -536,6 +542,12 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
             'subbatch_size': 4,
             'use_remat': False,
             'zero_init': True,
+            'use_flash_attention': False,
+            'flash': {
+              'num_warps': 2,
+              'block_q': 64,
+              'block_k': 32
+            },
             'use_dgram': False
         },
         'heads': {

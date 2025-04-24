@@ -57,7 +57,7 @@ def TrRosetta(bkg_model=False):
     y = x
     for n in [0,1]:
       if n == 1: y = dropout(y, key, rate)
-      p = jax.tree_map(lambda x:x[n], params)
+      p = jax.tree_util.tree_map(lambda x:x[n], params)
       y = conv_2D(y, p, dilation)
       y = instance_norm(y, p)
       y = jax.nn.elu(y if n == 0 else (x+y))
@@ -68,7 +68,7 @@ def TrRosetta(bkg_model=False):
       (x,key) = prev
       for n, dilation in enumerate([1,2,4,8,16]):
         key, sub_key = jax.random.split(key)
-        p = jax.tree_map(lambda x:x[n], sub_params)
+        p = jax.tree_util.tree_map(lambda x:x[n], sub_params)
         x = block(x, p, dilation, sub_key, rate)
       return (x,key), None
     return jax.lax.scan(body,(x,key),params)[0][0]
@@ -111,5 +111,5 @@ def get_model_params(npy):
     steps = min(len(params),len(labels))
     return {labels[n]:np.squeeze(params[n::steps]) for n in range(steps)}
   params = {k:split(xaa[i:i+n]) for k,i,n in zip(layers,idx,num)}
-  params["resnet"] = jax.tree_map(lambda x:x.reshape(-1,5,2,*x.shape[1:]), params["resnet"])
+  params["resnet"] = jax.tree_util.tree_map(lambda x:x.reshape(-1,5,2,*x.shape[1:]), params["resnet"])
   return params 

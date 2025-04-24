@@ -85,7 +85,7 @@ def _kmeans(X, X_weight, n_clusters=8, n_init=10, max_iter=300, tol=1e-4, seed=0
   if n_init > 0:
     out = jax.vmap(single_run)(jax.random.split(key,n_init))
     i = out["inertia"].argmin()
-    out = jax.tree_map(lambda x:x[i],out)
+    out = jax.tree_util.tree_map(lambda x:x[i],out)
   else:
     out = single_run(key)
 
@@ -130,4 +130,4 @@ def kmeans_sample(msa, msa_weights, k=1, samples=None, seed=0):
        "sampled_labels":sampled_labels,
        "sampled_msa":sampled_msa}
   
-  return jax.tree_map(lambda x:np.asarray(x),o)
+  return jax.tree_util.tree_map(lambda x:np.asarray(x),o)

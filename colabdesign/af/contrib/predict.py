@@ -101,7 +101,7 @@ def get_template_feats(pdbs, chains, query_seq, query_a3m=None,
     get_pdb_fn = lambda x:x
   def cat(x):
     if len(x) > 1:
-      return jax.tree_map(lambda *y:np.concatenate(y,0), *x)
+      return jax.tree_util.tree_map(lambda *y:np.concatenate(y,0), *x)
     else:
       return x[0]
   if isinstance(pdbs,str): pdbs = pdbs.split(":")

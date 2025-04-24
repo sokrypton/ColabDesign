@@ -86,8 +86,8 @@ class _af_prep:
           
           pos = prep_pos(seg, **chain_info[chain]["idx"])["pos"]
           seg_len = len(pos)
-          contig_batch.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
-          contig_idx.append(jax.tree_map(lambda x:x[pos], chain_info[chain]["idx"]))
+          contig_batch.append(jax.tree_util.tree_map(lambda x:x[pos], chain_info[chain]["batch"]))
+          contig_idx.append(jax.tree_util.tree_map(lambda x:x[pos], chain_info[chain]["idx"]))
           unsup = (contig_batch[-1]["aatype"] == -1).tolist()
           unsupervised += unsup
           
@@ -133,8 +133,8 @@ class _af_prep:
     pos_cst = {k:np.array(v) for k,(x,v) in pos_cst.items() if len(v) > 0}
 
     # concatenate features
-    batch = jax.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
-    idx   = jax.tree_map(lambda *x:np.concatenate(x),*sum(idx,[]))
+    batch = jax.tree_util.tree_map(lambda *x:np.concatenate(x),*sum(batch,[]))
+    idx   = jax.tree_util.tree_map(lambda *x:np.concatenate(x),*sum(idx,[]))
     self._pdb = {"batch":batch, "idx":idx, "length":length}
     
     # propagate batch over copies
@@ -146,12 +146,12 @@ class _af_prep:
         length = length[:units]
         L = sum(length)
         interchain_mask = np.full((copies*L,copies*L),True)
-        pos_cst = jax.tree_map(lambda x:x[x<L], pos_cst)
+        pos_cst = jax.tree_util.tree_map(lambda x:x[x<L], pos_cst)
 
       else:
         unsupervised = unsupervised * copies
         batch = [batch]*copies
-        batch = jax.tree_map(lambda *x:np.concatenate(x),*batch)
+        batch = jax.tree_util.tree_map(lambda *x:np.concatenate(x),*batch)
         L = sum(length)
         interchain_mask = np.full((copies,copies,L,L),False)
         interchain_mask[np.diag_indices(copies)] = True
@@ -440,7 +440,7 @@ def prep_pdb(pdb_filename, chain=None,
     im = ignore_missing[n] if isinstance(ignore_missing,list) else ignore_missing
     if im:
       r = batch["all_atom_mask"][:,residue_constants.atom_order["CA"]] == 1
-      batch = jax.tree_map(lambda x:x[r], batch)
+      batch = jax.tree_util.tree_map(lambda x:x[r], batch)
       residue_index = batch["residue_index"] + last
 
     else:

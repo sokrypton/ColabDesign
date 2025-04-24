@@ -71,7 +71,7 @@ class _af_loss:
       "intra_masks":{"mask_1d":seq_mask_1d, "mask_2d":and_masks(intra_mask_2d,seq_mask_2d)},
       "inter_masks":{"mask_1d":seq_mask_1d, "mask_2d":and_masks((intra_mask_2d == False),seq_mask_2d)}}
     
-    masks = jax.tree_map(lambda x,y: jnp.where(opt["partial_loss"],x,y), masks_partial, masks_full)
+    masks = jax.tree_util.tree_map(lambda x,y: jnp.where(opt["partial_loss"],x,y), masks_partial, masks_full)
     if "hotspot" in inputs:
       masks["inter_masks"]["mask_1d"] = and_masks(inputs["hotspot"],seq_mask_1d)
 
@@ -309,17 +309,17 @@ def _get_pw_loss(true, pred, loss_fn, weights, copies=1):
     (L,C) = (length//copies, copies-1)
 
     # intra (L,L,F)
-    intra = jax.tree_map(lambda x:x[:L,:L], F)
+    intra = jax.tree_util.tree_map(lambda x:x[:L,:L], F)
     mtx, loss = loss_fn(**intra)
 
     # inter (C*L,L,F)
-    inter = jax.tree_map(lambda x:x[L:,:L], F)
+    inter = jax.tree_util.tree_map(lambda x:x[L:,:L], F)
     if C == 0:
       i_mtx, i_loss = loss_fn(**inter)
 
     else:
       # (C,L,L,F)
-      inter = jax.tree_map(lambda x:x.reshape(C,L,L,-1), inter)
+      inter = jax.tree_util.tree_map(lambda x:x.reshape(C,L,L,-1), inter)
       inter = {"t":inter["t"][:,None],        # (C,1,L,L,F)
                "p":inter["p"][None,:],        # (1,C,L,L,F)
                "m":inter["m"][:,None,:,:,0]}  # (C,1,L,L)             
@@ -436,8 +436,8 @@ def get_sc_loss(inputs, outputs, mask_1d, cfg):
     gt_positions=pos14,
     gt_mask=mask14,
 
-    pred_frames=jax.tree_map(lambda x:x[None], pred_frames),
-    pred_positions=jax.tree_map(lambda x:x[None], pred_pos14),
+    pred_frames=jax.tree_util.tree_map(lambda x:x[None], pred_frames),
+    pred_positions=jax.tree_util.tree_map(lambda x:x[None], pred_pos14),
     
     config=cfg.model.heads.structure_module)["loss"]
   

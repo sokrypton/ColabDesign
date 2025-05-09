@@ -142,6 +142,7 @@ def plot_pseudo_3D(xyz, c=None, ax=None, chainbreak=5, Ls=None,
             if np.sqrt(np.square(seg_mid[i,:] - seg_mid[j,:]).sum()) < cutoff * 1.5:
               colors[i,:3] *= 0.95
 
+  colors = np.clip(colors,0,1)
   set_lim = False
   if ax is None:
     fig, ax = plt.subplots()

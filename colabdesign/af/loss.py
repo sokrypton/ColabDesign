@@ -91,7 +91,7 @@ class _af_loss:
       pos = (jnp.repeat(pos,C).reshape(-1,C) + jnp.arange(C) * L).T.flatten()
       
     def sub(x, axis=0):
-      return jax.tree_map(lambda y:jnp.take(y,pos,axis),x)
+      return jax.tree_util.tree_map(lambda y:jnp.take(y,pos,axis),x)
     
     copies = self._args["copies"] if self._args["homooligomer"] else 1
     aatype = sub(inputs["aatype"])
@@ -409,17 +409,17 @@ def _get_pw_loss(true, pred, loss_fn, weights=None, copies=1, return_mtx=False):
     (L,C) = (length//copies, copies-1)
 
     # intra (L,L,F)
-    intra = jax.tree_map(lambda x:x[:L,:L], F)
+    intra = jax.tree_util.tree_map(lambda x:x[:L,:L], F)
     mtx, loss = loss_fn(**intra)
 
     # inter (C*L,L,F)
-    inter = jax.tree_map(lambda x:x[L:,:L], F)
+    inter = jax.tree_util.tree_map(lambda x:x[L:,:L], F)
     if C == 0:
       i_mtx, i_loss = loss_fn(**inter)
 
     else:
       # (C,L,L,F)
-      inter = jax.tree_map(lambda x:x.reshape(C,L,L,-1), inter)
+      inter = jax.tree_util.tree_map(lambda x:x.reshape(C,L,L,-1), inter)
       inter = {"t":inter["t"][:,None],        # (C,1,L,L,F)
                "p":inter["p"][None,:],        # (1,C,L,L,F)
                "m":inter["m"][:,None,:,:,0]}  # (C,1,L,L)             

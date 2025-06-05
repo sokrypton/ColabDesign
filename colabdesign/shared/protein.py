@@ -273,7 +273,7 @@ def _np_get_6D_binned(all_atom_positions, all_atom_mask, use_jax=None):
   ref = _np_get_6D(all_atom_positions,
                    all_atom_mask,
                    use_jax=False, for_trrosetta=True)
-  ref = jax.tree_map(jnp.squeeze,ref)
+  ref = jax.tree_util.tree_map(jnp.squeeze,ref)
 
   def mtx2bins(x_ref, start, end, nbins, mask):
     bins = np.linspace(start, end, nbins)

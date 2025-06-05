@@ -45,7 +45,7 @@ class mk_mpnn_model():
               'dropout': dropout}
     
     self._model = RunModel(config)
-    self._model.params = jax.tree_map(np.array, checkpoint['model_state_dict'])
+    self._model.params = jax.tree_util.tree_map(np.array, checkpoint['model_state_dict'])
     self._setup()
     self.set_seed(seed)
 
@@ -147,7 +147,7 @@ class mk_mpnn_model():
     O = []
     for _ in range(num):
       O.append(self.sample_parallel(batch, temperature, rescore, **kwargs))
-    return jax.tree_map(lambda *x:np.concatenate(x,0),*O)    
+    return jax.tree_util.tree_map(lambda *x:np.concatenate(x,0),*O)    
 
   def sample_parallel(self, batch=10, temperature=0.1, rescore=False, **kwargs):
     '''sample new sequence(s) in parallel'''
@@ -158,7 +158,7 @@ class mk_mpnn_model():
     O = self._sample_parallel(keys, I, temperature, self._tied_lengths)
     if rescore:
       O = self._rescore_parallel(keys, I, O["S"], O["decoding_order"])
-    O = jax.tree_map(np.array, O)
+    O = jax.tree_util.tree_map(np.array, O)
 
     # process outputs to human-readable form
     O.update(self._get_seq(O))
@@ -215,7 +215,7 @@ class mk_mpnn_model():
       I["S"][p] = np.array([aa_order.get(aa,-1) for aa in seq])
     I.update(kwargs)
     key = I.pop("key",self.key())
-    O = jax.tree_map(np.array, self._score(**I, key=key))
+    O = jax.tree_util.tree_map(np.array, self._score(**I, key=key))
     O.update(self._get_score(I,O))
     return O
 

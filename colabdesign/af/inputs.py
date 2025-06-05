@@ -25,10 +25,10 @@ class _af_inputs:
       # concatenate target and binder sequence
       seq_target = jax.nn.one_hot(inputs["batch"]["aatype"][:self._target_len],self._args["alphabet_size"])
       seq_target = jnp.broadcast_to(seq_target,(self._num, *seq_target.shape))
-      seq = jax.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
+      seq = jax.tree_util.tree_map(lambda x:jnp.concatenate([seq_target,x],1), seq)
       
     if self.protocol in ["fixbb","hallucination","partial"] and self._args["copies"] > 1:
-      seq = jax.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
+      seq = jax.tree_util.tree_map(lambda x:expand_copies(x, self._args["copies"], self._args["block_diag"]), seq)
 
     return seq
 
@@ -42,7 +42,7 @@ class _af_inputs:
         seq_ref = jax.nn.one_hot(self._wt_aatype,self._args["alphabet_size"])
         p = self.opt["fix_pos"]
         fix_seq = lambda x: x.at[...,p,:].set(seq_ref[...,p,:])
-      seq = jax.tree_map(fix_seq, seq)
+      seq = jax.tree_util.tree_map(fix_seq, seq)
       if return_p: return seq, p
     return seq
 
@@ -132,7 +132,7 @@ def update_aatype(aatype, inputs):
        "residx_atom14_to_atom37":r.restype_atom14_to_atom37,
        "residx_atom37_to_atom14":r.restype_atom37_to_atom14}
   mask = inputs["seq_mask"][:,None]
-  inputs.update(jax.tree_map(lambda x:jnp.where(mask,jnp.asarray(x)[aatype],0),a))
+  inputs.update(jax.tree_util.tree_map(lambda x:jnp.where(mask,jnp.asarray(x)[aatype],0),a))
   inputs["aatype"] = aatype
 
 def expand_copies(x, copies, block_diag=True):

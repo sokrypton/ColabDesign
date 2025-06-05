@@ -667,8 +667,8 @@ def sidechain_loss(batch, value, config):
   def _slice_last_layer_and_flatten(x):
     return jnp.reshape(x[-1], [-1])
   
-  flat_pred_frames = jax.tree_map(_slice_last_layer_and_flatten, pred_frames)
-  flat_pred_positions = jax.tree_map(_slice_last_layer_and_flatten, pred_positions)
+  flat_pred_frames = jax.tree_util.tree_map(_slice_last_layer_and_flatten, pred_frames)
+  flat_pred_positions = jax.tree_util.tree_map(_slice_last_layer_and_flatten, pred_positions)
   # FAPE Loss on sidechains
   fape = all_atom.frame_aligned_point_error(
       pred_frames=flat_pred_frames,

@@ -94,14 +94,14 @@ class _af_design:
     for n in model_nums:
       p = self._model_params[n]
       auxs.append(self._recycle(p, num_recycles=num_recycles, backprop=backprop))
-    auxs = jax.tree_map(lambda *x: np.stack(x), *auxs)
+    auxs = jax.tree_util.tree_map(lambda *x: np.stack(x), *auxs)
 
     # update aux (average outputs)
     def avg_or_first(x):
       if np.issubdtype(x.dtype, np.integer): return x[0]
       else: return x.mean(0)
 
-    self.aux = jax.tree_map(avg_or_first, auxs)
+    self.aux = jax.tree_util.tree_map(avg_or_first, auxs)
     self.aux["atom_positions"] = auxs["atom_positions"][0]
     self.aux["all"] = auxs
     
@@ -140,7 +140,7 @@ class _af_design:
       (loss, aux), grad = self._model["grad_fn"](*flags)
     else:
       loss, aux = self._model["fn"](*flags)
-      grad = jax.tree_map(np.zeros_like, self._params)
+      grad = jax.tree_util.tree_map(np.zeros_like, self._params)
     aux.update({"loss":loss,"grad":grad})
     return aux
 
@@ -195,12 +195,12 @@ class _af_design:
           aux = self._single(model_params, backprop=False)
         else:
           aux = self._single(model_params, backprop)
-          grad.append(jax.tree_map(lambda x:x*m, aux["grad"]))
+          grad.append(jax.tree_util.tree_map(lambda x:x*m, aux["grad"]))
         self._inputs["prev"] = aux["prev"]
         if a["use_initial_atom_pos"]:
           self._inputs["initial_atom_pos"] = aux["prev"]["prev_pos"]                
 
-      aux["grad"] = jax.tree_map(lambda *x: np.stack(x).sum(0), *grad)
+      aux["grad"] = jax.tree_util.tree_map(lambda *x: np.stack(x).sum(0), *grad)
     
     aux["num_recycles"] = num_recycles
     return aux
@@ -220,7 +220,7 @@ class _af_design:
   
     # apply gradients
     lr = self.opt["learning_rate"] * lr_scale
-    self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
+    self._params = jax.tree_util.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # save results
     self._save_results(save_best=save_best, verbose=verbose)

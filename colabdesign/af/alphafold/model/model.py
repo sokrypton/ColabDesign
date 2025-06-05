@@ -81,7 +81,7 @@ class RunModel:
 
         keys = jax.random.split(key, self.config.model.num_recycle + 1)
         _, o = jax.lax.scan(loop, prev, keys)
-        results = jax.tree_map(lambda x:x[-1], o)
+        results = jax.tree_util.tree_map(lambda x:x[-1], o)
 
         if "add_prev" in self.mode:
           for k in ["distogram","predicted_lddt","predicted_aligned_error"]:

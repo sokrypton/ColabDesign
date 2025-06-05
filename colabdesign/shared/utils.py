@@ -27,7 +27,7 @@ def update_dict(D, *args, **kwargs):
           elif isinstance(d[k],(np.ndarray,jnp.ndarray)):
             d[k] = np.asarray(v)
           elif isinstance(d[k], dict):
-            d[k] = jax.tree_map(lambda x: type(x)(v), d[k])
+            d[k] = jax.tree_util.tree_map(lambda x: type(x)(v), d[k])
           else:
             d[k] = type(d[k])(v)
         else:
@@ -41,7 +41,7 @@ def update_dict(D, *args, **kwargs):
 
 def copy_dict(x):
   '''deepcopy dictionary'''
-  return jax.tree_map(lambda y:y, x)
+  return jax.tree_util.tree_map(lambda y:y, x)
 
 def to_float(x):
   '''convert to float'''

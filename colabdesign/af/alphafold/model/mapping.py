@@ -143,14 +143,14 @@ def sharded_apply(
 
     remainder_shape_dtype = hk.eval_shape(
         partial(apply_fun_to_slice, 0, last_shard_size))
-    out_dtypes = jax.tree_map(lambda x: x.dtype, remainder_shape_dtype)
-    out_shapes = jax.tree_map(lambda x: x.shape, remainder_shape_dtype)
+    out_dtypes = jax.tree_util.tree_map(lambda x: x.dtype, remainder_shape_dtype)
+    out_shapes = jax.tree_util.tree_map(lambda x: x.shape, remainder_shape_dtype)
     out_axes_ = _expand_axes(out_axes, remainder_shape_dtype)
 
     if num_extra_shards > 0:
       regular_shard_shape_dtype = hk.eval_shape(
           partial(apply_fun_to_slice, 0, shard_size))
-      shard_shapes = jax.tree_map(lambda x: x.shape, regular_shard_shape_dtype)
+      shard_shapes = jax.tree_util.tree_map(lambda x: x.shape, regular_shard_shape_dtype)
 
       def make_output_shape(axis, shard_shape, remainder_shape):
         return shard_shape[:axis] + (

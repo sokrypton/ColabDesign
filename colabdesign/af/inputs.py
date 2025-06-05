@@ -99,16 +99,16 @@ class _af_inputs:
                      shuffle_first=self._args["shuffle_first"])
       
       # pad msa to 22 amino acids (20, unk, gap)
-      seq = jax.tree_map(lambda x: jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]]), seq)
+      seq = jax.tree_util.tree_map(lambda x: jnp.pad(x,[[0,0],[0,0],[0,22-x.shape[-1]]]), seq)
       
       # fix positions
       wt_seq = jax.nn.one_hot(inputs["wt_aatype"][:L],22)
-      seq = jax.tree_map(lambda x: jnp.where(inputs["fix_pos"][:L,None],wt_seq,x), seq)
+      seq = jax.tree_util.tree_map(lambda x: jnp.where(inputs["fix_pos"][:L,None],wt_seq,x), seq)
       
       # expand copies for homooligomers
       if self._args["copies"] > 1:
         f = dict(copies=self._args["copies"], block_diag=self._args["block_diag"])
-        seq = jax.tree_map(lambda x: expand_copies(x, jnp.eye(22)[-1], **f), seq)
+        seq = jax.tree_util.tree_map(lambda x: expand_copies(x, jnp.eye(22)[-1], **f), seq)
 
       # define features
       msa = seq["pseudo"]

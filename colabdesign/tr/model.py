@@ -82,7 +82,7 @@ class mk_tr_model(design_model):
       w = opt["weights"]
       tree_multi = lambda x,y: jax.tree_util.tree_map(lambda a,b:a*b, x,y)
       losses = {k:(tree_multi(v,w[k]) if k in w else v) for k,v in aux["losses"].items()}
-      loss = sum(jax.tree_leaves(losses))
+      loss = sum(jax.tree_util.tree_leaves(losses))
       return loss, aux
 
     def _model(params, model_params, inputs, key):
@@ -309,7 +309,7 @@ class mk_tr_model(design_model):
     losses = aux["losses"][k]
     weights = aux["opt"]["weights"][k]
     weighted_losses = jax.tree_util.tree_map(lambda l,w:l*w, losses, weights)
-    return float(sum(jax.tree_leaves(weighted_losses)))
+    return float(sum(jax.tree_util.tree_leaves(weighted_losses)))
     
   def af_callback(self, weight=1.0, seed=None):
     

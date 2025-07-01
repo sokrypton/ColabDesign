@@ -34,12 +34,19 @@ class mk_mpnn_model():
 
     path = os.path.join(os.path.dirname(mpnn_path), f'{model_name}.pkl')
     checkpoint = joblib.load(path)
+    if model_name == "entitled_kiwi_v0":
+      num_layers = 6
+      hidden_dim = 256
+    else:
+      num_layers = 3
+      hidden_dim = 128
+    
     config = {'num_letters': 21,
               'node_features': 128,
               'edge_features': 128,
-              'hidden_dim': 128,
-              'num_encoder_layers': 3,
-              'num_decoder_layers': 3,
+              'hidden_dim': hidden_dim,
+              'num_encoder_layers': num_layers,
+              'num_decoder_layers': num_layers,
               'augment_eps': backbone_noise,
               'k_neighbors': checkpoint['num_edges'],
               'dropout': dropout}

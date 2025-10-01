@@ -222,7 +222,7 @@ class InvariantPointAttention(hk.Module):
       self,
       inputs_1d: jnp.ndarray,
       inputs_2d: jnp.ndarray,
-      mask: jnp.ndarray,
+      mask_2d: jnp.ndarray,
       rigid: geometry.Rigid3Array,
       ) -> jnp.ndarray:
     """Compute geometric aware attention.
@@ -309,7 +309,6 @@ class InvariantPointAttention(hk.Module):
         num_head, name='attention_2d')(inputs_2d)
     attn_logits += attention_2d
 
-    mask_2d = mask * jnp.swapaxes(mask, -1, -2)
     attn_logits -= 1e5 * (1. - mask_2d[..., None])
 
     attn_logits *= np.sqrt(1. / 3)     # Normalize by number of logit terms (3)
@@ -331,7 +330,7 @@ class InvariantPointAttention(hk.Module):
                               name='v_point_projection')(inputs_1d,
                                                          rigid)
 
-    result_point_global = jax.tree_map(
+    result_point_global = jax.tree_util.tree_map(
         lambda x: jnp.sum(attn[..., None] * x, axis=-3), v_point[None])
 
     # Features used in the linear output projection. Should have the size
@@ -344,7 +343,7 @@ class InvariantPointAttention(hk.Module):
     result_scalar = jnp.reshape(result_scalar, flat_shape)
     output_features.append(result_scalar)
 
-    result_point_global = jax.tree_map(lambda r: jnp.reshape(r, flat_shape),
+    result_point_global = jax.tree_util.tree_map(lambda r: jnp.reshape(r, flat_shape),
                                        result_point_global)
     result_point_local = rigid[..., None].apply_inverse_to_point(
         result_point_global)
@@ -392,7 +391,7 @@ class FoldIteration(hk.Module):
       self,
       activations: Mapping[str, Any],
       aatype: jnp.ndarray,
-      sequence_mask: jnp.ndarray,
+      mask_2d: jnp.ndarray,
       update_rigid: bool,
       initial_act: jnp.ndarray,
       use_dropout: bool,
@@ -420,7 +419,7 @@ class FoldIteration(hk.Module):
     act += attention_module(
         inputs_1d=act,
         inputs_2d=static_feat_2d,
-        mask=sequence_mask,
+        mask_2d=mask_2d,
         rigid=rigid)
 
     safe_key, *sub_keys = safe_key.split(3)
@@ -464,7 +463,7 @@ class FoldIteration(hk.Module):
 
     outputs = {'rigid': rigid, 'sc': sc}
 
-    rotation = rigid.rotation #jax.tree_map(jax.lax.stop_gradient, rigid.rotation)
+    rotation = rigid.rotation #jax.tree_util.tree_map(jax.lax.stop_gradient, rigid.rotation)
     rigid = geometry.Rigid3Array(rotation, rigid.translation)
 
     new_activations = {
@@ -497,6 +496,11 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
   """
   c = config
   sequence_mask = batch['seq_mask'][:, None]
+
+  mask_2d = batch['seq_mask'][:, None] * batch['seq_mask'][None, :]
+  if "mask_2d" in batch:
+    mask_2d = jnp.where(batch["mask_2d"],mask_2d,0)
+
   act = common_modules.LayerNorm(
       axis=-1, create_scale=True, create_offset=True, name='single_layer_norm')(
           representations['single'])
@@ -545,7 +549,7 @@ def generate_monomer_rigids(representations: Mapping[str, jnp.ndarray],
           static_feat_2d=act_2d,
           aatype=batch['aatype'],
           safe_key=prng.SafeKey(key),
-          sequence_mask=sequence_mask,
+          mask_2d=mask_2d,
           update_rigid=True,
           use_dropout=batch["use_dropout"])
       return act, out
@@ -690,7 +694,7 @@ def compute_frames(
   alt_gt_frames = frames_batch['rigidgroups_alt_gt_frames']
   use_alt = use_alt[:, None]
 
-  renamed_gt_frames = jax.tree_map(
+  renamed_gt_frames = jax.tree_util.tree_map(
       lambda x, y: (1. - use_alt) * x + use_alt * y, gt_frames, alt_gt_frames)
 
   return renamed_gt_frames, frames_batch['rigidgroups_gt_exists']
@@ -706,18 +710,18 @@ def sidechain_loss(gt_frames: geometry.Rigid3Array,
                    ) -> Dict[str, jnp.ndarray]:
   """Sidechain Loss using cleaned up rigids."""
 
-  flat_gt_frames = jax.tree_map(jnp.ravel, gt_frames)
+  flat_gt_frames = jax.tree_util.tree_map(jnp.ravel, gt_frames)
   flat_frames_mask = jnp.ravel(gt_frames_mask)
 
-  flat_gt_positions = jax.tree_map(jnp.ravel, gt_positions)
+  flat_gt_positions = jax.tree_util.tree_map(jnp.ravel, gt_positions)
   flat_positions_mask = jnp.ravel(gt_mask)
 
   # Compute frame_aligned_point_error score for the final layer.
   def _slice_last_layer_and_flatten(x):
     return jnp.ravel(x[-1])
 
-  flat_pred_frames = jax.tree_map(_slice_last_layer_and_flatten, pred_frames)
-  flat_pred_positions = jax.tree_map(_slice_last_layer_and_flatten,
+  flat_pred_frames = jax.tree_util.tree_map(_slice_last_layer_and_flatten, pred_frames)
+  flat_pred_positions = jax.tree_util.tree_map(_slice_last_layer_and_flatten,
                                      pred_positions)
   fape = all_atom_multimer.frame_aligned_point_error(
       pred_frames=flat_pred_frames,

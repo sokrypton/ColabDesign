@@ -54,12 +54,12 @@ class mk_tr_model(design_model):
     def _get_loss(inputs, outputs):
       opt = inputs["opt"]
       aux = {"outputs":outputs, "losses":{}}
-      log_p = jax.tree_map(jax.nn.log_softmax, outputs)
+      log_p = jax.tree_util.tree_map(jax.nn.log_softmax, outputs)
 
       # bkg loss
       if self.protocol in ["hallucination"]:
-        p = jax.tree_map(jax.nn.softmax, outputs)
-        log_q = jax.tree_map(jax.nn.log_softmax, inputs["6D_bkg"])
+        p = jax.tree_util.tree_map(jax.nn.softmax, outputs)
+        log_q = jax.tree_util.tree_map(jax.nn.log_softmax, inputs["6D_bkg"])
         aux["losses"]["bkg"] = {}
         for k in ["dist","omega","theta","phi"]:
           aux["losses"]["bkg"][k] = -(p[k]*(log_p[k]-log_q[k])).sum(-1).mean()
@@ -77,9 +77,9 @@ class mk_tr_model(design_model):
 
       # weighted loss
       w = opt["weights"]
-      tree_multi = lambda x,y: jax.tree_map(lambda a,b:a*b, x,y)
+      tree_multi = lambda x,y: jax.tree_util.tree_map(lambda a,b:a*b, x,y)
       losses = {k:(tree_multi(v,w[k]) if k in w else v) for k,v in aux["losses"].items()}
-      loss = sum(jax.tree_leaves(losses))
+      loss = sum(jax.tree_util.tree_leaves(losses))
       return loss, aux
 
     def _model(params, model_params, inputs, key):
@@ -90,7 +90,7 @@ class mk_tr_model(design_model):
         seq_ref = jax.nn.one_hot(inputs["batch"]["aatype"],20)
         p = opt["fix_pos"]
         fix_seq = lambda x:x.at[...,p,:].set(seq_ref[...,p,:])
-        seq = jax.tree_map(fix_seq, seq)
+        seq = jax.tree_util.tree_map(fix_seq, seq)
 
       inputs.update({"seq":seq["pseudo"][0],
                      "prf":jnp.where(opt["use_pssm"],seq["pssm"],seq["pseudo"])[0]})
@@ -140,7 +140,7 @@ class mk_tr_model(design_model):
       for n in range(1,6):
         p = os.path.join(self._data_dir,os.path.join("bkgr_models",f"bkgr0{n}.npy"))
         self._inputs["6D_bkg"].append(self._bkg_model(get_model_params(p), key, self._len))
-      self._inputs["6D_bkg"] = jax.tree_map(lambda *x:np.stack(x).mean(0), *self._inputs["6D_bkg"])
+      self._inputs["6D_bkg"] = jax.tree_util.tree_map(lambda *x:np.stack(x).mean(0), *self._inputs["6D_bkg"])
 
       # reweight the background
       self.opt["weights"]["bkg"] = dict(dist=1/6,omega=1/6,phi=2/6,theta=2/6)
@@ -224,12 +224,12 @@ class mk_tr_model(design_model):
         (loss,aux),grad = self._model["grad_fn"](*flags)
       else:
         loss,aux = self._model["fn"](*flags)
-        grad = jax.tree_map(np.zeros_like, self._params)
+        grad = jax.tree_util.tree_map(np.zeros_like, self._params)
       aux.update({"loss":loss, "grad":grad})
       aux_all.append(aux)
     
     # average results
-    self.aux = jax.tree_map(lambda *x:np.stack(x).mean(0), *aux_all)
+    self.aux = jax.tree_util.tree_map(lambda *x:np.stack(x).mean(0), *aux_all)
     self.aux["model_num"] = model_num
 
 
@@ -243,7 +243,7 @@ class mk_tr_model(design_model):
 
     # apply gradients
     lr = self.opt["learning_rate"]
-    self._params = jax.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
+    self._params = jax.tree_util.tree_map(lambda x,g:x-lr*g, self._params, self.aux["grad"])
 
     # increment
     self._k += 1
@@ -283,7 +283,7 @@ class mk_tr_model(design_model):
     elif mode == "bkg_feats":
       x = self._inputs["6D_bkg"]
 
-    x = jax.tree_map(np.asarray, x)
+    x = jax.tree_util.tree_map(np.asarray, x)
 
     plt.figure(figsize=(4*4,4), dpi=dpi)
     for n,k in enumerate(["theta","phi","dist","omega"]):
@@ -299,8 +299,8 @@ class mk_tr_model(design_model):
       return {k:self.get_loss(k, get_best=get_best) for k in aux["losses"].keys()}
     losses = aux["losses"][k]
     weights = aux["opt"]["weights"][k]
-    weighted_losses = jax.tree_map(lambda l,w:l*w, losses, weights)
-    return float(sum(jax.tree_leaves(weighted_losses)))
+    weighted_losses = jax.tree_util.tree_map(lambda l,w:l*w, losses, weights)
+    return float(sum(jax.tree_util.tree_leaves(weighted_losses)))
     
   def af_callback(self, weight=1.0, seed=None):
     

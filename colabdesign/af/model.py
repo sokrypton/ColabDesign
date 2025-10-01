@@ -23,20 +23,23 @@ from colabdesign.af.inputs import _af_inputs
 
 class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_utils):
   def __init__(self,
-               protocol="contigs", 
-               use_multimer=False,
+               protocol="contigs",
+               model_type="alphafold2_ptm",
                use_templates=False,
                debug=False,
                data_dir=".",
                **kwargs):  
     assert protocol in ["fixbb","hallucination","binder","contigs","partial"]
+    assert model_type in ["alphafold2","alphafold2_ptm","alphafold2_multimer_v3"]
+    if kwargs.pop("use_multimer",False):
+      model_type = "alphafold2_multimer_v3"
 
     self.protocol = protocol
     self._num = kwargs.pop("num_seq",1)
     self._args = {
       # structure options
       "use_templates":use_templates, "num_templates":1, "use_batch_as_template":True,
-      "use_initial_guess":False, "use_initial_atom_pos":False,
+      "use_initial_guess":False, "use_initial_atom_pos":False,"use_drmsd":False,
       "use_dgram":False, "use_dgram_pred":False, "realign": True, "use_sidechains": False, 
       
       # sequence options
@@ -44,8 +47,9 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
       "num_msa":512, "num_extra_msa":1024, "use_mlm": False, "use_cluster_profile": False,
 
       # model options
-      "use_multimer":use_multimer,
-      "block_diag":not use_multimer,
+      "model_type":model_type,
+      "block_diag":not "multimer" in model_type,
+      "use_ptm": "ptm" in model_type or "multimer" in model_type:
       "pseudo_multimer":False, 
 
       # optimizer options
@@ -66,15 +70,6 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                  "template": {"rm":False, "rm_ic":False, "rm_sc":True, "rm_seq":True},                
                  "mlm":      {"replace_fraction":0.15,"uniform_prob":0.1,"profile_prob":0.1,"same_prob":0.1}}
     
-    weights_keys = ["plddt","pae","i_pae","exp_res","helix","con","i_con",
-                    "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
-    self._opt["weights"] = {k:0.0 for k in weights_keys}
-
-    self._params = {}
-    self._inputs = {}
-    self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[],"pae":[]},
-                 "log":[],"best":{}}
-
     # set arguments/options
     if "initial_guess" in kwargs: kwargs["use_initial_guess"] = kwargs.pop("initial_guess")
     model_names = kwargs.pop("model_names",None)
@@ -82,6 +77,17 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     for k in keys:
       if k in self._args: self._args[k] = kwargs.pop(k)
       if k in self._opt:  self._opt[k]  = kwargs.pop(k)
+
+    # set weights
+    weights_keys = ["plddt","exp_res","helix","con","i_con",
+                    "rmsd","dgram_cce", "fape", "sc_fape","sc_chi","sc_chi_norm"]
+    if self._args["use_ptm"]: weights_keys += ["pae","i_pae"]
+    self._opt["weights"] = {k:0.0 for k in weights_keys}
+
+    self._params = {}
+    self._inputs = {}
+    self._tmp = {"traj":{"seq":[],"xyz":[],"plddt":[]},"log":[],"best":{}}
+    if self._args["use_ptm"]: self._tmp["traj"]["pae"] = []
 
     self.opt = self._opt # backward compatibility
 
@@ -106,12 +112,15 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     #############################
     # configure AlphaFold
     #############################
-    if self._args["use_multimer"]:
+    if "multimer" in model_type:
       self._cfg = config.model_config("model_1_multimer")   
       self._cfg.model.embeddings_and_evoformer.pseudo_multimer = self._args["pseudo_multimer"]
       self.opt["pssm_hard"] = True
     else:
-      self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
+      if "ptm" in model_type:
+        self._cfg = config.model_config("model_1_ptm" if self._args["use_templates"] else "model_3_ptm")
+      else:
+        self._cfg = config.model_config("model_1" if self._args["use_templates"] else "model_3")
 
     self._cfg.model.num_recycle = 0
     self._cfg.model.global_config.use_remat = self._args["use_remat"]
@@ -122,13 +131,19 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
     # load model_params
     if model_names is None:
       model_names = []
-      if self._args["use_multimer"]:
+      if "multimer" in model_type:
         model_names += [f"model_{k}_multimer_v3" for k in [1,2,3,4,5]]
-      else:
+      elif "ptm" in model_type:
         if self._args["use_templates"]:
           model_names += [f"model_{k}_ptm" for k in [1,2]]
         else:
           model_names += [f"model_{k}_ptm" for k in [1,2,3,4,5]]
+      else:
+        if self._args["use_templates"]:
+          model_names += [f"model_{k}" for k in [1,2]]
+        else:
+          model_names += [f"model_{k}" for k in [1,2,3,4,5]]
+
 
     self._model_params, self._model_names = [],[]
     for model_name in model_names:
@@ -136,7 +151,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
         params = old_params[model_name]
       else:
         params = data.get_model_haiku_params(model_name=model_name, data_dir=data_dir,
-          fuse=True, rm_templates=(not self._args["use_templates"] and not self._args["use_multimer"]))
+          fuse=True, rm_templates=(not self._args["use_templates"] and not "multimer" in model_type))
       if params is not None:
         self._model_params.append(params)
         self._model_names.append(model_name)
@@ -152,7 +167,7 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
   def _get_model(self, cfg, callback=None):
 
     a = self._args
-    runner = model.RunModel(cfg, use_multimer=a["use_multimer"])
+    runner = model.RunModel(cfg, use_multimer="multimer" in model_type)
 
     # setup function to get gradients
     def _model(params, model_params, inputs, key):
@@ -206,12 +221,16 @@ class mk_af_model(design_model, _af_inputs, _af_loss, _af_prep, _af_design, _af_
                   "residue_index":  inputs["residue_index"],
                   "aatype":         inputs["aatype"],
                   "plddt":          get_plddt(outputs),
-                  "pae":            get_pae(outputs), 
-                  "ptm":            get_ptm(inputs, outputs),
-                  "i_ptm":          get_ptm(inputs, outputs, interface=True), 
                   "cmap":           get_contact_map(outputs, opt["con"]["cutoff"]),
                   "i_cmap":         get_contact_map(outputs, opt["i_con"]["cutoff"]),
                   "prev":           outputs["prev"]})
+
+      if a["use_ptm"]:
+        aux.update({
+          "pae":          get_pae(outputs),
+          "ptm":          get_ptm(inputs, outputs),
+          "i_ptm":        get_ptm(inputs, outputs, interface=True)
+        })
 
       #######################################################################
       # LOSS

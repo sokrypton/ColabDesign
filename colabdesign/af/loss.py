@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from colabdesign.shared.utils import Key, copy_dict
-from colabdesign.shared.protein import jnp_rmsd_w, _np_kabsch, _np_rmsd, _np_get_6D_loss
+from colabdesign.shared.protein import _np_kabsch, _np_len_pw
 from colabdesign.af.alphafold.model import model, folding, all_atom, geometry
 from colabdesign.af.alphafold.common import confidence, residue_constants
 from colabdesign.af.alphafold.model import folding_multimer, all_atom_multimer
@@ -33,15 +33,20 @@ class _af_loss:
     mask_2d = jnp.where(opt["partial_loss"],jnp.where(fix_mask_2d,False,mask_2d),mask_2d)
 
     # RMSD
-    rmsd_flags = dict(include_L=False, L=self._target_len) if self.protocol == "binder" else {}
-    aln = get_rmsd_loss(inputs, outputs, copies=a["copies"], mask_1d=mask_1d, **rmsd_flags)
-    if a["realign"]: aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]    
+    if a["use_drmsd"]:
+      rmsd = get_drmsd_loss(inputs, outputs, copies=a["copies"], mask_2d=mask_2d)
+
+    else:
+      rmsd_flags = dict(include_L=False, L=self._target_len) if self.protocol == "binder" else {}
+      aln = get_rmsd_loss(inputs, outputs, copies=a["copies"], mask_1d=mask_1d, **rmsd_flags)
+      if a["realign"]: aux["atom_positions"] = aln["align"](aux["atom_positions"]) * aux["atom_mask"][...,None]    
+      rmsd = aln["rmsd"]
 
     # add other losses
     aux["losses"].update({
       "fape":      get_fape_loss(inputs, outputs, copies=a["copies"], clamp=opt["fape_cutoff"], mask_2d=mask_2d),
       "dgram_cce": get_dgram_loss(inputs, outputs, copies=a["copies"], aatype=inputs["aatype"], mask_2d=mask_2d),
-      "rmsd":      aln["rmsd"],
+      "rmsd":      rmsd,
     })
 
     if a["use_sidechains"] and "fix_pos" in inputs:
@@ -79,12 +84,16 @@ class _af_loss:
     losses = {
       "exp_res": get_exp_res_loss(outputs, mask_1d=masks["mask_1d"]),
       "plddt":   get_plddt_loss(outputs, mask_1d=masks["mask_1d"]),
-      "pae":     get_pae_loss(outputs, mask_2d=masks["intra_masks"]["mask_2d"]),
       "con":     get_con_loss(inputs, outputs, opt["con"], **masks["intra_masks"]),
       "helix":   get_helix_loss(inputs, outputs, mask_2d=masks["mask_2d"]),
-      "i_pae":   get_pae_loss(outputs, mask_2d=masks["inter_masks"]["mask_2d"]),
       "i_con":   get_con_loss(inputs, outputs, opt["i_con"], **masks["inter_masks"]),
     }
+    if self._args["use_ptm"]:
+      losses.update({
+        "pae":     get_pae_loss(outputs, mask_2d=masks["intra_masks"]["mask_2d"]),
+        "i_pae":   get_pae_loss(outputs, mask_2d=masks["inter_masks"]["mask_2d"])
+      })
+
     aux["losses"].update(losses)
 
 #####################################################################################
@@ -260,6 +269,22 @@ def get_dgram_loss(inputs, outputs, copies=1, aatype=None, mask_1d=None, mask_2d
   if mask_1d is not None: weights *= mask_1d
   weights_2d = weights[:,None] * weights[None,:]
   if mask_2d is not None: weights_2d *= mask_2d
+  return _get_pw_loss(true, pred, loss_fn, weights_2d, copies=copies)
+
+def get_drmsd_loss(inputs, outputs, copies=1, mask_1d=None, mask_2d=None, eps=1e-8):
+
+  true = _np_len_pw(inputs["batch"]["all_atom_positions"][:,1])
+  pred = _np_len_pw(outputs["structure_module"]["final_atom_positions"][:,1])
+
+  def loss_fn(t,p,m):
+    loss = jnp.sqrt(jnp.square(t-p)+eps)
+    return loss, (loss*m).sum((-1,-2))/(m.sum((-1,-2)) + eps)
+  
+  weights = inputs["batch"]["all_atom_mask"][:,1]
+  if mask_1d is not None: weights *= mask_1d
+  weights_2d = weights[:,None] * weights[None,:]
+  if mask_2d is not None: weights_2d *= mask_2d
+
   return _get_pw_loss(true, pred, loss_fn, weights_2d, copies=copies)
 
 def get_fape_loss(inputs, outputs, copies=1, clamp=10.0, mask_1d=None, mask_2d=None):

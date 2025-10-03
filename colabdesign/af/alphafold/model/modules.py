@@ -1142,29 +1142,30 @@ class OuterProductMean(hk.Module):
           init=hk.initializers.Constant(0.0))
 
       if cov_mask is not None:
+
         left_act_sum = left_act.sum(0)
         norm_seq = msa_mask.sum(0) + epsilon
         right_act_mean = right_act.sum(0) / norm_seq
         
-        left_act_sum_batched = left_act_sum[None, :, :]
-        cov_mask_batched = cov_mask.T[None, :, :]
+        left_act_sum = left_act_sum[None, :, :]
+        cov_mask = cov_mask.T[None, :, :]
 
-      def compute_chunk(left_act, left_sum=None, cov_mask_chunk=None):
-        left_act = jnp.transpose(left_act, [0, 2, 1])
-        act = jnp.einsum('acb,ade->dceb', left_act, right_act)
+      def compute_chunk(left_act_chunk, left_act_sum_chunk=None, cov_mask_chunk=None):
+        left_act_chunk = jnp.transpose(left_act_chunk, [0, 2, 1])
+        act = jnp.einsum('acb,ade->dceb', left_act_chunk, right_act)
         
         if cov_mask is not None:
-          left_sum = jnp.transpose(left_sum, [0, 2, 1])[0]
-          cov_mask_broadcast = cov_mask_chunk[0].T[:, None, None, :]
+          left_act_sum_chunk = jnp.transpose(left_act_sum_chunk, [0, 2, 1])[0]
+          cov_mask_chunk = cov_mask_chunk[0].T[:, None, None, :]
           
-          act_alt = jnp.einsum('cb,de->dceb', left_sum, right_act_mean)
-          act = act * cov_mask_broadcast + act_alt * (1 - cov_mask_broadcast)
+          act_alt = jnp.einsum('cb,de->dceb', left_act_sum_chunk, right_act_mean)
+          act = act * cov_mask_chunk + act_alt * (1 - cov_mask_chunk)
         
         act = jnp.einsum('dceb,cef->dbf', act, output_w) + output_b
         return jnp.transpose(act, [1, 0, 2])
 
       if cov_mask is not None:
-        batched_args = [left_act, left_act_sum_batched, cov_mask_batched]
+        batched_args = [left_act, left_act_sum, cov_mask]
       else:
         batched_args = [left_act]
 

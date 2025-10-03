@@ -1100,75 +1100,87 @@ class OuterProductMean(hk.Module):
     self.num_output_channel = num_output_channel
 
   def __call__(self, act, mask):
-    """Builds OuterProductMean module.
+      """Builds OuterProductMean module."""
+      gc = self.global_config
+      c = self.config
+      epsilon = 1e-3
 
-    Arguments:
-      act: MSA representation, shape [N_seq, N_res, c_m].
-      mask: MSA mask, shape [N_seq, N_res].
+      # Extract masks from dict
+      if isinstance(mask, dict):
+        msa_mask = mask["msa"][..., None]
+        cov_mask = mask.get("cov", None)
+      else:
+        msa_mask = mask[..., None]
+        cov_mask = None
 
-    Returns:
-      Update to pair representation, shape [N_res, N_res, c_z].
-    """
-    gc = self.global_config
-    c = self.config
+      act = common_modules.LayerNorm([-1], True, True, name='layer_norm_input')(act)
 
-    mask = mask[..., None]
-    act = common_modules.LayerNorm([-1], True, True, name='layer_norm_input')(act)
+      left_act = msa_mask * common_modules.Linear(
+          c.num_outer_channel,
+          initializer='linear',
+          name='left_projection')(act)
 
-    left_act = mask * common_modules.Linear(
-        c.num_outer_channel,
-        initializer='linear',
-        name='left_projection')(
-            act)
+      right_act = msa_mask * common_modules.Linear(
+          c.num_outer_channel,
+          initializer='linear',
+          name='right_projection')(act)
 
-    right_act = mask * common_modules.Linear(
-        c.num_outer_channel,
-        initializer='linear',
-        name='right_projection')(
-            act)
+      if gc.zero_init:
+        init_w = hk.initializers.Constant(0.0)
+      else:
+        init_w = hk.initializers.VarianceScaling(scale=2., mode='fan_in')
 
-    if gc.zero_init:
-      init_w = hk.initializers.Constant(0.0)
-    else:
-      init_w = hk.initializers.VarianceScaling(scale=2., mode='fan_in')
+      output_w = hk.get_parameter(
+          'output_w',
+          shape=(c.num_outer_channel, c.num_outer_channel,
+                 self.num_output_channel),
+          dtype=act.dtype,
+          init=init_w)
+      output_b = hk.get_parameter(
+          'output_b', shape=(self.num_output_channel,),
+          dtype=act.dtype,
+          init=hk.initializers.Constant(0.0))
 
-    output_w = hk.get_parameter(
-        'output_w',
-        shape=(c.num_outer_channel, c.num_outer_channel,
-               self.num_output_channel),
-        dtype=act.dtype,
-        init=init_w)
-    output_b = hk.get_parameter(
-        'output_b', shape=(self.num_output_channel,),
-        dtype=act.dtype,
-        init=hk.initializers.Constant(0.0))
+      if cov_mask is not None:
+        left_act_sum = left_act.sum(0)
+        norm_seq = msa_mask.sum(0) + epsilon
+        right_act_mean = right_act.sum(0) / norm_seq
+        
+        left_act_sum_batched = left_act_sum[None, :, :]
+        cov_mask_batched = cov_mask.T[None, :, :]
 
-    def compute_chunk(left_act):
-      # This is equivalent to
-      #
-      # act = jnp.einsum('abc,ade->dceb', left_act, right_act)
-      # act = jnp.einsum('dceb,cef->bdf', act, output_w) + output_b
-      #
-      # but faster.
-      left_act = jnp.transpose(left_act, [0, 2, 1])
-      act = jnp.einsum('acb,ade->dceb', left_act, right_act)
-      act = jnp.einsum('dceb,cef->dbf', act, output_w) + output_b
-      return jnp.transpose(act, [1, 0, 2])
+      def compute_chunk(left_act, left_sum=None, cov_mask_chunk=None):
+        left_act = jnp.transpose(left_act, [0, 2, 1])
+        act = jnp.einsum('acb,ade->dceb', left_act, right_act)
+        
+        if cov_mask is not None:
+          left_sum = jnp.transpose(left_sum, [0, 2, 1])[0]
+          cov_mask_broadcast = cov_mask_chunk[0].T[:, None, None, :]
+          
+          act_alt = jnp.einsum('cb,de->dceb', left_sum, right_act_mean)
+          act = act * cov_mask_broadcast + act_alt * (1 - cov_mask_broadcast)
+        
+        act = jnp.einsum('dceb,cef->dbf', act, output_w) + output_b
+        return jnp.transpose(act, [1, 0, 2])
 
-    act = mapping.inference_subbatch(
-        compute_chunk,
-        c.chunk_size,
-        batched_args=[left_act],
-        nonbatched_args=[],
-        low_memory=True,
-        input_subbatch_dim=1,
-        output_subbatch_dim=0)
+      if cov_mask is not None:
+        batched_args = [left_act, left_act_sum_batched, cov_mask_batched]
+      else:
+        batched_args = [left_act]
 
-    epsilon = 1e-3
-    norm = jnp.einsum('abc,adc->bdc', mask, mask)
-    act /= epsilon + norm
+      act = mapping.inference_subbatch(
+          compute_chunk,
+          c.chunk_size,
+          batched_args=batched_args,
+          nonbatched_args=[],
+          low_memory=True,
+          input_subbatch_dim=1,
+          output_subbatch_dim=0)
 
-    return act
+      norm = jnp.einsum('abc,adc->bdc', msa_mask, msa_mask)
+      act /= epsilon + norm
+
+      return act
 
 def dgram_from_positions(positions, num_bins, min_bin, max_bin):
   """Compute distogram from amino acid positions.
@@ -1259,7 +1271,12 @@ class EvoformerIteration(hk.Module):
     if safe_key is None:
       safe_key = prng.SafeKey(hk.next_rng_key())
 
-    msa_mask, pair_mask = masks['msa'], masks['pair']
+    pair_mask = masks['pair']
+    msa_mask_dict = {
+      "msa":masks['msa'], 
+      "cov":masks.get("cov",None)
+    }
+    msa_mask = msa_mask_dict["msa"]
 
     dropout_wrapper_fn = functools.partial(
         dropout_wrapper,
@@ -1278,7 +1295,7 @@ class EvoformerIteration(hk.Module):
       pair_act = dropout_wrapper_fn(
           outer_module,
           msa_act,
-          msa_mask,
+          msa_mask_dict,
           safe_key=next(sub_keys),
           output_act=pair_act)
 
@@ -1314,7 +1331,7 @@ class EvoformerIteration(hk.Module):
       pair_act = dropout_wrapper_fn(
           outer_module,
           msa_act,
-          msa_mask,
+          msa_mask_dict,
           safe_key=next(sub_keys),
           output_act=pair_act)
 
@@ -1490,13 +1507,21 @@ class EmbeddingsAndEvoformer(hk.Module):
         def extra_msa_stack_fn(x):
           act, safe_key = x
           safe_key, safe_subkey = safe_key.split()
+          
+          extra_masks = {
+            'msa': batch['extra_msa_mask'].astype(dtype),
+            'pair': mask_2d
+          }
+          if "cov_mask" in batch:
+            extra_masks["cov"] = batch["cov_mask"].astype(dtype)
+          
           extra_evoformer_output = extra_msa_stack_iteration(
               activations=act,
-              masks={'msa': batch['extra_msa_mask'].astype(dtype),
-                     'pair': mask_2d},
+              masks=extra_masks,
               safe_key=safe_subkey,
               use_dropout=batch["use_dropout"])
           return (extra_evoformer_output, safe_key)
+
         if gc.use_remat: extra_msa_stack_fn = hk.remat(extra_msa_stack_fn)
         extra_msa_stack = layer_stack.layer_stack(c.extra_msa_stack_num_block)(extra_msa_stack_fn)
         extra_msa_output, safe_key = extra_msa_stack((extra_msa_stack_input, safe_key))
@@ -1505,6 +1530,9 @@ class EmbeddingsAndEvoformer(hk.Module):
       evoformer_input = {'msa': msa_activations,'pair': pair_activations}
       evoformer_masks = {'msa': batch['msa_mask'].astype(dtype),
                          'pair': mask_2d}
+      if "cov_mask" in batch:
+        evoformer_masks["cov"] = batch['cov_mask'].astype(dtype)
+
       ####################################################################
 
       # Append num_templ rows to msa_activations with template embeddings.

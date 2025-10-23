@@ -363,7 +363,7 @@ class _af_prep:
     # configure input features
     self._inputs = self._prep_features(num_res=sum(self._lengths), num_seq=num_seq)
     self._inputs["residue_index"] = res_idx
-    self._inputs["batch"] = jax.tree_map(lambda x:x[self._pdb["pos"]], self._pdb["batch"])     
+    self._inputs["batch"] = jax.tree_util.tree_map(lambda x:x[self._pdb["pos"]], self._pdb["batch"])     
     self._inputs.update(get_multi_id(self._lengths, homooligomer=homooligomer))
 
     # configure options/weights
@@ -448,7 +448,7 @@ def prep_pdb(pdb_filename, chain=None,
     im = ignore_missing[n] if isinstance(ignore_missing,list) else ignore_missing
     if im:
       r = batch["all_atom_mask"][:,residue_constants.atom_order["CA"]] == 1
-      batch = jax.tree_map(lambda x:x[r], batch)
+      batch = jax.tree_util.tree_map(lambda x:x[r], batch)
       residue_index = batch["residue_index"] + last
 
     else:

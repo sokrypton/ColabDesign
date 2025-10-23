@@ -133,7 +133,7 @@ def flatten(instance):
   inner_treedefs = []
   num_arrays = []
   for array_like in array_likes:
-    flat_array_like, inner_treedef = jax.tree_flatten(array_like)
+    flat_array_like, inner_treedef = jax.tree_util.tree_flatten(array_like)
     inner_treedefs.append(inner_treedef)
     flat_array_likes += flat_array_like
     num_arrays.append(len(flat_array_like))

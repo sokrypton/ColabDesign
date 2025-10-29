@@ -62,7 +62,7 @@ class RunModel:
         prev = {'prev_msa_first_row': np.zeros([L,256]),
                 'prev_pair': np.zeros([L,L,128]),
                 'prev_pos': np.zeros([L,37,3])}
-        if self.config.global_config.use_dgram:
+        if self.config.model.global_config.use_dgram:
           prev['prev_dgram'] = np.zeros([L,L,64])
         feat["prev"] = prev
 

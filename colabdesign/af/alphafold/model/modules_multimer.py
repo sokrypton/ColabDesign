@@ -358,6 +358,9 @@ class EmbeddingsAndEvoformer(hk.Module):
       extra_msa_mask = extra_msa_mask.astype(dtype)
       extra_evoformer_input = {'msa': extra_msa_activations, 'pair': pair_activations}
       extra_masks = {'msa': extra_msa_mask, 'pair': mask_2d}
+      if "cov_mask" in batch:
+        extra_masks["cov"] = batch["cov_mask"].astype(dtype)
+
       extra_evoformer_iteration = modules.EvoformerIteration(c.evoformer, gc, is_extra_msa=True, name='extra_msa_stack')
 
       def extra_evoformer_fn(x):
@@ -389,6 +392,9 @@ class EmbeddingsAndEvoformer(hk.Module):
           'pair': pair_activations,
       }
       evoformer_masks = {'msa': batch['msa_mask'].astype(dtype), 'pair': mask_2d}      
+      if "cov_mask" in batch:
+        evoformer_masks["cov"] = batch['cov_mask'].astype(dtype)
+
       if c.template.enabled:
         template_features, template_masks = (
             template_embedding_1d(batch=batch, num_channel=c.msa_channel, global_config=gc))

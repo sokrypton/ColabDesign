@@ -441,6 +441,7 @@ CONFIG_MULTIMER = ml_collections.ConfigDict({
                 'same_prob': 0.1,
                 'uniform_prob': 0.1
             },
+            'query_bias': True,
             'pseudo_multimer': False,
             'max_relative_chain': 2,
             'max_relative_idx': 32,

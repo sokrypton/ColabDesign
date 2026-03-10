@@ -273,7 +273,18 @@ class EmbeddingsAndEvoformer(hk.Module):
       
       msa_feat = batch['msa_feat'].astype(dtype)
       target_feat = jnp.pad(batch["target_feat"].astype(dtype),[[0,0],[0,1]])
-      preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(target_feat)
+
+      if c.query_bias:
+        zero_target = target_feat
+      else:
+        print("query bias disabled")
+        zero_target = jnp.zeros_like(target_feat)
+        print(zero_target.shape)
+        zero_target = zero_target.at[:,:20].set(1/20)
+
+      preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(zero_target)
+      preprocess_1d = jnp.where(target_feat.sum(-1,keepdims=True) == 0, 0, preprocess_1d)
+
       preprocess_msa = common_modules.Linear(c.msa_channel, name='preprocess_msa')(msa_feat)
       msa_activations = preprocess_1d[None] + preprocess_msa
       num_msa_sequences = msa_activations.shape[0]

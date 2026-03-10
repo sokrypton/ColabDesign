@@ -1405,6 +1405,7 @@ class EmbeddingsAndEvoformer(hk.Module):
       else:
         print("query bias disabled")
         zero_target = jnp.zeros_like(target_feat)
+        print(zero_target.shape)
         zero_target = zero_target.at[:,:20].set(1/20)
       preprocess_1d = common_modules.Linear(c.msa_channel, name='preprocess_1d')(zero_target)
       preprocess_1d = jnp.where(target_feat.sum(-1,keepdims=True) == 0, 0, preprocess_1d)

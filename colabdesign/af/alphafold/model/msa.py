@@ -88,7 +88,7 @@ def gumbel_argsort_sample_idx(key: jnp.ndarray,
   # This construction is equivalent to jnp.argsort, but using a non stable sort,
   # since stable sort's aren't supported by jax2tf.
   axis = len(logits.shape) - 1
-  iota = jax.lax.broadcasted_iota(jnp.int64, logits.shape, axis)
+  iota = jax.lax.broadcasted_iota(jnp.int32, logits.shape, axis)
   _, perm = jax.lax.sort_key_val(
       logits + z, iota, dimension=-1, is_stable=False)
   return perm[::-1]

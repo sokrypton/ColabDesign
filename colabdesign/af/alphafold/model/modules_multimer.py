@@ -223,10 +223,10 @@ class EmbeddingsAndEvoformer(hk.Module):
       o = asym_id[:,None] - asym_id[None,:]
       offset_asym_id = jnp.where(o > 0, c.max_relative_idx, -c.max_relative_idx)
       offset = jnp.where(o == 0, offset, offset_asym_id)
-      clipped_offset = jnp.clip(offset + c.max_relative_idx, a_min=0, a_max=2 * c.max_relative_idx)
+      clipped_offset = jnp.clip(offset + c.max_relative_idx, 0, 2 * c.max_relative_idx)
       rel_pos = jax.nn.one_hot(clipped_offset, 2 * c.max_relative_idx + 2)
     else:
-      clipped_offset = jnp.clip(offset + c.max_relative_idx, a_min=0, a_max=2 * c.max_relative_idx)
+      clipped_offset = jnp.clip(offset + c.max_relative_idx, 0, 2 * c.max_relative_idx)
       final_offset = jnp.where(asym_id_same, clipped_offset,
                                (2 * c.max_relative_idx + 1) *
                                jnp.ones_like(clipped_offset))
@@ -243,7 +243,7 @@ class EmbeddingsAndEvoformer(hk.Module):
     sym_id = jnp.zeros_like(batch['sym_id']) if c.pseudo_multimer else batch['sym_id']
     rel_sym_id = sym_id[:, None] - sym_id[None, :]
     max_rel_chain = c.max_relative_chain
-    clipped_rel_chain = jnp.clip(rel_sym_id + max_rel_chain, a_min=0, a_max=2 * max_rel_chain)
+    clipped_rel_chain = jnp.clip(rel_sym_id + max_rel_chain, 0, 2 * max_rel_chain)
     final_rel_chain = jnp.where(entity_id_same, clipped_rel_chain,
                                 (2 * max_rel_chain + 1) *
                                 jnp.ones_like(clipped_rel_chain))

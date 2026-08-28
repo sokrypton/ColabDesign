@@ -1470,8 +1470,8 @@ class EmbeddingsAndEvoformer(hk.Module):
           rel_pos = jax.nn.one_hot(
               jnp.clip(
                   offset + c.max_relative_feature,
-                  a_min=0,
-                  a_max=2 * c.max_relative_feature),
+                  0,
+                  2 * c.max_relative_feature),
               2 * c.max_relative_feature + 1).astype(dtype)
         pair_activations += common_modules.Linear(c.pair_channel, name='pair_activiations')(rel_pos)
 

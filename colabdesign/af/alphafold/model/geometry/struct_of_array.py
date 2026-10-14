@@ -206,7 +206,7 @@ class StructOfArray:
       for num_array, inner_treedef, array_field in zip(num_arrays,
                                                        inner_treedefs,
                                                        array_fields):
-        value_dict[array_field] = jax.tree_unflatten(
+        value_dict[array_field] = jax.tree_util.tree_unflatten(
             inner_treedef, data[array_start:array_start + num_array])
         array_start += num_array
       metadata_fields = get_metadata_fields(new_cls)
